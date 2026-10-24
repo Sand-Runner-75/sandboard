@@ -10,3 +10,11 @@ header { display: flex; align-items: baseline; justify-content: space-between; g
 #projects li { border: 1px solid GrayText; border-radius: 0.5rem; padding: 0.75rem; margin: 0.5rem 0; }
 .bar { height: 0.5rem; background: color-mix(in srgb, GrayText 30%, transparent); border-radius: 0.25rem; }
 .bar > span { display: block; height: 100%; background: CanvasText; border-radius: 0.25rem; }
+
+form { display: grid; gap: 0.5rem; max-width: 28rem; margin: 1rem 0; }
+label { display: grid; gap: 0.25rem; }
+.workspace { list-style: none; border: 1px solid GrayText; border-radius: 0.5rem; padding: 0.75rem; margin: 0.5rem 0; }
+.workspace h2 { font-size: 1.1rem; margin: 0 0 0.5rem; }
+.result .state-label { font-weight: bold; }
+.result.current .state-label { color: CanvasText; }
+.result:not(.current) .state-label { text-decoration: underline; }
