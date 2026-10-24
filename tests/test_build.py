@@ -28,7 +28,8 @@ class BuildTest(unittest.TestCase):
     def test_build_succeeds_with_expected_files(self):
         self.assertEqual(build.build(self.out), [])
         self.assertEqual(sorted(os.listdir(self.out)),
-                         ["app.js", "build-manifest.json", "demo-data.js", "index.html", "style.css"])
+                         ["app.js", "build-manifest.json", "demo-data.js", "index.html", "sb-core.js", "sb-readers.js",
+                          "sb-render.js", "style.css"])
 
     def test_page_has_csp_referrer_and_only_external_scripts(self):
         build.build(self.out)

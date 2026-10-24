@@ -8,6 +8,9 @@
 <title>Sandboard</title>
 <link rel="stylesheet" href="style.css">
 <script src="demo-data.js" defer></script>
+<script src="sb-core.js" defer></script>
+<script src="sb-readers.js" defer></script>
+<script src="sb-render.js" defer></script>
 <script src="app.js" defer></script>
 </head>
 <body>
@@ -18,7 +21,18 @@
 <main>
   <section id="signed-out">
     <p>Sandboard shows your projects' tasks, progress, reviews and GitHub activity. Nothing is loaded until you sign in, and nothing you load is kept after you leave.</p>
+    <form id="connect" autocomplete="off">
+      <label>Plan repository <input id="plan-repo" name="plan-repo" placeholder="owner/repo or owner/repo@branch" spellcheck="false" required></label>
+      <label>Read-only token <input id="token" name="token" type="password" autocomplete="off" required></label>
+      <button type="submit">Connect</button>
+    </form>
+    <p class="note">The token stays in this page's memory only. Leaving, reloading or "Forget token" drops it and everything read with it.</p>
     <button type="button" id="show-demo">Show synthetic demo</button>
+  </section>
+  <section id="private" hidden>
+    <p id="private-state" role="status"></p>
+    <button type="button" id="forget">Forget token</button>
+    <ul id="workspaces"></ul>
   </section>
   <section id="demo" hidden>
     <p class="note">Synthetic demo data. These projects are made up.</p>

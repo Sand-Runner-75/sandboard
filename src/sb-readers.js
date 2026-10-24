@@ -1,0 +1,211 @@
+"use strict";
+// Readers for the workspace list, a plan's task table, its stored progress
+// result and a commit's check runs. Each returns the shared result envelope
+// from sb-core.js. Nothing here adds up or recalculates figures: progress is
+// shown exactly as the plan's own producer stored it, or not at all.
+
+(function (root) {
+  const SB = root.SB;
+  const { result } = SB;
+
+  const WORKSPACES_FILE = "sandboard.workspaces.json";
+  const WORKSPACES_SCHEMA = "sandboard.workspaces/1";
+  const PROGRESS_SCHEMA = "sandboard.progress/1";
+  const KINDS = ["project", "kit", "standalone"];
+  const PLAN_FILES = ["progress", "producer", "table", "record"];
+  const SCOPES = ["Pilot", "MVP", "Post-MVP", "Whole project"];
+  const FIGURES = ["estimated_h", "completed_h", "remaining_h", "progress_pct", "tbe_rows", "proposed_rows",
+                   "provisional_rows", "rows"];
+  const MAX_CHECK_PAGES = 5;
+  const BACKSLASH = String.fromCharCode(92);
+
+  const isObject = v => v !== null && typeof v === "object" && !Array.isArray(v);
+  const isText = (v, max) => typeof v === "string" && v.trim() !== "" && v.length <= max;
+  const isPath = v => typeof v === "string" && /^[A-Za-z0-9_.-]+([/][A-Za-z0-9_.-]+)*$/.test(v) &&
+    !v.split("/").some(part => part === "." || part === "..");
+  const isRef = v => v === undefined || v === null || (typeof v === "string" && /^[A-Za-z0-9_./-]{1,200}$/.test(v));
+
+  function decode(bytes) {
+    try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch (e) { return null; }
+  }
+
+  // ---- Workspaces: an explicit list from the private plan repo, never guessed from names.
+
+  function validateWorkspaces(doc) {
+    if (!isObject(doc) || doc.schema !== WORKSPACES_SCHEMA) return "not a " + WORKSPACES_SCHEMA + " document";
+    if (!Array.isArray(doc.workspaces)) return "workspaces is not a list";
+    const ids = new Set();
+    for (const [i, w] of doc.workspaces.entries()) {
+      const where = "workspace " + (i + 1) + ": ";
+      if (!isObject(w) || typeof w.id !== "string" || !/^[a-z0-9-]{1,40}$/.test(w.id)) return where + "bad id";
+      if (ids.has(w.id)) return where + "repeated id";
+      ids.add(w.id);
+      if (!isText(w.label, 100)) return where + "bad label";
+      if (!KINDS.includes(w.kind)) return where + "bad kind";
+      if (w.plan !== null) {
+        const p = w.plan;
+        if (!isObject(p) || !SB.validRepo(p.repo) || !isRef(p.ref)) return where + "bad plan repository";
+        if (!isObject(p.files) || !PLAN_FILES.every(f => isPath(p.files[f])) ||
+            Object.keys(p.files).some(f => !PLAN_FILES.includes(f))) return where + "bad plan files";
+      }
+      if (!Array.isArray(w.code) || !w.code.every(c => isObject(c) && SB.validRepo(c.repo) && isRef(c.ref) &&
+                                                        isText(c.role, 40))) return where + "bad code repositories";
+      if (w.plan === null && w.code.length === 0) return where + "no repository";
+    }
+    return null;
+  }
+
+  async function readWorkspaces(ctx, client, repo, ref) {
+    const pinned = await client.pin(ctx, repo, ref);
+    if (pinned.state !== "current") return pinned;
+    const { commit } = pinned.data;
+    const file = await client.readFile(ctx, repo, commit, WORKSPACES_FILE);
+    if (file.state !== "current") return file;
+    const source = Object.assign({}, file.source, { ref: pinned.data.ref });
+    let doc;
+    try { doc = JSON.parse(decode(file.data.bytes)); } catch (e) { doc = undefined; }
+    const problem = validateWorkspaces(doc);
+    if (problem) return result("invalid", null, source, { error: problem });
+    const state = doc.workspaces.length ? "current" : "empty";
+    return result(state, { workspaces: doc.workspaces, commit, date: pinned.data.date }, source,
+                  { schema: WORKSPACES_SCHEMA });
+  }
+
+  // ---- Plan table: rows for display, in order, with their fields as text. No totals.
+
+  function splitRow(line) {
+    // Cells of a Markdown table row; "\|" inside a cell is a literal bar.
+    const cells = [];
+    let cell = "";
+    const body = line.trim().replace(/^[|]/, "").replace(/[|]$/, "");
+    for (let i = 0; i < body.length; i++) {
+      const c = body[i];
+      if (c === BACKSLASH && body[i + 1] === "|") { cell += "|"; i++; continue; }
+      if (c === "|") { cells.push(cell.trim()); cell = ""; continue; }
+      cell += c;
+    }
+    cells.push(cell.trim());
+    return cells;
+  }
+
+  function parsePlanTables(text) {
+    // Every table whose first header cell is "ID", with the heading above it as its section.
+    const lines = String(text).split("\n").map(l => l.replace(/[\r]$/, ""));
+    const rows = [];
+    const seen = new Set();
+    let section = "";
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const heading = /^#{1,6}\s+(.*)$/.exec(line);
+      if (heading) { section = heading[1].trim(); continue; }
+      if (!line.trim().startsWith("|") || !/^\s*[|]?(\s*:?-+:?\s*[|])+\s*:?-*:?\s*$/.test(lines[i + 1] || "")) continue;
+      const headers = splitRow(line);
+      if (headers[0] !== "ID") continue;
+      i += 2;
+      for (; i < lines.length && lines[i].trim().startsWith("|"); i++) {
+        const cells = splitRow(lines[i]);
+        const fields = {};
+        headers.forEach((h, n) => { fields[h] = n < cells.length ? cells[n] : ""; });
+        let invalid = null;
+        if (cells.length !== headers.length) invalid = "has " + cells.length + " cells, expected " + headers.length;
+        else if (!fields.ID) invalid = "no ID";
+        else if (seen.has(fields.ID)) invalid = "repeated ID";
+        if (fields.ID) seen.add(fields.ID);
+        rows.push({ id: fields.ID, section, line: i + 1, fields, invalid });
+      }
+      i -= 1;
+    }
+    return rows;
+  }
+
+  async function readPlan(ctx, client, repo, commit, files) {
+    const file = await client.readFile(ctx, repo, commit, files.table);
+    if (file.state !== "current") return file;
+    const text = decode(file.data.bytes);
+    if (text === null) return result("invalid", null, file.source, { error: "not UTF-8 text" });
+    const rows = parsePlanTables(text);
+    return result(rows.length ? "current" : "empty", { rows, invalid: rows.filter(r => r.invalid).length },
+                  file.source);
+  }
+
+  // ---- Stored progress: current only if the producer and every input match the hashes inside it.
+
+  function validateProgress(doc, files) {
+    const sha = v => typeof v === "string" && /^[0-9a-f]{40}$/.test(v);
+    const count = v => Number.isInteger(v) && v >= 0;
+    const figures = t => isObject(t) && FIGURES.every(f => typeof t[f] === "number" && Number.isFinite(t[f]) && t[f] >= 0) &&
+      typeof t.verified === "boolean" && t.progress_pct <= 100;
+    if (!isObject(doc) || doc.schema !== PROGRESS_SCHEMA) return "not a " + PROGRESS_SCHEMA + " document";
+    if (doc.ok !== true) return "the producer reported errors";
+    if (!count(doc.subtasks) || !count(doc.steps)) return "missing counts";
+    const p = doc.producer;
+    const i = doc.inputs;
+    if (!isObject(p) || p.path !== files.producer || !sha(p.blob_sha)) return "producer is not this plan's";
+    if (!isObject(i) || Object.keys(i).length !== 2) return "inputs are not exactly table and record";
+    for (const name of ["table", "record"]) {
+      if (!isObject(i[name]) || i[name].path !== files[name] || !sha(i[name].blob_sha)) return name + " input is not this plan's";
+    }
+    if (!isObject(doc.scopes) || !SCOPES.every(n => figures(doc.scopes[n]))) return "a scope is missing or malformed";
+    if (!Array.isArray(doc.phases) || doc.phases.length === 0) return "no phases";
+    const goodPhase = ph => isObject(ph) && typeof ph.id === "string" && /^P\d+$/.test(ph.id) && typeof ph.name === "string" &&
+      figures(ph) && isObject(ph.status_counts) && Object.values(ph.status_counts).every(count);
+    if (!doc.phases.every(goodPhase)) return "a phase is malformed";
+    return null;
+  }
+
+  async function readProgress(ctx, client, repo, commit, files) {
+    const file = await client.readFile(ctx, repo, commit, files.progress);
+    if (file.state === "missing") return result("unavailable", null, file.source, { error: "no stored progress at this commit" });
+    if (file.state !== "current") return file;
+    let doc;
+    try { doc = JSON.parse(decode(file.data.bytes)); } catch (e) { doc = undefined; }
+    const problem = validateProgress(doc, files);
+    if (problem) return result("invalid", null, file.source, { error: problem });
+    for (const [name, item] of [["producer", doc.producer], ["table", doc.inputs.table], ["record", doc.inputs.record]]) {
+      const now = await client.readFile(ctx, repo, commit, item.path);
+      if (now.state !== "current") {
+        return result("stale", null, file.source, { error: name + " " + item.path + " unreadable at this commit (" + now.state + ")" });
+      }
+      if (now.data.sha !== item.blob_sha) {
+        return result("stale", null, file.source, { error: name + " " + item.path + " changed since the result was made" });
+      }
+    }
+    return result("current", doc, file.source, { schema: PROGRESS_SCHEMA });
+  }
+
+  // ---- Check runs (needs the token's Checks: read; shown as unavailable when not granted).
+
+  async function readCheckRuns(ctx, client, repo, commit) {
+    const source = { repo, commit };
+    const runs = [];
+    let total = 0;
+    for (let page = 1; page <= MAX_CHECK_PAGES; page++) {
+      const res = await client.get(ctx, "/repos/" + repo + "/commits/" + commit + "/check-runs?per_page=100&page=" + page);
+      if (res.status === 403 || res.status === 404) {
+        const state = client.stateFor(res);
+        if (state === "rate-limited") return result(state, null, source, { error: "HTTP " + res.status });
+        return result("unavailable", null, source, { error: "check runs not readable with this token (Checks: read)" });
+      }
+      if (!res.ok) return result(client.stateFor(res), null, source, { error: "HTTP " + res.status });
+      const body = await client.json(ctx, res);
+      if (!isObject(body) || !Number.isInteger(body.total_count) || !Array.isArray(body.check_runs)) {
+        return result("invalid", null, source, { error: "unexpected check-runs reply" });
+      }
+      total = body.total_count;
+      for (const run of body.check_runs) {
+        if (!isObject(run) || typeof run.name !== "string" || typeof run.status !== "string" ||
+            !(run.conclusion === null || typeof run.conclusion === "string")) {
+          return result("invalid", null, source, { error: "malformed check run" });
+        }
+        runs.push({ name: run.name, status: run.status, conclusion: run.conclusion });
+      }
+      if (runs.length >= total || body.check_runs.length === 0) break;
+    }
+    if (!runs.length) return result("empty", { runs }, source);
+    if (runs.length < total) return result("partial", { runs }, source, { coverage: { shown: runs.length, total } });
+    return result("current", { runs }, source);
+  }
+
+  Object.assign(SB, { WORKSPACES_FILE, validateWorkspaces, readWorkspaces, splitRow, parsePlanTables, readPlan,
+                      validateProgress, readProgress, readCheckRuns });
+})(typeof window !== "undefined" ? window : globalThis);

@@ -1,0 +1,10 @@
+{
+ "html_and_script": "<script>alert(1)</script><img src=x onerror=alert(1)><iframe src=\"https://evil.example/\"></iframe><b>bold</b>",
+ "markdown_image": "![tracker](https://evil.example/pixel.png) and <img src=\"https://evil.example/p.png\">",
+ "script_urls": "javascript:alert(1) JAVASCRIPT:alert(1) vbscript:msgbox(1) data:text/html,<script>alert(1)</script> file:///etc/passwd",
+ "plain_http": "http://plain.example/page is not a safe link",
+ "credentials_in_url": "https://user:pw@10.0.0.1/ and https://:x@10.0.0.2/",
+ "good_links": "See https://example.org/docs). Also (https://example.org/a?b=1#c), and https://example.org.",
+ "entities": "&lt;script&gt;alert(1)&lt;/script&gt; &#106;avascript:alert(1)",
+ "control_chars": "line one\u2028line two\u202e reversed \u0007 bell"
+}
