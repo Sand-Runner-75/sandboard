@@ -2,3 +2,6 @@ __pycache__/
 *.py[co]
 .DS_Store
 .pytest_cache/
+
+dist/
+ci-log.txt

@@ -167,6 +167,15 @@ class PublicAuditTest(unittest.TestCase):
         for kind in ("a private task ID", "a private decision ID", "a private record path"):
             self.assertIn(kind, kinds)
 
+    def test_log_files_are_scanned_and_redacted(self):
+        self.repo.commit({"a.txt": "x\n"})
+        log = os.path.join(self.repo.tmp.name, "ci-log.txt")
+        with open(log, "w") as f:
+            f.write("step ok\nprinted " + TERM + " by mistake\n")
+        findings = pa.audit(self.repo.root, self.terms, pa.BUILD_DIRS, [log])
+        self.assertIn(("log ci-log.txt:2", "private term #1"), findings)
+        self.assert_no_term_in_output(findings)
+
     def test_email_allowlist_is_exact(self):
         for address in ("noreply@anthropic.com", "123+bot@users.noreply.github.com",
                         "noreply@github.com"):

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en" class="pending">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src https://api.github.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sandboard</title>
+<link rel="stylesheet" href="style.css">
+<script src="demo-data.js" defer></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+<header>
+  <h1>Sandboard</h1>
+  <p class="state" id="state">Signed out</p>
+</header>
+<main>
+  <section id="signed-out">
+    <p>Sandboard shows your projects' tasks, progress, reviews and GitHub activity. Nothing is loaded until you sign in, and nothing you load is kept after you leave.</p>
+    <button type="button" id="show-demo">Show synthetic demo</button>
+  </section>
+  <section id="demo" hidden>
+    <p class="note">Synthetic demo data. These projects are made up.</p>
+    <ul id="projects"></ul>
+  </section>
+</main>
+<noscript>Sandboard needs JavaScript.</noscript>
+</body>
+</html>

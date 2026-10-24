@@ -4,7 +4,7 @@ One place to see all my AI-built projects: tasks, progress, reviews and GitHub a
 
 ## Status
 
-Early. This repository holds the application code only. Nothing is published yet.
+Early. This repository holds the application code only: so far an app shell with synthetic demo data. Nothing is published; publishing stays off until the owner turns it on (see [docs/RELEASE.md](docs/RELEASE.md)).
 
 ## What it will be
 
