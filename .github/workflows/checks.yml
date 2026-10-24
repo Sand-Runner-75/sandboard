@@ -1,0 +1,24 @@
+# Tests and the public audit on every pull request and every push to main.
+name: Checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Public audit (files, history, build output)
+        env:
+          PUBLIC_AUDIT_TERMS: ${{ secrets.PUBLIC_AUDIT_TERMS }}
+        run: python3 scripts/public_audit.py

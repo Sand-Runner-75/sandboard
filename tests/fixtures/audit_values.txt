@@ -1,0 +1,4 @@
+# Synthetic test values, each stored reversed so this file passes the audit.
+token=2l1K0j9I8h7G6f5E4d3C2b1A_phg
+email=gro.elpmaxe@enoemos
+markers=dm.x/srevodnah ni 22D-BS dna 320TS eeS
