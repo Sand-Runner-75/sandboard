@@ -34,7 +34,7 @@ Two AI agents, Claude and ChatGPT, write the code. The repository owner decides 
 `scripts/public_audit.py` runs in CI (`.github/workflows/checks.yml`) on every pull request and push to `main`, with the full history checked out. It scans:
 
 1. every tracked file, and its file name,
-2. every blob ever committed on any branch, so a deleted file, text or binary, is still checked,
+2. every blob ever committed on any branch and every path any commit touched, so a deleted or renamed file, text or binary, is still checked,
 3. every commit's message, author and committer,
 4. build output folders when present (`dist/`, `_site/`, `build/`), tracked or not.
 
@@ -47,7 +47,7 @@ It fails on:
 - binary files other than images and web fonts; text hidden in any binary is also searched (raw bytes, UTF-16),
 - private terms listed in the repository secret `PUBLIC_AUDIT_TERMS`, one per line, case-insensitive, in contents and file names.
 
-Output never contains a matched value. Findings give only the kind and a location, and locations are redacted (a private term in a file name shows as `[term #n]`, control characters are escaped). The check fails if `PUBLIC_AUDIT_TERMS` is not set, so the owner-specific part can never be skipped silently. Pull requests from forks get no secrets and fail for that reason.
+Output never contains a matched value. Findings give only the kind and a location, and locations are redacted (a private term in a file name shows as `[term #n]`, a credential pattern or email as `[redacted]`, control characters are escaped). The check fails if `PUBLIC_AUDIT_TERMS` is not set, so the owner-specific part can never be skipped silently. Pull requests from forks get no secrets and fail for that reason.
 
 It is a heuristic guard, not a proof. It does not read compressed content inside images or fonts, CI logs, or pull request titles and descriptions; the public-safety checklist and the review cover those.
 
