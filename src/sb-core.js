@@ -20,6 +20,9 @@
   class Revoked extends Error {
     constructor() { super("token invalid, expired or revoked"); this.name = "Revoked"; }
   }
+  class TransportFailure extends Error {
+    constructor() { super("network error"); this.name = "TransportFailure"; }
+  }
   class NotAllowed extends Error {
     constructor() { super("request outside the read-only allowlist"); this.name = "NotAllowed"; }
   }
@@ -29,6 +32,8 @@
     return Object.assign({ state, data: WITH_DATA.includes(state) ? data : undefined,
                            source: source || null, schema: null, error: null }, extra || {});
   }
+
+  const AUTHORIZATION = new WeakMap();
 
   // One session per signed-in page. start() begins a run and returns its
   // context; a newer start(), forget() or a 401 makes every older context stale.
@@ -55,12 +60,10 @@
         run += 1;
       },
       get signedIn() { return token !== null; },
-      authorization(ctx) {
-        session.alive(ctx);
-        return "Bearer " + token;
-      },
       toJSON() { return { signedIn: token !== null }; },
     };
+    // Only clients made in this file can turn a live context into the header.
+    AUTHORIZATION.set(session, ctx => { session.alive(ctx); return "Bearer " + token; });
     return Object.freeze(session);
   }
 
@@ -92,16 +95,24 @@
 
   function createClient(session, fetchImpl) {
     const send = fetchImpl || root.fetch.bind(root);
+    const authorization = AUTHORIZATION.get(session);
+    if (!authorization) throw new Error("not a session from createSession");
 
     async function get(ctx, path) {
       if (!allowed(path)) throw new NotAllowed();
-      const authorization = session.authorization(ctx);
-      const res = await send(API + path, {
-        method: "GET", cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer",
-        redirect: "error", signal: ctx.signal,
-        headers: { "Accept": "application/vnd.github+json", "Authorization": authorization,
-                   "X-GitHub-Api-Version": "2022-11-28" },
-      });
+      let res;
+      try {
+        res = await send(API + path, {
+          method: "GET", cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer",
+          redirect: "error", signal: ctx.signal,
+          headers: { "Accept": "application/vnd.github+json", "Authorization": authorization(ctx),
+                     "X-GitHub-Api-Version": "2022-11-28" },
+        });
+      } catch (e) {
+        session.alive(ctx);  // an aborted or late failure of an ended run stays silent
+        if (e instanceof Stale) throw e;
+        throw new TransportFailure();
+      }
       session.alive(ctx);
       if (res.status === 401) {
         session.forget();
@@ -110,11 +121,13 @@
       return res;
     }
 
+    // The reply body as JSON; undefined if it is not JSON. A body that cannot
+    // be read at all is a network failure, not invalid content.
     async function json(ctx, res) {
-      let value;
-      try { value = await res.json(); } catch (e) { session.alive(ctx); return undefined; }
+      let text;
+      try { text = await res.text(); } catch (e) { session.alive(ctx); throw new TransportFailure(); }
       session.alive(ctx);
-      return value;
+      try { return JSON.parse(text); } catch (e) { return undefined; }
     }
 
     async function blobSha(ctx, bytes) {
@@ -129,7 +142,11 @@
     }
 
     // One file at a pinned commit; current only if its bytes match GitHub's blob sha.
-    async function readFile(ctx, repo, commit, path) {
+    function readFile(ctx, repo, commit, path) {
+      return guard(readFileUnguarded(ctx, repo, commit, path), { repo, commit, path });
+    }
+
+    async function readFileUnguarded(ctx, repo, commit, path) {
       const source = { repo, commit, path };
       if (!SB.validRepo(repo) || !new RegExp("^" + SHA + "$").test(commit) ||
           !new RegExp("^" + FILE_PATH + "$").test(path)) {
@@ -158,7 +175,11 @@
 
     // Resolves a branch, tag or commit (default branch when ref is empty) to
     // one commit, which every read of a view then uses.
-    async function pin(ctx, repo, ref) {
+    function pin(ctx, repo, ref) {
+      return guard(pinUnguarded(ctx, repo, ref), { repo, ref: ref || null });
+    }
+
+    async function pinUnguarded(ctx, repo, ref) {
       const source = { repo, ref: ref || null };
       if (!SB.validRepo(repo)) return result("invalid", null, source, { error: "not a repository name" });
       const meta = await get(ctx, "/repos/" + repo);
@@ -183,6 +204,17 @@
     return Object.freeze({ get, json, blobSha, readFile, pin, stateFor });
   }
 
+  // A reader's promise, with a network failure of the live run turned into a
+  // "failed" result. Revoked, Stale and programming errors pass through.
+  async function guard(promise, source) {
+    try {
+      return await promise;
+    } catch (e) {
+      if (e instanceof TransportFailure) return result("failed", null, source, { error: "network error" });
+      throw e;
+    }
+  }
+
   function validRepo(repo) {
     return typeof repo === "string" && /^[A-Za-z0-9-]+[/][A-Za-z0-9_.-]+$/.test(repo) &&
       !repo.split("/").some(part => part === "." || part === "..");
@@ -198,6 +230,6 @@
     return { repo, ref };
   }
 
-  Object.assign(SB, { API, STATES, Stale, Revoked, NotAllowed, result, createSession, createClient,
+  Object.assign(SB, { API, STATES, Stale, Revoked, NotAllowed, TransportFailure, result, guard, createSession, createClient,
                       allowed, validRepo, parseRepoRef });
 })(typeof window !== "undefined" ? window : globalThis);

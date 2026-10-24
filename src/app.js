@@ -85,44 +85,27 @@
     return typeof sha === "string" ? sha.slice(0, 7) : "";
   }
 
-  async function showPlan(ctx, ws, list) {
-    const pinned = await client.pin(ctx, ws.plan.repo, ws.plan.ref);
-    const pinItem = line("Plan " + ws.plan.repo, pinned);
-    list.append(pinItem);
-    if (pinned.state !== "current") return;
-    pinItem.append(el("span", " at " + pinned.data.ref + " " + short(pinned.data.commit) +
-                      (pinned.data.date ? ", committed " + pinned.data.date : "")));
-    const plan = await SB.readPlan(ctx, client, ws.plan.repo, pinned.data.commit, ws.plan.files);
-    const planItem = line("Task table", plan);
-    if (plan.data) planItem.append(el("span", ", " + plan.data.rows.length + " rows" +
-                                      (plan.data.invalid ? ", " + plan.data.invalid + " invalid" : "")));
-    list.append(planItem);
-    const progress = await SB.readProgress(ctx, client, ws.plan.repo, pinned.data.commit, ws.plan.files);
-    const progressItem = line("Stored progress", progress);
-    if (progress.state === "current") {
-      const whole = progress.data.scopes["Whole project"];
-      progressItem.append(el("span", ", whole project " + whole.progress_pct + "%" +
-                             (whole.verified ? "" : " (not verified)") + ", " + progress.data.phases.length +
-                             " phases, from " + progress.schema + " at " + short(pinned.data.commit)));
+  // Extra text for a result that has data; every state is already shown by line().
+  function detail(entry) {
+    const r = entry.result;
+    if (!r.data) return "";
+    if (entry.kind === "plan" || entry.kind === "code") {
+      return " at " + r.data.ref + " " + short(r.data.commit) + (r.data.date ? ", committed " + r.data.date : "");
     }
-    list.append(progressItem);
-  }
-
-  async function showCode(ctx, code, list) {
-    const pinned = await client.pin(ctx, code.repo, code.ref);
-    const pinItem = line("Code " + code.repo + " (" + code.role + ")", pinned);
-    list.append(pinItem);
-    if (pinned.state !== "current") return;
-    pinItem.append(el("span", " at " + pinned.data.ref + " " + short(pinned.data.commit)));
-    const checks = await SB.readCheckRuns(ctx, client, code.repo, pinned.data.commit);
-    const checksItem = line("Check runs", checks);
-    if (checks.data && checks.data.runs.length) {
-      const failing = checks.data.runs.filter(r => r.conclusion && r.conclusion !== "success" &&
-                                                   r.conclusion !== "neutral" && r.conclusion !== "skipped").length;
-      checksItem.append(el("span", ", " + checks.data.runs.length + " runs, " + failing + " not passing" +
-                           (checks.coverage ? ", " + checks.coverage.shown + " of " + checks.coverage.total + " read" : "")));
+    if (entry.kind === "table") {
+      return ", " + r.data.rows.length + " rows" + (r.data.invalid ? ", " + r.data.invalid + " invalid" : "");
     }
-    list.append(checksItem);
+    if (entry.kind === "progress") {
+      const whole = r.data.scopes["Whole project"];
+      return ", whole project " + whole.progress_pct + "%" + (whole.verified ? "" : " (not verified)") + ", " +
+        r.data.phases.length + " phases, from " + r.schema + " at " + short(r.source.commit);
+    }
+    if (entry.kind === "checks") {
+      const failing = r.data.runs.filter(x => x.conclusion && !["success", "neutral", "skipped"].includes(x.conclusion)).length;
+      return (r.data.runs.length ? ", " + r.data.runs.length + " runs, " + failing + " not passing" : "") +
+        (r.coverage ? ", " + r.coverage.shown + " of " + r.coverage.total + " read" : "");
+    }
+    return "";
   }
 
   async function connect(event) {
@@ -156,8 +139,14 @@
         const list = el("ul");
         item.append(list);
         workspacesEl.append(item);
-        if (w.plan) await showPlan(ctx, w, list);
-        for (const code of w.code) await showCode(ctx, code, list);
+        const entries = await SB.readWorkspace(ctx, client, w);
+        session.alive(ctx);
+        for (const entry of entries) {
+          const row = line(entry.label, entry.result);
+          const extra = detail(entry);
+          if (extra) row.append(el("span", extra));
+          list.append(row);
+        }
       }
       session.alive(ctx);
       $("private-state").textContent += "; reading finished";

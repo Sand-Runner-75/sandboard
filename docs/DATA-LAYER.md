@@ -4,7 +4,7 @@ How the app reads private project data from GitHub, and what it refuses to do. T
 
 ## Access
 
-- The owner makes a fine-grained GitHub token limited to the mapped repositories, with read-only **Contents** and **Metadata** (and **Checks** for check runs). It is pasted into a password field and kept only inside one session object in memory: never in browser storage, cookies, the URL, history, logs or error text. The field is cleared at once.
+- The owner makes a fine-grained GitHub token limited to the mapped repositories, with read-only **Contents** and **Metadata** (and **Checks** for check runs). It is pasted into a password field and kept only inside one session object in memory, where nothing outside `src/sb-core.js` can read it (only the module's own client turns a live run into the request header): never in browser storage, cookies, the URL, history, logs or error text. The field is cleared at once.
 - **Forget token**, leaving the page (`pagehide`, including into the back/forward cache), a page restored from that cache (`pageshow`) and a `401` reply all end the session: pending requests are aborted, the token is dropped and everything read with it is cleared. Reload or a new tab starts signed out.
 - The page refuses to run inside a frame.
 
@@ -21,7 +21,7 @@ Every view reads one repository at one commit: a branch or tag (the default bran
 
 ## Result states
 
-Every reader returns `{state, data, source: {repo, ref, commit, path}, schema, error}`. `state` is one of `loading`, `current`, `empty`, `no-match`, `missing`, `denied`, `rate-limited`, `invalid`, `stale`, `unavailable`, `partial`, `failed`. Only `current`, `empty`, `no-match` and `partial` carry data; `partial` also gives `coverage`. No state is ever shown as zero or success. HTTP `404` is `missing`, `403` is `denied` unless it is a rate limit, `403` with an exhausted limit or `Retry-After`, and `429`, are `rate-limited`, anything else is `failed`.
+Every reader returns `{state, data, source: {repo, ref, commit, path}, schema, error}`. `state` is one of `loading`, `current`, `empty`, `no-match`, `missing`, `denied`, `rate-limited`, `invalid`, `stale`, `unavailable`, `partial`, `failed`. Only `current`, `empty`, `no-match` and `partial` carry data; `partial` also gives `coverage`. No state is ever shown as zero or success. HTTP `404` is `missing`, `403` is `denied` unless it is a rate limit, `403` with an exhausted limit or `Retry-After`, and `429`, are `rate-limited`, anything else, and a network failure or a reply body that cannot be read, is `failed`. A network failure that arrives after Forget or a newer run is dropped like any late reply. Each reader returns its own state, so one failing repository stops only the reads that depend on it; the other workspaces are still read (`SB.readWorkspace`).
 
 ## Workspace list
 
@@ -50,18 +50,18 @@ Every Markdown table whose first header cell is `ID`, in order, with the heading
 
 ## Stored progress (`sandboard.progress/1`)
 
-The plan's own producer stores its result in the progress file. It is read at the pinned commit and checked field by field: `schema`, `ok: true`, counts, the producer and exactly two inputs (table and record) at the paths named in the workspace list with 40-hex blob SHAs, all four scopes and every phase with every figure. Then the producer and both inputs are read at the same commit:
+The plan's own producer stores its result in the progress file. It is read at the pinned commit and checked field by field: `schema`, `ok: true`, counts, the producer and exactly two inputs (table and record) at the paths named in the workspace list with 40-hex blob SHAs, all four scopes and every phase with every figure: hours (`estimated_h`, `completed_h`, `remaining_h`) are non-negative numbers; `progress_pct` (at most 100), `tbe_rows`, `proposed_rows`, `provisional_rows` and `rows` are non-negative whole numbers; `verified` is true or false; phase IDs (`P<n>`) are unique and in order; each phase's `status_counts` has exactly the six statuses Not Started, In Progress, Blocked, Ready for Review, Done and Removed, each a non-negative whole number. Then the producer and both inputs are read at the same commit:
 
 - all three blob SHAs match: **current**, shown with its source commit and schema;
-- any differs or cannot be read: **stale**;
-- no progress file: **unavailable**;
+- any differs or cannot be read: **stale**, with the reason;
+- no progress file: **unavailable**; the progress file itself denied, rate-limited or failed: that state;
 - not JSON, wrong schema, `ok` not `true` or any field wrong: **invalid**.
 
 Figures are shown exactly as stored, never recalculated. "Current" means "matches the pinned commit"; there is no time limit, and refresh is manual.
 
 ## Check runs
 
-Read for a pinned commit, 100 per page, up to five pages. A `403` or `404` (the token has no **Checks: read**, or it is not proved) is **unavailable**, never "no checks". More runs than were read is **partial**, with the coverage shown.
+Read for a pinned commit, 100 per page, up to five pages. A `403` or `404` (the token has no **Checks: read**, or it is not proved) is **unavailable**, never "no checks". **Empty** only when GitHub reports none. Fewer runs read than GitHub reports, even none, is **partial**, with the coverage shown. A negative or changing total, or more runs than the total, is **invalid**.
 
 ## Rendering repository text
 

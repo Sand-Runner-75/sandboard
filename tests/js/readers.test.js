@@ -189,3 +189,90 @@ test("a whole private read touches only allowlisted GET paths", async () => {
     assert.ok(SB.allowed(url.slice(SB.API.length)), url);
   }
 });
+
+test("every reader returns a failed result when the network fails", async () => {
+  const session = SB.createSession();
+  const client = SB.createClient(session, async () => { throw new TypeError("synthetic offline"); });
+  const ctx = session.start("synthetic-token");
+  const results = {
+    workspaces: await SB.readWorkspaces(ctx, client, "acme/garden-plan", ""),
+    plan: await SB.readPlan(ctx, client, "acme/garden-plan", F.PLAN_COMMIT, F.FILES),
+    progress: await SB.readProgress(ctx, client, "acme/garden-plan", F.PLAN_COMMIT, F.FILES),
+    checks: await SB.readCheckRuns(ctx, client, "acme/garden", F.CODE_COMMIT),
+  };
+  for (const [name, r] of Object.entries(results)) {
+    assert.equal(r.state, "failed", name);
+    assert.equal(r.data, undefined, name);
+    assert.ok(r.source && r.source.repo, name);
+  }
+});
+
+test("progress is stale with a reason when the producer cannot be fetched", async () => {
+  const { client, ctx } = setup(F.planRepos(), [[/contents\/tools\/progress[.]py/, () => { throw new TypeError("offline"); }]]);
+  const r = await SB.readProgress(ctx, client, "acme/garden-plan", F.PLAN_COMMIT, F.FILES);
+  assert.equal(r.state, "stale");
+  assert.match(r.error, /producer .* unreadable .*failed/);
+});
+
+test("one workspace failing does not stop the others", async () => {
+  const { client, ctx } = setup(F.planRepos(), [[/acme\/garden-plan/, () => { throw new TypeError("offline"); }]]);
+  const doc = F.workspacesDoc();
+  const garden = await SB.readWorkspace(ctx, client, doc.workspaces[0]);
+  assert.deepEqual(garden.map(e => [e.kind, e.result.state]), [["plan", "failed"], ["code", "current"], ["checks", "current"]]);
+  const recipes = await SB.readWorkspace(ctx, client, doc.workspaces[1]);
+  assert.deepEqual(recipes.map(e => [e.kind, e.result.state]), [["code", "current"], ["checks", "empty"]]);
+});
+
+test("a whole workspace read with every source readable", async () => {
+  const { client, ctx } = setup();
+  const entries = await SB.readWorkspace(ctx, client, F.workspacesDoc().workspaces[0]);
+  assert.deepEqual(entries.map(e => [e.kind, e.result.state]),
+                   [["plan", "current"], ["table", "current"], ["progress", "current"], ["code", "current"], ["checks", "current"]]);
+});
+
+test("a revoked token mid-workspace ends the session instead of showing a state", async () => {
+  const { session, client, ctx } = setup(F.planRepos(), [[/acme\/garden$/, () => json({}, 401)]]);
+  await assert.rejects(SB.readWorkspace(ctx, client, F.workspacesDoc().workspaces[0]), SB.Revoked);
+  assert.equal(session.signedIn, false);
+});
+
+test("check-run counts must agree: missing runs are partial, never empty; contradictions are invalid", async () => {
+  const reply = pages => setup(F.planRepos(), [[/check-runs/, p => {
+    const page = Number(/&page=(\d+)/.exec(p)[1]);
+    return json(pages[page - 1] || { total_count: 0, check_runs: [] });
+  }]]);
+  const run = i => ({ name: "c" + i, status: "completed", conclusion: "success" });
+  const read = async pages => { const s = reply(pages); return SB.readCheckRuns(s.ctx, s.client, "acme/garden", F.CODE_COMMIT); };
+  const zeroShown = await read([{ total_count: 2, check_runs: [] }]);
+  assert.equal(zeroShown.state, "partial");
+  assert.deepEqual(zeroShown.coverage, { shown: 0, total: 2 });
+  const cutLater = await read([{ total_count: 250, check_runs: Array.from({ length: 100 }, (_, i) => run(i)) },
+                               { total_count: 250, check_runs: [] }]);
+  assert.equal(cutLater.state, "partial");
+  assert.deepEqual(cutLater.coverage, { shown: 100, total: 250 });
+  assert.equal((await read([{ total_count: -1, check_runs: [] }])).state, "invalid");
+  assert.equal((await read([{ total_count: 1, check_runs: [run(1), run(2)] }])).state, "invalid");
+  assert.equal((await read([{ total_count: 150, check_runs: Array.from({ length: 100 }, (_, i) => run(i)) },
+                            { total_count: 120, check_runs: [run(101)] }])).state, "invalid");
+  assert.equal((await read([{ total_count: 1.5, check_runs: [] }])).state, "invalid");
+  assert.equal((await read([{ total_count: 0, check_runs: [] }])).state, "empty");
+});
+
+test("progress counts must be whole numbers, phase IDs unique and every status counted", async () => {
+  const base = F.progressDoc();
+  const phase0 = over => [Object.assign({}, base.phases[0], over), base.phases[1]];
+  const variants = {
+    "fractional rows in a scope": { scopes: Object.assign({}, base.scopes, { Pilot: Object.assign({}, base.scopes.Pilot, { rows: 1.5 }) }) },
+    "fractional percentage": { scopes: Object.assign({}, base.scopes, { MVP: Object.assign({}, base.scopes.MVP, { progress_pct: 20.5 }) }) },
+    "fractional phase count": { phases: phase0({ tbe_rows: 0.5 }) },
+    "repeated phase ID": { phases: [base.phases[0], Object.assign({}, base.phases[1], { id: base.phases[0].id })] },
+    "empty status counts": { phases: phase0({ status_counts: {} }) },
+    "a status missing": { phases: phase0({ status_counts: Object.fromEntries(Object.entries(base.phases[0].status_counts).slice(1)) }) },
+    "an extra status": { phases: phase0({ status_counts: Object.assign({ Parked: 0 }, base.phases[0].status_counts) }) },
+  };
+  for (const [label, over] of Object.entries(variants)) {
+    const r = await progress({ files: { [F.FILES.progress]: JSON.stringify(F.progressDoc(over)) } });
+    assert.equal(r.state, "invalid", label);
+    assert.equal(r.data, undefined, label);
+  }
+});

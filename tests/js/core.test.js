@@ -126,12 +126,12 @@ test("a reply that arrives after Forget is dropped", async () => {
 
 test("a body still being read when Forget is pressed is dropped", async () => {
   const gate = deferred();
-  const slowBody = { ok: true, status: 200, headers: new Headers(), json: () => gate.promise };
+  const slowBody = { ok: true, status: 200, headers: new Headers(), text: () => gate.promise };
   const { session, client, ctx } = setup(planRepos(), [[/^\/user$/, () => slowBody]]);
   const res = await client.get(ctx, "/user");
   const body = client.json(ctx, res);
   session.forget();
-  gate.resolve({ login: "late" });
+  gate.resolve('{"login": "late"}');
   await assert.rejects(body, SB.Stale);
 });
 
@@ -175,4 +175,53 @@ test("result envelope carries data only for states that have it", () => {
     assert.equal(r.data !== undefined, ["current", "empty", "no-match", "partial"].includes(state), state);
   }
   assert.throws(() => SB.result("ok"), /unknown state/);
+});
+
+test("a network failure of the live run is a failed result, not a thrown error", async () => {
+  const offline = async () => { throw new TypeError("synthetic offline"); };
+  const session = SB.createSession();
+  const client = SB.createClient(session, offline);
+  const ctx = session.start(TOKEN);
+  const pinned = await client.pin(ctx, "acme/garden-plan", "");
+  assert.equal(pinned.state, "failed");
+  assert.equal(pinned.error, "network error");
+  assert.deepEqual(pinned.source, { repo: "acme/garden-plan", ref: null });
+  const file = await client.readFile(ctx, "acme/garden-plan", PLAN_COMMIT, FILES.table);
+  assert.equal(file.state, "failed");
+  assert.equal(session.signedIn, true);
+});
+
+test("a body that cannot be read is a failed result; a body that is not JSON is invalid", async () => {
+  const broken = { ok: true, status: 200, headers: new Headers(), text: async () => { throw new TypeError("cut off"); } };
+  const cut = setup(planRepos(), [[/contents/, () => broken]]);
+  assert.equal((await cut.client.readFile(cut.ctx, "acme/garden-plan", PLAN_COMMIT, FILES.table)).state, "failed");
+  const garbled = setup(planRepos(), [[/contents/, () => new Response("<html>", { status: 200 })]]);
+  assert.equal((await garbled.client.readFile(garbled.ctx, "acme/garden-plan", PLAN_COMMIT, FILES.table)).state, "invalid");
+});
+
+test("a network failure that arrives after Forget or a new run stays silent", async () => {
+  for (const end of ["forget", "new run"]) {
+    const gate = deferred();
+    const { session, client, ctx } = setup(planRepos(), [[/^\/repos\/acme\/garden-plan$/, () => gate.promise]]);
+    const pending = client.pin(ctx, "acme/garden-plan", "");
+    if (end === "forget") session.forget(); else session.start();
+    gate.resolve(Promise.reject(new TypeError("late offline")));
+    await assert.rejects(pending, SB.Stale, end);
+  }
+});
+
+test("the token header cannot be read from the session object", () => {
+  const session = SB.createSession();
+  const ctx = session.start(TOKEN);
+  assert.equal(session.authorization, undefined);
+  for (const key of Object.getOwnPropertyNames(session)) {
+    const value = Object.getOwnPropertyDescriptor(session, key).value;
+    if (typeof value === "function" && value.length === 1) {
+      assert.doesNotThrow(() => {
+        const out = key === "alive" ? value(ctx) : undefined;
+        assert.ok(!String(out).includes(TOKEN));
+      });
+    }
+  }
+  assert.throws(() => SB.createClient({ alive() {} }, async () => json({})), /not a session/);
 });

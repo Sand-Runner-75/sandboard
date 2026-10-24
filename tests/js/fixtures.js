@@ -30,6 +30,9 @@ function totals(pct) {
            tbe_rows: 0, proposed_rows: 0, provisional_rows: 0, rows: 3, verified: false };
 }
 
+const STATUSES = ["Not Started", "In Progress", "Blocked", "Ready for Review", "Done", "Removed"];
+const counts = some => Object.fromEntries(STATUSES.map(s => [s, some[s] || 0]));
+
 function progressDoc(over = {}) {
   const doc = {
     schema: "sandboard.progress/1", ok: true, subtasks: 3, steps: 0,
@@ -37,8 +40,8 @@ function progressDoc(over = {}) {
     inputs: { table: { path: FILES.table, blob_sha: blobSha(TABLE) },
               record: { path: FILES.record, blob_sha: blobSha(RECORD) } },
     scopes: { "Pilot": totals(20), "MVP": totals(20), "Post-MVP": totals(0), "Whole project": totals(20) },
-    phases: [Object.assign({ id: "P1", name: "Start", status_counts: { "Done": 1, "In Progress": 1 } }, totals(40)),
-             Object.assign({ id: "P2", name: "Build", status_counts: { "Not Started": 1 } }, totals(0))],
+    phases: [Object.assign({ id: "P1", name: "Start", status_counts: counts({ "Done": 1, "In Progress": 1 }) }, totals(40)),
+             Object.assign({ id: "P2", name: "Build", status_counts: counts({ "Not Started": 1 }) }, totals(0))],
   };
   return Object.assign(doc, over);
 }

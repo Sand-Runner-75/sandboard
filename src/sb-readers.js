@@ -14,8 +14,11 @@
   const KINDS = ["project", "kit", "standalone"];
   const PLAN_FILES = ["progress", "producer", "table", "record"];
   const SCOPES = ["Pilot", "MVP", "Post-MVP", "Whole project"];
-  const FIGURES = ["estimated_h", "completed_h", "remaining_h", "progress_pct", "tbe_rows", "proposed_rows",
-                   "provisional_rows", "rows"];
+  // Schema 1 figures as the producer writes them: hours are numbers, the
+  // percentage and every row or status count is a whole number.
+  const HOURS = ["estimated_h", "completed_h", "remaining_h"];
+  const COUNTS = ["progress_pct", "tbe_rows", "proposed_rows", "provisional_rows", "rows"];
+  const STATUSES = ["Not Started", "In Progress", "Blocked", "Ready for Review", "Done", "Removed"];
   const MAX_CHECK_PAGES = 5;
   const BACKSLASH = String.fromCharCode(92);
 
@@ -55,7 +58,11 @@
     return null;
   }
 
-  async function readWorkspaces(ctx, client, repo, ref) {
+  function readWorkspaces(ctx, client, repo, ref) {
+    return SB.guard(readWorkspacesUnguarded(ctx, client, repo, ref), { repo, ref: ref || null });
+  }
+
+  async function readWorkspacesUnguarded(ctx, client, repo, ref) {
     const pinned = await client.pin(ctx, repo, ref);
     if (pinned.state !== "current") return pinned;
     const { commit } = pinned.data;
@@ -118,7 +125,11 @@
     return rows;
   }
 
-  async function readPlan(ctx, client, repo, commit, files) {
+  function readPlan(ctx, client, repo, commit, files) {
+    return SB.guard(readPlanUnguarded(ctx, client, repo, commit, files), { repo, commit, path: files.table });
+  }
+
+  async function readPlanUnguarded(ctx, client, repo, commit, files) {
     const file = await client.readFile(ctx, repo, commit, files.table);
     if (file.state !== "current") return file;
     const text = decode(file.data.bytes);
@@ -133,8 +144,8 @@
   function validateProgress(doc, files) {
     const sha = v => typeof v === "string" && /^[0-9a-f]{40}$/.test(v);
     const count = v => Number.isInteger(v) && v >= 0;
-    const figures = t => isObject(t) && FIGURES.every(f => typeof t[f] === "number" && Number.isFinite(t[f]) && t[f] >= 0) &&
-      typeof t.verified === "boolean" && t.progress_pct <= 100;
+    const figures = t => isObject(t) && HOURS.every(f => typeof t[f] === "number" && Number.isFinite(t[f]) && t[f] >= 0) &&
+      COUNTS.every(f => count(t[f])) && typeof t.verified === "boolean" && t.progress_pct <= 100;
     if (!isObject(doc) || doc.schema !== PROGRESS_SCHEMA) return "not a " + PROGRESS_SCHEMA + " document";
     if (doc.ok !== true) return "the producer reported errors";
     if (!count(doc.subtasks) || !count(doc.steps)) return "missing counts";
@@ -147,13 +158,19 @@
     }
     if (!isObject(doc.scopes) || !SCOPES.every(n => figures(doc.scopes[n]))) return "a scope is missing or malformed";
     if (!Array.isArray(doc.phases) || doc.phases.length === 0) return "no phases";
+    const goodCounts = c => isObject(c) && Object.keys(c).length === STATUSES.length && STATUSES.every(k => count(c[k]));
     const goodPhase = ph => isObject(ph) && typeof ph.id === "string" && /^P\d+$/.test(ph.id) && typeof ph.name === "string" &&
-      figures(ph) && isObject(ph.status_counts) && Object.values(ph.status_counts).every(count);
+      figures(ph) && goodCounts(ph.status_counts);
     if (!doc.phases.every(goodPhase)) return "a phase is malformed";
+    if (new Set(doc.phases.map(ph => ph.id)).size !== doc.phases.length) return "a phase ID is repeated";
     return null;
   }
 
-  async function readProgress(ctx, client, repo, commit, files) {
+  function readProgress(ctx, client, repo, commit, files) {
+    return SB.guard(readProgressUnguarded(ctx, client, repo, commit, files), { repo, commit, path: files.progress });
+  }
+
+  async function readProgressUnguarded(ctx, client, repo, commit, files) {
     const file = await client.readFile(ctx, repo, commit, files.progress);
     if (file.state === "missing") return result("unavailable", null, file.source, { error: "no stored progress at this commit" });
     if (file.state !== "current") return file;
@@ -175,7 +192,11 @@
 
   // ---- Check runs (needs the token's Checks: read; shown as unavailable when not granted).
 
-  async function readCheckRuns(ctx, client, repo, commit) {
+  function readCheckRuns(ctx, client, repo, commit) {
+    return SB.guard(readCheckRunsUnguarded(ctx, client, repo, commit), { repo, commit });
+  }
+
+  async function readCheckRunsUnguarded(ctx, client, repo, commit) {
     const source = { repo, commit };
     const runs = [];
     let total = 0;
@@ -188,7 +209,9 @@
       }
       if (!res.ok) return result(client.stateFor(res), null, source, { error: "HTTP " + res.status });
       const body = await client.json(ctx, res);
-      if (!isObject(body) || !Number.isInteger(body.total_count) || !Array.isArray(body.check_runs)) {
+      if (!isObject(body) || !Number.isInteger(body.total_count) || body.total_count < 0 ||
+          !Array.isArray(body.check_runs) || body.check_runs.length > 100 ||
+          (page > 1 && body.total_count !== total)) {
         return result("invalid", null, source, { error: "unexpected check-runs reply" });
       }
       total = body.total_count;
@@ -199,13 +222,39 @@
         }
         runs.push({ name: run.name, status: run.status, conclusion: run.conclusion });
       }
-      if (runs.length >= total || body.check_runs.length === 0) break;
+      if (runs.length > total) return result("invalid", null, source, { error: "more check runs than the reported total" });
+      if (runs.length === total || body.check_runs.length === 0) break;
     }
-    if (!runs.length) return result("empty", { runs }, source);
+    // Empty only when GitHub reports none; fewer read than reported is partial, even if none were read.
     if (runs.length < total) return result("partial", { runs }, source, { coverage: { shown: runs.length, total } });
+    if (!runs.length) return result("empty", { runs }, source);
     return result("current", { runs }, source);
   }
 
-  Object.assign(SB, { WORKSPACES_FILE, validateWorkspaces, readWorkspaces, splitRow, parsePlanTables, readPlan,
+  // ---- One workspace: every read it needs, in order, each with its own result.
+  // A failure stops only the reads that depend on it, never other workspaces.
+
+  async function readWorkspace(ctx, client, w) {
+    const entries = [];
+    if (w.plan) {
+      const pinned = await client.pin(ctx, w.plan.repo, w.plan.ref);
+      entries.push({ kind: "plan", label: "Plan " + w.plan.repo, result: pinned });
+      if (pinned.state === "current") {
+        const commit = pinned.data.commit;
+        entries.push({ kind: "table", label: "Task table", result: await readPlan(ctx, client, w.plan.repo, commit, w.plan.files) });
+        entries.push({ kind: "progress", label: "Stored progress", result: await readProgress(ctx, client, w.plan.repo, commit, w.plan.files) });
+      }
+    }
+    for (const code of w.code) {
+      const pinned = await client.pin(ctx, code.repo, code.ref);
+      entries.push({ kind: "code", label: "Code " + code.repo + " (" + code.role + ")", result: pinned });
+      if (pinned.state === "current") {
+        entries.push({ kind: "checks", label: "Check runs", result: await readCheckRuns(ctx, client, code.repo, pinned.data.commit) });
+      }
+    }
+    return entries;
+  }
+
+  Object.assign(SB, { WORKSPACES_FILE, readWorkspace, validateWorkspaces, readWorkspaces, splitRow, parsePlanTables, readPlan,
                       validateProgress, readProgress, readCheckRuns });
 })(typeof window !== "undefined" ? window : globalThis);
