@@ -1,5 +1,7 @@
 # Tests, build and the public audit on every pull request and every push to main.
-# The audit also reads this job's own log of the steps before it.
+# Test and build output goes to ci-log.txt only and is audited before any of
+# it is shown, on success and on failure (scripts/ci_step.py). The final audit
+# runs even after a failed step and reads the whole captured log again.
 name: Checks
 
 on:
@@ -18,10 +20,16 @@ jobs:
         with:
           fetch-depth: 0
       - name: Tests
-        run: python3 -m unittest discover -s tests -v 2>&1 | tee -a ci-log.txt; test "${PIPESTATUS[0]}" -eq 0
+        env:
+          PUBLIC_AUDIT_TERMS: ${{ secrets.PUBLIC_AUDIT_TERMS }}
+        run: python3 scripts/ci_step.py --log ci-log.txt -- python3 -m unittest discover -s tests -v
       - name: Build
-        run: python3 scripts/build.py --out dist 2>&1 | tee -a ci-log.txt; test "${PIPESTATUS[0]}" -eq 0
+        env:
+          PUBLIC_AUDIT_TERMS: ${{ secrets.PUBLIC_AUDIT_TERMS }}
+        run: python3 scripts/ci_step.py --log ci-log.txt -- python3 scripts/build.py --out dist
       - name: Public audit (files, history, build output, this log)
+        # Runs even when tests or build failed, so a failing run is audited too.
+        if: always()
         env:
           PUBLIC_AUDIT_TERMS: ${{ secrets.PUBLIC_AUDIT_TERMS }}
         run: python3 scripts/public_audit.py --build-dir dist --log ci-log.txt

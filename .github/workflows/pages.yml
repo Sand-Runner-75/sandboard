@@ -28,10 +28,16 @@ jobs:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
       - name: Tests
-        run: python3 -m unittest discover -s tests -v 2>&1 | tee -a ci-log.txt; test "${PIPESTATUS[0]}" -eq 0
+        env:
+          PUBLIC_AUDIT_TERMS: ${{ secrets.PUBLIC_AUDIT_TERMS }}
+        run: python3 scripts/ci_step.py --log ci-log.txt -- python3 -m unittest discover -s tests -v
       - name: Build
-        run: python3 scripts/build.py --out dist 2>&1 | tee -a ci-log.txt; test "${PIPESTATUS[0]}" -eq 0
+        env:
+          PUBLIC_AUDIT_TERMS: ${{ secrets.PUBLIC_AUDIT_TERMS }}
+        run: python3 scripts/ci_step.py --log ci-log.txt -- python3 scripts/build.py --out dist
       - name: Public audit before upload
+        # Runs even after a failed step; the upload below still needs every step to pass.
+        if: always()
         env:
           PUBLIC_AUDIT_TERMS: ${{ secrets.PUBLIC_AUDIT_TERMS }}
         run: python3 scripts/public_audit.py --build-dir dist --log ci-log.txt

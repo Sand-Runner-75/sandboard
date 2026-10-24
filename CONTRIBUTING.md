@@ -37,7 +37,7 @@ Two AI agents, Claude and ChatGPT, write the code. The repository owner decides 
 2. every blob ever committed on any branch and every path any commit touched, so a deleted or renamed file, text or binary, is still checked,
 3. every commit's message, author and committer,
 4. build output folders when present (`dist/`, `_site/`, `build/`), tracked or not,
-5. the CI job's own log of the test and build steps (`--log`).
+5. the CI job's own log of the test and build steps (`--log`). That output is also audited before it is shown: see [docs/RELEASE.md](docs/RELEASE.md#ci-output).
 
 It fails on:
 

@@ -2,14 +2,30 @@
 """Build the static site into an output folder (default: dist).
 
 Copies src/, turns the synthetic demo fixture into demo-data.js, and refuses
-to finish if the result breaks the page rules: the exact Content-Security-
-Policy and referrer meta tags, no inline scripts, styles or event handlers,
-and no reference to any other origin except the GitHub API. The output is
-byte-for-byte reproducible and listed with SHA-256 hashes in
+to finish if the result breaks the page rules. HTML is parsed, not matched as
+text, so a tag inside a comment, <noscript> or <template> does not count:
+
+- the exact Content-Security-Policy and no-referrer meta tags are active
+  elements directly inside <head>, once each, before any other element
+  except <meta> and <title> and before any text;
+- no inline script, style block, style attribute, event handler,
+  javascript: URL or element-level referrer policy;
+- every URL in a URL attribute or CSS url()/@import is relative to the site;
+- no file mentions any network origin except https://api.github.com, after
+  decoding escaped or encoded slashes, backslashes and colons. Hosts given
+  as IP addresses, localhost and protocol-relative //host references are
+  rejected like any other origin.
+
+Limits: the origin check is static. A URL assembled at run time (string
+joining, character codes, decoding) is not seen; the page's
+Content-Security-Policy is the run-time guard for that case.
+
+The output is byte-for-byte reproducible and listed with SHA-256 hashes in
 build-manifest.json.
 """
 import argparse
 import hashlib
+import html.parser
 import json
 import os
 import re
@@ -19,15 +35,25 @@ import sys
 ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
        "font-src 'self'; connect-src https://api.github.com; base-uri 'none'; form-action 'none'")
-ALLOWED_ORIGINS = {"https://api.github.com"}
-URL = re.compile(r"(?:https?:)?//[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?::\d+)?")
-INLINE = [
-    (re.compile(r"<script(?![^>]*\bsrc=)[^>]*>", re.I), "an inline script"),
-    (re.compile(r"<style\b", re.I), "an inline style block"),
-    (re.compile(r"\sstyle\s*=", re.I), "an inline style attribute"),
-    (re.compile(r"\son[a-z]+\s*=", re.I), "an inline event handler"),
-    (re.compile(r"javascript:", re.I), "a javascript: URL"),
+SOURCE_TYPES = (".html", ".js", ".css")
+# Elements allowed before the policy tags: they load nothing.
+PRE_POLICY = {"html", "head", "meta", "title"}
+INERT = {"noscript", "template"}
+VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
+        "source", "track", "wbr"}
+URL_ATTRS = {"src", "href", "action", "formaction", "srcset", "imagesrcset", "poster", "data",
+             "background", "cite", "longdesc", "manifest", "ping", "icon", "codebase",
+             "archive", "xlink:href"}
+SPECIAL_SCHEMES = {"http", "https", "ws", "wss", "ftp", "file"}
+APPROVED = re.compile(r"//api\.github\.com(?=[/?#\"'`;,)\s]|$)")
+ENCODED = [
+    (re.compile(r"\\x2f|\\u002f|\\u\{0*2f\}|%2f|&#0*47;?|&#x0*2f;?|&sol;", re.I), "/"),
+    (re.compile(r"\\x5c|\\u005c|\\u\{0*5c\}|%5c|&#0*92;?|&#x0*5c;?|&bsol;", re.I), "\\\\"),
+    (re.compile(r"\\x3a|\\u003a|\\u\{0*3a\}|%3a|&#0*58;?|&#x0*3a;?|&colon;", re.I), ":"),
 ]
+SCHEME = re.compile(r"\b([A-Za-z][A-Za-z0-9+.\-]*):")
+PROTOCOL_RELATIVE = re.compile(r"(?<![:/\\])[/\\]{2,}(?=[^\s/\\*])")
+CSS_URL = re.compile(r"""url\(\s*['"]?([^'")]*)|@import\s+['"]([^'"]*)""", re.I)
 
 
 def demo_js(fixture_path):
@@ -39,18 +65,116 @@ def demo_js(fixture_path):
             "window.SANDBOARD_DEMO = " + body.replace("<", "\\u003c") + ";\n")
 
 
+def is_relative(url):
+    """True if a URL can only point into this site."""
+    url = re.sub(r"[\t\n\r]", "", url).strip(" \x00-\x1f")
+    return not (re.match(r"[/\\]{2}", url) or re.match(r"[A-Za-z][A-Za-z0-9+.\-]*:", url))
+
+
+def origin_problems(text):
+    """Network origins other than the approved API, after undoing encodings."""
+    for pattern, plain in ENCODED:
+        text = pattern.sub(plain, text)
+    found = False
+    for m in SCHEME.finditer(text):
+        rest = text[m.end():]
+        if m.group(1).lower() in SPECIAL_SCHEMES or re.match(r"[/\\]{2}", rest):
+            if not (m.group(0) == "https:" and APPROVED.match(rest)):
+                found = True
+    if PROTOCOL_RELATIVE.search(text):
+        found = True
+    return ["a reference to another origin"] if found else []
+
+
+class PageParser(html.parser.HTMLParser):
+    """Collects page-rule problems from the active elements of an HTML page."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.stack = []
+        self.loaded = False  # an element that may load something, or text, was seen
+        self.policies = {"csp": [], "referrer": []}
+        self.problems = []
+
+    def handle_starttag(self, tag, attrs):
+        self.check(tag, attrs)
+        if tag not in VOID:
+            self.stack.append(tag)
+
+    def handle_startendtag(self, tag, attrs):
+        self.check(tag, attrs)
+
+    def handle_endtag(self, tag):
+        if tag in self.stack:
+            del self.stack[len(self.stack) - 1 - self.stack[::-1].index(tag):]
+
+    def handle_data(self, data):
+        if data.strip() and (not self.stack or self.stack[-1] != "title"):
+            self.loaded = True
+
+    def check(self, tag, attrs):
+        attrs = [(name, value or "") for name, value in attrs]
+        values = dict(attrs)
+        inert = any(t in INERT for t in self.stack)
+        if tag == "meta":
+            kind = None
+            if values.get("http-equiv", "").strip().lower() == "content-security-policy":
+                kind, wanted = "csp", CSP
+            elif values.get("name", "").strip().lower() == "referrer":
+                kind, wanted = "referrer", "no-referrer"
+            if kind:
+                active = not inert and self.stack[-1:] == ["head"] and not self.loaded
+                self.policies[kind].append((active, values.get("content") == wanted))
+        if tag not in PRE_POLICY:
+            self.loaded = True
+        if tag == "script" and "src" not in values:
+            self.problems.append("an inline script")
+        if tag == "style":
+            self.problems.append("an inline style block")
+        for name, value in attrs:
+            if name == "style":
+                self.problems.append("an inline style attribute")
+            elif name.startswith("on"):
+                self.problems.append("an inline event handler")
+            elif name == "referrerpolicy":
+                self.problems.append("an element-level referrer policy")
+            if "javascript:" in re.sub(r"[\x00-\x20]", "", value).lower():
+                self.problems.append("a javascript: URL")
+            if name in URL_ATTRS:
+                urls = [c.split()[0] for c in value.split(",") if c.split()] if "srcset" in name else [value]
+                if not all(is_relative(u) for u in urls):
+                    self.problems.append("a resource URL that is not relative")
+
+    def policy_problems(self):
+        problems = []
+        for kind, label in (("csp", "Content-Security-Policy"), ("referrer", "no-referrer")):
+            tags = self.policies[kind]
+            if not any(active and right for active, right in tags):
+                problems.append(f"missing or changed {label} meta tag" if kind == "csp"
+                                else "missing no-referrer meta tag")
+            if len(tags) > 1:
+                problems.append(f"more than one {label} meta tag")
+            if any(not active for active, _ in tags):
+                problems.append(f"a {label} meta tag outside <head>, inside inert content "
+                                "or after content")
+        return problems
+
+
 def check_page(name, text):
     problems = []
+    if not name.endswith(SOURCE_TYPES):
+        problems.append("an unsupported file type")
     if name.endswith(".html"):
-        if f'<meta http-equiv="Content-Security-Policy" content="{CSP}">' not in text:
-            problems.append("missing or changed Content-Security-Policy meta tag")
-        if '<meta name="referrer" content="no-referrer">' not in text:
-            problems.append("missing no-referrer meta tag")
-        problems += [why for pattern, why in INLINE if pattern.search(text)]
-    for m in URL.finditer(text):
-        if m.group(0) not in ALLOWED_ORIGINS:
-            problems.append("a reference to another origin")
-    return [f"{name}: {p}" for p in problems]
+        parser = PageParser()
+        parser.feed(text)
+        parser.close()
+        problems += parser.problems + parser.policy_problems()
+    if name.endswith(".css"):
+        for m in CSS_URL.finditer(text):
+            if not is_relative(m.group(1) if m.group(1) is not None else m.group(2)):
+                problems.append("a resource URL that is not relative")
+    problems += origin_problems(text)
+    return [f"{name}: {p}" for p in dict.fromkeys(problems)]
 
 
 def build(out):
