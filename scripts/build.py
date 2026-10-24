@@ -10,7 +10,10 @@ text, so a tag inside a comment, <noscript> or <template> does not count:
   except <meta> and <title> and before any text;
 - no inline script, style block, style attribute, event handler,
   javascript: URL or element-level referrer policy;
-- every URL in a URL attribute or CSS url()/@import is relative to the site;
+- no repeated attribute and no "/>" on a non-void element, where the
+  browser would read the page differently from this check;
+- every URL in a URL attribute or CSS url()/@import is relative to the site,
+  with CSS escapes decoded first;
 - no file mentions any network origin except https://api.github.com, after
   decoding escaped or encoded slashes, backslashes and colons. Hosts given
   as IP addresses, localhost and protocol-relative //host references are
@@ -65,6 +68,16 @@ def demo_js(fixture_path):
             "window.SANDBOARD_DEMO = " + body.replace("<", "\\u003c") + ";\n")
 
 
+def css_unescape(text):
+    """CSS text with escapes decoded, as the browser reads it (CSS Syntax 4.3.7)."""
+    def code_point(m):
+        n = int(m.group(1), 16)
+        return chr(n) if 0 < n <= 0x10FFFF and not 0xD800 <= n <= 0xDFFF else "\ufffd"
+    text = re.sub(r"\\([0-9A-Fa-f]{1,6})(?:\r\n|[ \t\n\r\f])?", code_point, text)
+    text = re.sub(r"\\(?:\r\n|[\n\r\f])", "", text)  # line continuation inside a string
+    return re.sub(r"\\(.)", r"\1", text)
+
+
 def is_relative(url):
     """True if a URL can only point into this site."""
     url = re.sub(r"[\t\n\r]", "", url).strip(" \x00-\x1f")
@@ -102,7 +115,11 @@ class PageParser(html.parser.HTMLParser):
             self.stack.append(tag)
 
     def handle_startendtag(self, tag, attrs):
-        self.check(tag, attrs)
+        # Browsers ignore "/>" on a non-void element: <title/> opens a title
+        # whose text swallows the tags after it.
+        if tag not in VOID:
+            self.problems.append(f"self-closing syntax on <{tag}>")
+        self.handle_starttag(tag, attrs)
 
     def handle_endtag(self, tag):
         if tag in self.stack:
@@ -114,7 +131,13 @@ class PageParser(html.parser.HTMLParser):
 
     def check(self, tag, attrs):
         attrs = [(name, value or "") for name, value in attrs]
-        values = dict(attrs)
+        names = [name for name, _ in attrs]  # already lower case
+        if len(set(names)) != len(names):
+            # Browsers keep the first of repeated attributes; refuse rather than guess.
+            self.problems.append("a repeated attribute")
+        values = {}
+        for name, value in attrs:
+            values.setdefault(name, value)
         inert = any(t in INERT for t in self.stack)
         if tag == "meta":
             kind = None
@@ -170,6 +193,7 @@ def check_page(name, text):
         parser.close()
         problems += parser.problems + parser.policy_problems()
     if name.endswith(".css"):
+        text = css_unescape(text)
         for m in CSS_URL.finditer(text):
             if not is_relative(m.group(1) if m.group(1) is not None else m.group(2)):
                 problems.append("a resource URL that is not relative")

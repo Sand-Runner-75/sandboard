@@ -151,6 +151,59 @@ class BuildTest(unittest.TestCase):
             with self.subTest(label):
                 self.assert_rejected({"index.html": change}, why)
 
+    def test_pages_the_browser_reads_differently_are_rejected(self):
+        csp_attr = 'http-equiv="Content-Security-Policy"'
+        ref_attrs = 'name="referrer" content="no-referrer"'
+        cases = {
+            "duplicate http-equiv, ineffective first": (
+                lambda t: t.replace(csp_attr, 'http-equiv="x" ' + csp_attr), "a repeated attribute"),
+            "duplicate http-equiv, other case": (
+                lambda t: t.replace(csp_attr, 'HTTP-EQUIV="x" ' + csp_attr), "a repeated attribute"),
+            "duplicate content, weaker CSP first": (
+                lambda t: t.replace(csp_attr, csp_attr + ' content="default-src *"'), "a repeated attribute"),
+            "duplicate content, weaker referrer first": (
+                lambda t: t.replace(ref_attrs, 'name="referrer" content="unsafe-url" content="no-referrer"'),
+                "a repeated attribute"),
+            "duplicate content, other case": (
+                lambda t: t.replace(ref_attrs, 'name="referrer" Content="unsafe-url" content="no-referrer"'),
+                "a repeated attribute"),
+            "duplicate name": (
+                lambda t: t.replace(ref_attrs, 'name="x" NAME="referrer" content="no-referrer"'),
+                "a repeated attribute"),
+            "self-closing title before the policies": (
+                lambda t: t.replace("<meta charset", "<title/><meta charset"), "self-closing syntax on <title>"),
+            "self-closing head": (
+                lambda t: t.replace("<head>", "<head/>"), "self-closing syntax on <head>"),
+        }
+        for label, (change, why) in cases.items():
+            with self.subTest(label):
+                self.assert_rejected({"index.html": change}, why)
+                # The policies must also count as missing, as the browser sees them.
+                if "self-closing title" in label:
+                    self.assertTrue(any("missing or changed Content-Security-Policy" in p
+                                        for p in self.build_with({"index.html": change})))
+
+    def test_css_escapes_cannot_hide_another_origin(self):
+        cases = {
+            "short hex escapes, unquoted url": r"body { background: url(\2f\2f cdn.example.org/x.png); }",
+            "short hex escapes, @import": '@import "\\2f\\2f cdn.example.org/x.css";',
+            "padded hex escapes": '@import "\\00002f\\00002f cdn.example.org/x.css";',
+            "upper-case hex, single quotes": "body { background: url('\\2F\\2F cdn.example.org/x.png'); }",
+            "escaped url identifier": r"body { background: u\72l(\2f\2f cdn.example.org/x.png); }",
+            "escaped import identifier": '@\\69mport "\\2f/cdn.example.org/x.css";',
+            "escaped slashes": 'body { background: url("\\/\\/cdn.example.org/x.png"); }',
+            "escaped scheme": r"body { background: url(htt\70 s://127.0.0.1/x.png); }",
+            "space before the url": "body { background: url(   //cdn.example.org/x.png  ); }",
+        }
+        for label, css in cases.items():
+            with self.subTest(label):
+                problems = self.build_with({"style.css": lambda t, c=css: t + "\n" + c + "\n"})
+                self.assertTrue(any("another origin" in p or "not relative" in p for p in problems),
+                                (label, problems))
+                self.assertEqual(os.listdir(self.out), [])
+        self.assertEqual(self.build_with({"style.css": lambda t: t + '\n.a::before { content: "\\2014"; }\n'
+                                                                    ".b { background: url(icons/\\61.png); }\n"}), [])
+
     def test_hidden_inline_code_is_rejected(self):
         cases = {
             "a javascript: URL": '<a href="jav&#x61;script:x()">a</a>',  # entity-encoded

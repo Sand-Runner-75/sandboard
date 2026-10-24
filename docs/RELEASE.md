@@ -11,7 +11,8 @@ The build copies `src/`, turns `fixtures/demo-workspace.json` (synthetic data) i
 - `src/` holds only `.html`, `.js` and `.css` files.
 - HTML is parsed, so a tag inside a comment, `<noscript>` or `<template>` does not count. The exact Content-Security-Policy and no-referrer meta tags must be active elements directly inside `<head>`, once each, before any element other than `<meta>` or `<title>` and before any text.
 - No inline script, style block, style attribute, event handler, `javascript:` URL or element-level `referrerpolicy`.
-- Every URL in a URL attribute (`src`, `href`, `srcset` and the like) and in CSS `url()` or `@import` is relative to the site.
+- No repeated attribute on any element and no `/>` on a non-void element (such as `<title/>`): a browser keeps the first of repeated attributes and ignores that `/>`, so it would read the page differently from this check.
+- Every URL in a URL attribute (`src`, `href`, `srcset` and the like) and in CSS `url()` or `@import` is relative to the site. CSS escapes such as `\2f` are decoded first, as the browser does.
 - No file mentions any network origin other than `https://api.github.com`, after escaped or encoded slashes, backslashes and colons are decoded. IP addresses, `localhost` and protocol-relative `//host` references count as other origins. Write code comments as `// text`, with a space.
 
 **Limit:** the origin check reads the source; it cannot see a URL built at run time (by joining strings, from character codes or by decoding). The page's Content-Security-Policy is the guard for that case: the browser refuses any connection except to the GitHub API.
