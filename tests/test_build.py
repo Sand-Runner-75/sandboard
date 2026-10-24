@@ -13,6 +13,9 @@ sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import build  # noqa: E402
 
 
+# The opening tag of the page's main element, where the rule-break cases insert markup.
+MAIN = '<main id="main" tabindex="-1">'
+
 class BuildTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -28,8 +31,8 @@ class BuildTest(unittest.TestCase):
     def test_build_succeeds_with_expected_files(self):
         self.assertEqual(build.build(self.out), [])
         self.assertEqual(sorted(os.listdir(self.out)),
-                         ["app.js", "build-manifest.json", "demo-data.js", "index.html", "sb-core.js", "sb-readers.js",
-                          "sb-render.js", "style.css"])
+                         ["app.js", "build-manifest.json", "demo-data.js", "index.html", "sb-core.js", "sb-demo.js",
+                          "sb-model.js", "sb-readers.js", "sb-render.js", "sb-views.js", "style.css"])
 
     def test_page_has_csp_referrer_and_only_external_scripts(self):
         build.build(self.out)
@@ -63,18 +66,15 @@ class BuildTest(unittest.TestCase):
         build.build(self.out)
         js = self.read("demo-data.js")
         self.assertTrue(js.split("\n", 1)[1].startswith("window.SANDBOARD_DEMO = {"))
-        fixture = os.path.join(self.tmp.name, "f.json")
-        with open(fixture, "w") as f:
-            json.dump({"projects": [{"name": "</script><b>x"}]}, f)
-        self.assertNotIn("</script>", build.demo_js(fixture))
+        self.assertNotIn("</script>", build.demo_js({"repos": {"a/b": {"files": {"x.md": "</script><b>x"}}}}))
 
     def test_rule_breaks_are_rejected(self):
         good = build.check_page("index.html", self.page())
         self.assertEqual(good, [])
         cases = {
             "an inline script": self.page().replace("</body>", "<script>x()</script></body>"),
-            "an inline event handler": self.page().replace("<main>", '<main onclick="x()">'),
-            "an inline style attribute": self.page().replace("<main>", '<main style="color:red">'),
+            "an inline event handler": self.page().replace(MAIN, '<main onclick="x()">'),
+            "an inline style attribute": self.page().replace(MAIN, '<main style="color:red">'),
             "a reference to another origin": self.page().replace("</body>", '<img src="https://cdn.example.com/a.png"></body>'),
             "missing or changed Content-Security-Policy meta tag": self.page().replace("connect-src https://api.github.com", "connect-src *"),
             "missing no-referrer meta tag": self.page().replace('<meta name="referrer" content="no-referrer">', ""),
@@ -138,7 +138,7 @@ class BuildTest(unittest.TestCase):
             "referrer after a stylesheet": (lambda t: t.replace(ref, "").replace(
                                                 "</head>", ref + "\n</head>"),
                                             "after content"),
-            "policy in the body": (lambda t: t.replace(csp, "").replace("<main>", "<main>" + csp),
+            "policy in the body": (lambda t: t.replace(csp, "").replace(MAIN, MAIN + csp),
                                    "missing or changed Content-Security-Policy meta tag"),
             "text before the policy": (lambda t: t.replace("<meta charset", "hello <meta charset"),
                                        "after content"),
@@ -214,7 +214,7 @@ class BuildTest(unittest.TestCase):
         }
         for why, tag in cases.items():
             with self.subTest(why):
-                self.assert_rejected({"index.html": lambda t: t.replace("<main>", "<main>" + tag)}, why)
+                self.assert_rejected({"index.html": lambda t: t.replace(MAIN, MAIN + tag)}, why)
 
     def test_other_origins_are_rejected_in_every_form(self):
         cases = {
@@ -244,7 +244,7 @@ class BuildTest(unittest.TestCase):
         for label, (name, snippet) in cases.items():
             with self.subTest(label):
                 if name == "index.html":
-                    change = lambda t, s=snippet: t.replace("<main>", "<main>" + s)
+                    change = lambda t, s=snippet: t.replace(MAIN, MAIN + s)
                 else:
                     change = lambda t, s=snippet: t + "\n" + s + "\n"
                 problems = self.build_with({name: change})
@@ -254,7 +254,7 @@ class BuildTest(unittest.TestCase):
 
     def test_relative_assets_and_the_api_still_pass(self):
         problems = self.build_with({
-            "index.html": lambda t: t.replace("<main>", '<main><img src="icons/a.png" alt="" '
+            "index.html": lambda t: t.replace(MAIN, MAIN + '<img src="icons/a.png" alt="" '
                                               'srcset="icons/a.png 1x, icons/a2.png 2x">'
                                               '<a href="#demo">demo</a><a href="?view=list">list</a>'),
             "app.js": lambda t: t + '\n// Calls the API only.\nfetch("https://api.github.com/user");\n'

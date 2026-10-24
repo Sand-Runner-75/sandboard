@@ -1,6 +1,6 @@
 # Read-only data layer
 
-How the app reads private project data from GitHub, and what it refuses to do. The code is in `src/sb-core.js`, `src/sb-readers.js` and `src/sb-render.js`; `src/app.js` wires it to the page.
+How the app reads private project data from GitHub, and what it refuses to do. The code is in `src/sb-core.js`, `src/sb-readers.js` and `src/sb-render.js`. The workspace views built on it are described in [WORKSPACE.md](WORKSPACE.md).
 
 ## Access
 
@@ -42,7 +42,9 @@ Read from the private plan repository named at sign-in, file `sandboard.workspac
 }
 ```
 
-`kind` is `project`, `kit` or `standalone`; `plan` may be `null` when `code` is not empty; `ref` `null` means the default branch. The four plan file paths come from this private file, so the public code names no private file.
+`kind` is `project`, `kit` (a reusable template, not a live project) or `standalone` (code only); `plan` may be `null` when `code` is not empty; `ref` `null` means the default branch. The four plan file paths come from this private file, so the public code names no private file.
+
+`files` may also name `brief` and `handover`: path templates with exactly one `{id}`, such as `"notes/{id}-brief.md"`. A task's brief or handover is the template with the task's ID (letters, digits, `.`, `_`, `-`), read at the pinned plan commit (`SB.readTaskFile`): `current` with its text, `empty`, `missing` when the task has none, `invalid` when it is not UTF-8 or the ID or template is not valid (no request is made then), or the read's own failure state. Without a template the view says the workspace names no such file.
 
 ## Plan table
 
@@ -50,12 +52,17 @@ Every Markdown table whose first header cell is `ID`, in order, with the heading
 
 ## Stored progress (`sandboard.progress/1`)
 
-The plan's own producer stores its result in the progress file. It is read at the pinned commit and checked field by field: `schema`, `ok: true`, counts, the producer and exactly two inputs (table and record) at the paths named in the workspace list with 40-hex blob SHAs, all four scopes and every phase with every figure: hours (`estimated_h`, `completed_h`, `remaining_h`) are non-negative numbers; `progress_pct` (at most 100), `tbe_rows`, `proposed_rows`, `provisional_rows` and `rows` are non-negative whole numbers; `verified` is true or false; phase IDs (`P<n>`) are unique and in order; each phase's `status_counts` has exactly the six statuses Not Started, In Progress, Blocked, Ready for Review, Done and Removed, each a non-negative whole number. Then the producer and both inputs are read at the same commit:
+The plan's own producer stores its result in the progress file. It is read at the pinned commit and checked field by field: `schema`, `ok: true`, counts, the producer and its inputs, which must include the table and the record at the paths named in the workspace list, all with 40-hex blob SHAs (a producer that reads more files names each further input with its own path and hash, up to ten in all), all four scopes and every phase with every figure: hours (`estimated_h`, `completed_h`, `remaining_h`) are non-negative numbers; `progress_pct` (at most 100), `tbe_rows`, `proposed_rows`, `provisional_rows` and `rows` are non-negative whole numbers; `verified` is true or false; phase IDs (`P<n>`) are unique and in order; each phase's `status_counts` has exactly the six statuses Not Started, In Progress, Blocked, Ready for Review, Done and Removed, each a non-negative whole number. Then the producer and every input are read at the same commit:
 
 - all three blob SHAs match: **current**, shown with its source commit and schema;
 - any differs or cannot be read: **stale**, with the reason;
 - no progress file: **unavailable**; the progress file itself denied, rate-limited or failed: that state;
 - not JSON, wrong schema, `ok` not `true` or any field wrong: **invalid**.
+
+Two blocks are additive: absent means this producer does not supply them, and present means every field is checked, or the whole result is invalid.
+
+- `stages`: a non-empty list of `{id, name, phases, gate}` with the same figures as a phase. Each named phase must be in `phases`, in at most one stage; `gate` is a name or `null`. The view shows stage figures only from here and never adds phases up.
+- `approved_results`: `{id, approval, files, rejected}` for each task whose owner approval the producer has recorded: `files` are repository-root paths (plain path segments only), `rejected` are link targets the producer refused (outside the repository, a URL, a query or fragment), shown as text and never followed. Owner approval is shown only from here; a Done status, a review verdict or passing checks never stand in for it.
 
 Figures are shown exactly as stored, never recalculated. "Current" means "matches the pinned commit"; there is no time limit, and refresh is manual.
 
@@ -63,15 +70,18 @@ Figures are shown exactly as stored, never recalculated. "Current" means "matche
 
 Read for a pinned commit, 100 per page, up to five pages. A `403` or `404` (the token has no **Checks: read**, or it is not proved) is **unavailable**, never "no checks". **Empty** only when GitHub reports none. Fewer runs read than GitHub reports, even none, is **partial**, with the coverage shown. A negative or changing total, or more runs than the total, is **invalid**.
 
+## Repository web address
+
+Pinning keeps the repository's web address from GitHub's own reply (`html_url`) when it is a plain `https` address ending in that repository's name, with no user name, password, query or fragment; otherwise none. Result-file links are built from it: `<web address>/blob/<commit>/<path>`, each path segment encoded. They open only when clicked, in a new tab with `rel="noopener noreferrer"`, and carry no token. No other web address is written in the code.
+
 ## Rendering repository text
 
 `SB.renderText` puts text only in text nodes; it never parses HTML. A word becomes a link only if it is a plain `https` address without a user name or password; links open in a new tab with `rel="noopener noreferrer"`, and trailing punctuation stays outside. Nothing from a repository is loaded: no images, frames or scripts. Binary content is not shown and text over 100,000 characters is cut, each with a notice. Hostile fixtures are in `tests/fixtures/hostile-text.json`.
 
 ## Tests
 
-`python3 -m unittest discover -s tests -v` also runs the browser-module tests in `tests/js/` with Node.js (`node --test`), against a mock of the GitHub API serving synthetic repositories. Node.js 20 or later is needed.
+`python3 -m unittest discover -s tests -v` also runs the browser-module tests in `tests/js/` with Node.js (`node --test`), against a mock of the GitHub API serving synthetic repositories. Node.js 20 or later is needed. The workspace checks (`tests/test_browser.py`, `tests/test_style.py`, `tests/test_demo.py`) are described in [WORKSPACE.md](WORKSPACE.md).
 
 ## Not covered yet
 
 - The same lifecycle checks on the published site's own origin, with synthetic data, before first private use there (publishing is off).
-- A private read of the owner's real repositories with a real token, run by the owner from a local copy of the built site.

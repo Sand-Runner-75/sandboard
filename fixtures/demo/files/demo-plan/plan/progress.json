@@ -1,0 +1,340 @@
+{
+ "schema": "sandboard.progress/1",
+ "ok": true,
+ "producer": {
+  "path": "tools/progress.py",
+  "blob_sha": "175c9f99ef7d9915d73ef44a34d40dda02e22ca4"
+ },
+ "inputs": {
+  "table": {
+   "path": "plan/tasks.md",
+   "blob_sha": "950adb36c38984ba6616913b60729c7fb2fddb78"
+  },
+  "record": {
+   "path": "plan/record.md",
+   "blob_sha": "47c737cfa5105441ef7a92beb5a37399e0efbc07"
+  }
+ },
+ "subtasks": 14,
+ "steps": 1,
+ "scopes": {
+  "Pilot": {
+   "estimated_h": 27,
+   "completed_h": 4,
+   "remaining_h": 23,
+   "progress_pct": 14,
+   "verified": false,
+   "tbe_rows": 2,
+   "proposed_rows": 4,
+   "provisional_rows": 0,
+   "rows": 9
+  },
+  "MVP": {
+   "estimated_h": 27,
+   "completed_h": 4,
+   "remaining_h": 23,
+   "progress_pct": 14,
+   "verified": false,
+   "tbe_rows": 3,
+   "proposed_rows": 4,
+   "provisional_rows": 0,
+   "rows": 10
+  },
+  "Post-MVP": {
+   "estimated_h": 0,
+   "completed_h": 0,
+   "remaining_h": 0,
+   "progress_pct": 0,
+   "verified": true,
+   "tbe_rows": 0,
+   "proposed_rows": 0,
+   "provisional_rows": 0,
+   "rows": 0
+  },
+  "Whole project": {
+   "estimated_h": 27,
+   "completed_h": 4,
+   "remaining_h": 23,
+   "progress_pct": 14,
+   "verified": false,
+   "tbe_rows": 3,
+   "proposed_rows": 4,
+   "provisional_rows": 0,
+   "rows": 10
+  }
+ },
+ "phases": [
+  {
+   "id": "P1",
+   "name": "Discovery",
+   "estimated_h": 9,
+   "completed_h": 4,
+   "remaining_h": 5,
+   "progress_pct": 44,
+   "verified": true,
+   "tbe_rows": 0,
+   "proposed_rows": 2,
+   "provisional_rows": 0,
+   "rows": 4,
+   "status_counts": {
+    "Blocked": 0,
+    "Done": 3,
+    "In Progress": 0,
+    "Not Started": 0,
+    "Ready for Review": 1,
+    "Removed": 0
+   }
+  },
+  {
+   "id": "P2",
+   "name": "Definition",
+   "estimated_h": 4,
+   "completed_h": 0,
+   "remaining_h": 4,
+   "progress_pct": 0,
+   "verified": false,
+   "tbe_rows": 1,
+   "proposed_rows": 1,
+   "provisional_rows": 0,
+   "rows": 2,
+   "status_counts": {
+    "Blocked": 0,
+    "Done": 0,
+    "In Progress": 1,
+    "Not Started": 1,
+    "Ready for Review": 0,
+    "Removed": 1
+   }
+  },
+  {
+   "id": "P3",
+   "name": "Access check",
+   "estimated_h": 0,
+   "completed_h": 0,
+   "remaining_h": 0,
+   "progress_pct": 0,
+   "verified": true,
+   "tbe_rows": 0,
+   "proposed_rows": 0,
+   "provisional_rows": 0,
+   "rows": 0,
+   "status_counts": {
+    "Blocked": 0,
+    "Done": 0,
+    "In Progress": 0,
+    "Not Started": 0,
+    "Ready for Review": 0,
+    "Removed": 2
+   }
+  },
+  {
+   "id": "P4",
+   "name": "First build",
+   "estimated_h": 14,
+   "completed_h": 0,
+   "remaining_h": 14,
+   "progress_pct": 0,
+   "verified": true,
+   "tbe_rows": 0,
+   "proposed_rows": 1,
+   "provisional_rows": 0,
+   "rows": 2,
+   "status_counts": {
+    "Blocked": 1,
+    "Done": 0,
+    "In Progress": 0,
+    "Not Started": 1,
+    "Ready for Review": 0,
+    "Removed": 0
+   }
+  },
+  {
+   "id": "P5",
+   "name": "Private pilot",
+   "estimated_h": 0,
+   "completed_h": 0,
+   "remaining_h": 0,
+   "progress_pct": 0,
+   "verified": false,
+   "tbe_rows": 1,
+   "proposed_rows": 0,
+   "provisional_rows": 0,
+   "rows": 1,
+   "status_counts": {
+    "Blocked": 0,
+    "Done": 0,
+    "In Progress": 0,
+    "Not Started": 1,
+    "Ready for Review": 0,
+    "Removed": 0
+   }
+  },
+  {
+   "id": "P6",
+   "name": "Release",
+   "estimated_h": 0,
+   "completed_h": 0,
+   "remaining_h": 0,
+   "progress_pct": 0,
+   "verified": false,
+   "tbe_rows": 1,
+   "proposed_rows": 0,
+   "provisional_rows": 0,
+   "rows": 1,
+   "status_counts": {
+    "Blocked": 0,
+    "Done": 0,
+    "In Progress": 0,
+    "Not Started": 1,
+    "Ready for Review": 0,
+    "Removed": 0
+   }
+  },
+  {
+   "id": "P7",
+   "name": "Grow",
+   "estimated_h": 0,
+   "completed_h": 0,
+   "remaining_h": 0,
+   "progress_pct": 0,
+   "verified": true,
+   "tbe_rows": 0,
+   "proposed_rows": 0,
+   "provisional_rows": 0,
+   "rows": 0,
+   "status_counts": {
+    "Blocked": 0,
+    "Done": 0,
+    "In Progress": 0,
+    "Not Started": 0,
+    "Ready for Review": 0,
+    "Removed": 1
+   }
+  }
+ ],
+ "stages": [
+  {
+   "id": "S1",
+   "name": "Prepare",
+   "phases": [
+    "P1",
+    "P2"
+   ],
+   "gate": "Scope gate",
+   "estimated_h": 13,
+   "completed_h": 4,
+   "remaining_h": 9,
+   "progress_pct": 30,
+   "verified": false,
+   "tbe_rows": 1,
+   "proposed_rows": 3,
+   "provisional_rows": 0,
+   "rows": 6
+  },
+  {
+   "id": "S2",
+   "name": "Design",
+   "phases": [
+    "P3"
+   ],
+   "gate": "Design freeze",
+   "estimated_h": 0,
+   "completed_h": 0,
+   "remaining_h": 0,
+   "progress_pct": 0,
+   "verified": true,
+   "tbe_rows": 0,
+   "proposed_rows": 0,
+   "provisional_rows": 0,
+   "rows": 0
+  },
+  {
+   "id": "S3",
+   "name": "Build",
+   "phases": [
+    "P4"
+   ],
+   "gate": "Pilot go/no-go",
+   "estimated_h": 14,
+   "completed_h": 0,
+   "remaining_h": 14,
+   "progress_pct": 0,
+   "verified": true,
+   "tbe_rows": 0,
+   "proposed_rows": 1,
+   "provisional_rows": 0,
+   "rows": 2
+  },
+  {
+   "id": "S4",
+   "name": "Pilot",
+   "phases": [
+    "P5"
+   ],
+   "gate": "Version 1 go-live",
+   "estimated_h": 0,
+   "completed_h": 0,
+   "remaining_h": 0,
+   "progress_pct": 0,
+   "verified": false,
+   "tbe_rows": 1,
+   "proposed_rows": 0,
+   "provisional_rows": 0,
+   "rows": 1
+  },
+  {
+   "id": "S5",
+   "name": "Release",
+   "phases": [
+    "P6"
+   ],
+   "gate": "Launch go/no-go",
+   "estimated_h": 0,
+   "completed_h": 0,
+   "remaining_h": 0,
+   "progress_pct": 0,
+   "verified": false,
+   "tbe_rows": 1,
+   "proposed_rows": 0,
+   "provisional_rows": 0,
+   "rows": 1
+  },
+  {
+   "id": "S6",
+   "name": "Grow",
+   "phases": [
+    "P7"
+   ],
+   "gate": null,
+   "estimated_h": 0,
+   "completed_h": 0,
+   "remaining_h": 0,
+   "progress_pct": 0,
+   "verified": true,
+   "tbe_rows": 0,
+   "proposed_rows": 0,
+   "provisional_rows": 0,
+   "rows": 0
+  }
+ ],
+ "approved_results": [
+  {
+   "id": "DT101",
+   "approval": "PR #3",
+   "files": [
+    "notes/DT101-findings.md"
+   ],
+   "rejected": []
+  },
+  {
+   "id": "DT104",
+   "approval": "PR #3",
+   "files": [
+    "notes/DT104-summary.md"
+   ],
+   "rejected": [
+    "../../outside.md"
+   ]
+  }
+ ]
+}

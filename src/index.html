@@ -11,34 +11,68 @@
 <script src="sb-core.js" defer></script>
 <script src="sb-readers.js" defer></script>
 <script src="sb-render.js" defer></script>
+<script src="sb-model.js" defer></script>
+<script src="sb-demo.js" defer></script>
+<script src="sb-views.js" defer></script>
 <script src="app.js" defer></script>
 </head>
 <body>
-<header>
-  <h1>Sandboard</h1>
-  <p class="state" id="state">Signed out</p>
-</header>
-<main>
-  <section id="signed-out">
-    <p>Sandboard shows your projects' tasks, progress, reviews and GitHub activity. Nothing is loaded until you sign in, and nothing you load is kept after you leave.</p>
-    <form id="connect" autocomplete="off">
-      <label>Plan repository <input id="plan-repo" name="plan-repo" placeholder="owner/repo or owner/repo@branch" spellcheck="false" required></label>
-      <label>Read-only token <input id="token" name="token" type="password" autocomplete="off" required></label>
-      <button type="submit">Connect</button>
-    </form>
-    <p class="note">The token stays in this page's memory only. Leaving, reloading or "Forget token" drops it and everything read with it.</p>
-    <button type="button" id="show-demo">Show synthetic demo</button>
-  </section>
-  <section id="private" hidden>
-    <p id="private-state" role="status"></p>
-    <button type="button" id="forget">Forget token</button>
-    <ul id="workspaces"></ul>
-  </section>
-  <section id="demo" hidden>
-    <p class="note">Synthetic demo data. These projects are made up.</p>
-    <ul id="projects"></ul>
-  </section>
-</main>
+<a class="skip" href="#main">Skip to content</a>
+<div class="shell" id="shell">
+  <header class="top">
+    <button type="button" class="tool menu-btn" id="menu" aria-expanded="false" aria-controls="side">Menu</button>
+    <div class="brand">Sandboard <small class="muted" id="mode">read-only</small></div>
+    <button type="button" class="tool" id="goto-open" aria-keyshortcuts="Control+K Meta+K" disabled>Go to… <kbd>Ctrl K</kbd></button>
+    <div class="seg" role="group" aria-label="Theme">
+      <button type="button" data-theme-choice="device" aria-pressed="true">Device</button>
+      <button type="button" data-theme-choice="light" aria-pressed="false">Light</button>
+      <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
+    </div>
+    <button type="button" class="tool" id="help-open" aria-keyshortcuts="?">Help <kbd>?</kbd></button>
+    <button type="button" class="tool" id="refresh" hidden>Refresh</button>
+    <button type="button" class="tool" id="forget" hidden>Forget access</button>
+  </header>
+  <nav class="side" id="side" aria-label="Workspace">
+    <ul class="tree" role="tree" aria-label="Projects" id="tree"></ul>
+  </nav>
+  <main id="main" tabindex="-1">
+    <p class="state" id="state" role="status">Signed out</p>
+    <section id="signed-out" class="signed-out" aria-labelledby="signed-out-h">
+      <h1 id="signed-out-h">Sign in to read your projects</h1>
+      <p class="plain">Sandboard shows your projects' tasks and progress exactly as your plan repository records them. It only reads: nothing here can change a plan, a task or a repository. Nothing is loaded until you sign in, and nothing you load is kept after you leave.</p>
+      <form id="connect" autocomplete="off">
+        <label>Plan repository <input id="plan-repo" name="plan-repo" placeholder="owner/repo or owner/repo@branch" spellcheck="false" required></label>
+        <label>Read-only token <input id="token" name="token" type="password" autocomplete="off" required></label>
+        <div class="actions"><button type="submit" class="btn">Connect</button></div>
+      </form>
+      <p class="plain muted">The token stays in this page's memory only. Leaving, reloading or "Forget access" drops it and everything read with it.</p>
+      <div class="actions"><button type="button" class="btn ghost" id="show-demo">Show the synthetic demo</button></div>
+    </section>
+    <div id="workspace" class="stack" hidden></div>
+  </main>
+</div>
+<dialog id="help" aria-labelledby="help-title">
+  <h2 id="help-title">Keyboard</h2>
+  <dl class="props help-keys">
+    <dt><kbd>Ctrl K</kbd> <kbd>⌘K</kbd></dt><dd>Go to a project, a view or a task</dd>
+    <dt><kbd>/</kbd></dt><dd>Search tasks</dd>
+    <dt><kbd>↑</kbd> <kbd>↓</kbd> <kbd>Home</kbd> <kbd>End</kbd></dt><dd>Move in the tree and in the task list</dd>
+    <dt><kbd>→</kbd> <kbd>←</kbd> in the tree</dt><dd>Open a group, close it or go to its parent</dd>
+    <dt><kbd>Enter</kbd></dt><dd>Open the item; in the task list, show its details</dd>
+    <dt><kbd>T</kbd></dt><dd>Open the task as a tab</dd>
+    <dt><kbd>←</kbd> <kbd>→</kbd> on tabs</dt><dd>Move between tabs; <kbd>Delete</kbd> closes one</dd>
+    <dt><kbd>Esc</kbd></dt><dd>Close the details, this help or Go to</dd>
+  </dl>
+  <p class="muted">Sandboard only reads. There is no button that edits, assigns, merges, reviews, re-runs or publishes anything.</p>
+  <div class="actions"><button type="button" class="btn" id="help-close">Close</button></div>
+</dialog>
+<dialog id="goto" aria-labelledby="goto-title">
+  <h2 id="goto-title" class="sr">Go to</h2>
+  <input id="goto-q" type="text" placeholder="Go to a project, a view or a task" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="goto-list" aria-autocomplete="list" aria-label="Go to">
+  <ul class="goto-list" id="goto-list" role="listbox" aria-label="Places"></ul>
+  <p class="muted qual">Goes to places only. It does not search inside files, pull requests or decisions.</p>
+</dialog>
+<div id="live" class="sr" role="status" aria-live="polite"></div>
 <noscript>Sandboard needs JavaScript.</noscript>
 </body>
 </html>

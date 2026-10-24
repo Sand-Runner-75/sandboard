@@ -1,0 +1,44 @@
+{
+ "schema": "sandboard.workspaces/1",
+ "workspaces": [
+  {
+   "id": "demo", "label": "Demo Project", "kind": "project",
+   "plan": {"repo": "example-org/demo-plan", "ref": null,
+            "files": {"progress": "plan/progress.json", "producer": "tools/progress.py", "table": "plan/tasks.md",
+                      "record": "plan/record.md", "brief": "notes/{id}-brief.md", "handover": "notes/{id}-handover.md"}},
+   "code": [{"repo": "example-org/demo-app", "ref": null, "role": "app"}]
+  },
+  {
+   "id": "second", "label": "Second Project", "kind": "project",
+   "plan": {"repo": "example-org/second-plan", "ref": null,
+            "files": {"progress": "plan/progress.json", "producer": "tools/progress.py", "table": "plan/tasks.md",
+                      "record": "plan/record.md"}},
+   "code": [{"repo": "example-org/second-site", "ref": null, "role": "site"}]
+  },
+  {
+   "id": "notes", "label": "Plan-only Notes", "kind": "project",
+   "plan": {"repo": "example-org/notes-plan", "ref": null,
+            "files": {"progress": "plan/progress.json", "producer": "tools/progress.py", "table": "plan/tasks.md",
+                      "record": "plan/record.md"}},
+   "code": []
+  },
+  {
+   "id": "kit", "label": "Starter Kit", "kind": "kit",
+   "plan": {"repo": "example-org/starter-kit", "ref": null,
+            "files": {"progress": "plan/progress.json", "producer": "tools/progress.py", "table": "plan/tasks.md",
+                      "record": "plan/record.md"}},
+   "code": []
+  },
+  {
+   "id": "locked", "label": "Locked Project", "kind": "project",
+   "plan": {"repo": "example-org/locked-plan", "ref": null,
+            "files": {"progress": "plan/progress.json", "producer": "tools/progress.py", "table": "plan/tasks.md",
+                      "record": "plan/record.md"}},
+   "code": [{"repo": "example-org/locked-app", "ref": null, "role": "app"}]
+  },
+  {
+   "id": "tools", "label": "Tools", "kind": "standalone", "plan": null,
+   "code": [{"repo": "example-org/tools", "ref": null, "role": "library"}]
+  }
+ ]
+}

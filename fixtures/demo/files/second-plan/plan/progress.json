@@ -1,0 +1,89 @@
+{
+ "schema": "sandboard.progress/1",
+ "ok": true,
+ "producer": {
+  "path": "tools/progress.py",
+  "blob_sha": "b40477d8540145d6a12ddffc9395a3af6e8e786f"
+ },
+ "inputs": {
+  "table": {
+   "path": "plan/tasks.md",
+   "blob_sha": "1913ec117a9e7d89cacd00ed5db44296a2c260f6"
+  },
+  "record": {
+   "path": "plan/record.md",
+   "blob_sha": "8e65edb3521d20a058fc76ac71e7884f94968d02"
+  }
+ },
+ "subtasks": 2,
+ "steps": 0,
+ "scopes": {
+  "Pilot": {
+   "estimated_h": 4,
+   "completed_h": 1,
+   "remaining_h": 3,
+   "progress_pct": 25,
+   "verified": true,
+   "tbe_rows": 0,
+   "proposed_rows": 1,
+   "provisional_rows": 0,
+   "rows": 2
+  },
+  "MVP": {
+   "estimated_h": 4,
+   "completed_h": 1,
+   "remaining_h": 3,
+   "progress_pct": 25,
+   "verified": true,
+   "tbe_rows": 0,
+   "proposed_rows": 1,
+   "provisional_rows": 0,
+   "rows": 2
+  },
+  "Whole project": {
+   "estimated_h": 4,
+   "completed_h": 1,
+   "remaining_h": 3,
+   "progress_pct": 25,
+   "verified": true,
+   "tbe_rows": 0,
+   "proposed_rows": 1,
+   "provisional_rows": 0,
+   "rows": 2
+  },
+  "Post-MVP": {
+   "estimated_h": 0,
+   "completed_h": 0,
+   "remaining_h": 0,
+   "progress_pct": 0,
+   "verified": true,
+   "tbe_rows": 0,
+   "proposed_rows": 0,
+   "provisional_rows": 0,
+   "rows": 0
+  }
+ },
+ "phases": [
+  {
+   "id": "P1",
+   "name": "Start",
+   "estimated_h": 4,
+   "completed_h": 1,
+   "remaining_h": 3,
+   "progress_pct": 25,
+   "verified": true,
+   "tbe_rows": 0,
+   "proposed_rows": 1,
+   "provisional_rows": 0,
+   "rows": 2,
+   "status_counts": {
+    "Blocked": 0,
+    "Done": 1,
+    "In Progress": 1,
+    "Not Started": 0,
+    "Ready for Review": 0,
+    "Removed": 0
+   }
+  }
+ ]
+}

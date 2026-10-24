@@ -1,8 +1,11 @@
 "use strict";
-// App shell. Private data never comes from this file or this site: it is read
-// from GitHub at run time with the owner's read-only token and kept in memory
-// only. Leaving the page, reloading, "Forget token" or a refused token drops
-// the token and everything read with it.
+// App shell and access lifecycle. Private data never comes from this file or
+// this site: it is read from GitHub at run time with the owner's read-only
+// token and kept in memory only. Forget access, leaving the page, a page
+// restored from the back/forward cache and a refused token all end the
+// session and clear every surface: tree, views, task details, tabs, Go to,
+// dialogs and announcements. The synthetic demo runs the same readers and
+// views against made-up repositories, with no network and no token.
 
 (function () {
   const root = document.documentElement;
@@ -17,153 +20,430 @@
   root.classList.remove("pending");
 
   const SB = window.SB;
+  const V = SB.views;
   const $ = id => document.getElementById(id);
-  const projectsEl = $("projects");
-  const workspacesEl = $("workspaces");
-  const session = SB.createSession();
-  const client = SB.createClient(session);
+  const gotoBox = $("goto");
+  const helpBox = $("help");
 
-  // Text only: data is never parsed as HTML.
-  function el(tag, text, className) {
-    const node = document.createElement(tag);
-    if (text !== undefined) node.textContent = String(text);
-    if (className) node.className = className;
-    return node;
+  let session = null;
+  let client = null;
+
+  // Everything shown comes from here, and everything here is dropped on sign-out.
+  function freshState() {
+    return {
+      signedIn: false, demo: false, planRepo: "", run: null,
+      list: { state: "loading" }, entries: [], current: null,
+      view: { kind: "overview" }, filters: { q: "", phase: "", status: "", doer: "" }, selected: null,
+      tabs: [], activeTab: null, docs: new Map(),
+      expanded: new Set(["g:projects"]), treeFocus: null,
+    };
+  }
+  let S = freshState();
+
+  // ---- Rendering
+
+  function render() {
+    $("goto-open").disabled = !S.signedIn;
+    $("refresh").hidden = !S.signedIn;
+    $("forget").hidden = !S.signedIn;
+    $("forget").textContent = S.demo ? "Leave demo" : "Forget access";
+    $("mode").textContent = !S.signedIn ? "read-only" : S.demo ? "synthetic demo · made-up data" : "private · read-only";
+    $("signed-out").hidden = S.signedIn;
+    $("workspace").hidden = !S.signedIn;
+    const focus = focusMark();
+    V.tree(S, A);
+    V.main(S, A);
+    restoreFocus(focus);
+    if (gotoBox.open) renderGoto();  // an open Go to never keeps places the current access no longer allows
   }
 
-  // ---- Synthetic demo
-
-  function renderProject(project) {
-    const li = el("li");
-    li.append(el("strong", project.name));
-    const pct = Math.max(0, Math.min(100, Number(project.progress) || 0));
-    li.append(el("div", pct + "% of baseline hours", "note"));
-    const bar = el("div", undefined, "bar");
-    const fill = el("span");
-    fill.style.width = pct + "%";
-    bar.append(fill);
-    li.append(bar);
-    const tasks = el("ul");
-    for (const task of project.tasks || []) {
-      tasks.append(el("li", task.id + " " + task.title + " (" + task.status + ")"));
+  // Views are rebuilt on every change; keep keyboard focus on the same item when it is still there.
+  const MARKS = ["id", "data-id", "data-key", "data-phase", "data-stage", "data-copy"];
+  function focusMark() {
+    const a = document.activeElement;
+    if (!a || !(a.closest("#workspace") || a.closest("#tree"))) return null;
+    const mark = { area: a.closest("#tree") ? "tree" : "workspace", tag: a.tagName };
+    for (const m of MARKS) if (a.hasAttribute(m)) mark[m] = a.getAttribute(m);
+    if (a.tagName === "INPUT") mark.caret = a.selectionStart;
+    return mark;
+  }
+  function restoreFocus(mark) {
+    if (!mark || (document.activeElement && document.activeElement !== document.body)) return;
+    for (const n of $(mark.area).querySelectorAll(mark.tag)) {
+      if (MARKS.every(m => (mark[m] === undefined) === !n.hasAttribute(m) && (mark[m] === undefined || n.getAttribute(m) === mark[m]))) {
+        n.focus({ preventScroll: true });
+        if (mark.caret !== undefined && mark.caret !== null) n.setSelectionRange(mark.caret, mark.caret);
+        return;
+      }
     }
-    li.append(tasks);
-    return li;
   }
 
-  $("show-demo").addEventListener("click", function () {
-    const demo = window.SANDBOARD_DEMO || { projects: [] };
-    projectsEl.replaceChildren(...demo.projects.map(renderProject));
-    $("signed-out").hidden = true;
-    $("demo").hidden = false;
-    $("state").textContent = "Demo (synthetic data)";
-  });
-
-  // ---- Private read (read-only token, memory only)
-
-  function endSession(notice) {
-    session.forget();
-    $("token").value = "";
-    workspacesEl.replaceChildren();
-    $("private").hidden = true;
-    $("signed-out").hidden = false;
-    $("state").textContent = "Signed out";
-    $("private-state").textContent = "";
-    if (notice) $("state").textContent = notice;
+  let liveTimer;
+  function announce(text) {
+    clearTimeout(liveTimer);
+    $("live").textContent = text;
+    liveTimer = setTimeout(() => { $("live").textContent = ""; }, 4000);
   }
 
-  function line(label, r) {
-    // One labelled result; the state is always shown, never hidden behind a number.
-    const item = el("li", undefined, "result " + r.state);
-    item.append(el("strong", label + ": "));
-    item.append(el("span", r.state, "state-label"));
-    if (r.error) item.append(el("span", " (" + r.error + ")"));
-    return item;
+  // ---- Reading
+
+  function entryFrom(w, entries) {
+    const of = kind => entries.filter(x => x.kind === kind).map(x => x.result);
+    const plan = w.plan ? of("plan")[0] || null : null;
+    const table = of("table")[0] || null;
+    const pins = of("code");
+    const checks = of("checks");
+    let k = 0;
+    const code = w.code.map((c, i) => {
+      const pinned = pins[i] || null;
+      return { c, pinned, checks: pinned && pinned.state === "current" ? checks[k++] || null : null };
+    });
+    const tasks = table && table.state === "current" ? SB.tasksFrom(table.data.rows) : [];
+    return { w, loading: false, plan, table, progress: of("progress")[0] || null, code, tasks };
   }
 
-  function short(sha) {
-    return typeof sha === "string" ? sha.slice(0, 7) : "";
+  async function load(ctx) {
+    S.run = ctx;
+    S.list = { state: "loading" };
+    S.entries = [];
+    render();
+    try {
+      const target = SB.parseRepoRef(S.planRepo);
+      const list = await SB.readWorkspaces(ctx, client, target.repo, target.ref);
+      session.alive(ctx);
+      S.list = list;
+      if (list.state !== "current") { S.tabs = []; S.activeTab = null; S.selected = null; render(); return; }
+      S.entries = list.data.workspaces.map(w => ({ w, loading: true, plan: null, table: null, progress: null,
+                                                   code: w.code.map(c => ({ c, pinned: null, checks: null })), tasks: [] }));
+      if (!S.entries.some(e => e.w.id === S.current)) { S.current = S.entries[0].w.id; S.view = { kind: "overview" }; }
+      for (const e of S.entries) for (const g of ["p:", "stages:"]) S.expanded.add(g + e.w.id);
+      render();
+      for (let i = 0; i < S.entries.length; i++) {
+        const w = S.entries[i].w;
+        const read = await SB.readWorkspace(ctx, client, w);
+        session.alive(ctx);
+        S.entries[i] = entryFrom(w, read);
+        dropUnreadableTabs(S.entries[i]);
+        render();
+        if (w.id === S.current && S.selected) loadDocs(S.entries[i], S.selected);
+      }
+      announce("Reading finished.");
+    } catch (err) {
+      if (err instanceof SB.Revoked) { endSession("revoked"); return; }
+      try { session.alive(ctx); } catch (e) { return; }  // a newer run or an ended session: show nothing
+      S.list = SB.result("failed", null, null, { error: err instanceof SB.NotAllowed ? err.message : "browser error (" + err.name + ")" });
+      render();
+    }
   }
 
-  // Extra text for a result that has data; every state is already shown by line().
-  function detail(entry) {
-    const r = entry.result;
-    if (!r.data) return "";
-    if (entry.kind === "plan" || entry.kind === "code") {
-      return " at " + r.data.ref + " " + short(r.data.commit) + (r.data.date ? ", committed " + r.data.date : "");
+  // A plan that can no longer be read shows none of its tasks, in tabs either.
+  function dropUnreadableTabs(entry) {
+    if (V.tableState(entry) === "current") return;
+    S.tabs = S.tabs.filter(t => t.project !== entry.w.id);
+    if (S.activeTab && !S.tabs.some(t => t.key === S.activeTab)) S.activeTab = null;
+    if (entry.w.id === S.current) S.selected = null;
+  }
+
+  const docKey = (project, commit, kind, id) => [project, commit, kind, id].join("|");
+
+  // The task's brief and handover, read once per commit and kept in memory with the rest.
+  async function loadDocs(entry, id) {
+    if (V.planState(entry) !== "current") return;
+    const ctx = S.run;
+    const commit = entry.plan.data.commit;
+    for (const kind of ["brief", "handover"]) {
+      const template = entry.w.plan.files[kind];
+      const key = docKey(entry.w.id, commit, kind, id);
+      if (!template || S.docs.has(key)) continue;
+      S.docs.set(key, { state: "loading" });
+      try {
+        const res = await SB.readTaskFile(ctx, client, entry.w.plan.repo, commit, template, id);
+        session.alive(ctx);
+        S.docs.set(key, res);
+        render();
+      } catch (err) {
+        if (err instanceof SB.Revoked) { endSession("revoked"); return; }
+        try { session.alive(ctx); } catch (e) { return; }
+        S.docs.set(key, SB.result("failed", null, null, { error: "browser error (" + err.name + ")" }));
+        render();
+      }
     }
-    if (entry.kind === "table") {
-      return ", " + r.data.rows.length + " rows" + (r.data.invalid ? ", " + r.data.invalid + " invalid" : "");
-    }
-    if (entry.kind === "progress") {
-      const whole = r.data.scopes["Whole project"];
-      return ", whole project " + whole.progress_pct + "%" + (whole.verified ? "" : " (not verified)") + ", " +
-        r.data.phases.length + " phases, from " + r.schema + " at " + short(r.source.commit);
-    }
-    if (entry.kind === "checks") {
-      const failing = r.data.runs.filter(x => x.conclusion && !["success", "neutral", "skipped"].includes(x.conclusion)).length;
-      return (r.data.runs.length ? ", " + r.data.runs.length + " runs, " + failing + " not passing" : "") +
-        (r.coverage ? ", " + r.coverage.shown + " of " + r.coverage.total + " read" : "");
-    }
-    return "";
+  }
+
+  function start(demo) {
+    S = freshState();
+    session = SB.createSession();
+    client = SB.createClient(session, demo ? SB.demoServer(window.SANDBOARD_DEMO) : undefined);
+    S.signedIn = true;
+    S.demo = demo;
   }
 
   async function connect(event) {
     event.preventDefault();
     const typed = $("token").value.trim();
     $("token").value = "";
-    const target = SB.parseRepoRef($("plan-repo").value.trim());
-    if (!typed || !target) {
+    const planRepo = $("plan-repo").value.trim();
+    if (!typed || !SB.parseRepoRef(planRepo)) {
       $("state").textContent = !typed ? "Enter a read-only token." : "Enter the plan repository as owner/repo or owner/repo@branch.";
       return;
     }
-    workspacesEl.replaceChildren();
+    start(false);
+    S.planRepo = planRepo;
+    $("state").textContent = "Signed in. The token is in this page's memory only.";
     const ctx = session.start(typed);
-    $("signed-out").hidden = true;
-    $("demo").hidden = true;
-    $("private").hidden = false;
-    $("state").textContent = "Signed in (token in memory only)";
-    $("private-state").textContent = "Reading…";
-    try {
-      const ws = await SB.readWorkspaces(ctx, client, target.repo, target.ref);
-      session.alive(ctx);
-      if (ws.state !== "current") {
-        $("private-state").textContent = "Workspace list: " + ws.state + (ws.error ? " (" + ws.error + ")" : "");
-        return;
-      }
-      $("private-state").textContent = "Workspace list current at " + short(ws.data.commit) + ": " +
-        ws.data.workspaces.length + " workspaces";
-      for (const w of ws.data.workspaces) {
-        const item = el("li", undefined, "workspace");
-        item.append(el("h2", w.label));
-        const list = el("ul");
-        item.append(list);
-        workspacesEl.append(item);
-        const entries = await SB.readWorkspace(ctx, client, w);
-        session.alive(ctx);
-        for (const entry of entries) {
-          const row = line(entry.label, entry.result);
-          const extra = detail(entry);
-          if (extra) row.append(el("span", extra));
-          list.append(row);
-        }
-      }
-      session.alive(ctx);
-      $("private-state").textContent += "; reading finished";
-    } catch (err) {
-      if (err instanceof SB.Revoked) {
-        endSession("Denied: the token is invalid, expired or revoked. Everything read with it was cleared.");
-        return;
-      }
-      try { session.alive(ctx); } catch (e) { return; }  // a newer run or a forgotten session: show nothing
-      $("private-state").textContent = "Reading stopped: " + (err instanceof SB.NotAllowed ? err.message : "network or browser error (" + err.name + ")");
-    }
+    $("main").focus();
+    await load(ctx);
   }
 
+  async function showDemo() {
+    start(true);
+    S.planRepo = window.SANDBOARD_DEMO.sign_in;
+    $("state").textContent = "Synthetic demo: every project here is made up. Nothing is read from GitHub.";
+    const ctx = session.start("synthetic-demo");
+    $("main").focus();
+    await load(ctx);
+  }
+
+  // Ends the session and clears every surface. why: forget | left | restored | revoked | demo
+  function endSession(why) {
+    if (session) session.forget();
+    session = null;
+    client = null;
+    S = freshState();
+    $("token").value = "";
+    if (gotoBox.open) gotoBox.close();
+    if (helpBox.open) helpBox.close();
+    $("goto-list").replaceChildren();
+    $("goto-q").value = "";
+    clearTimeout(liveTimer);
+    $("live").textContent = "";
+    setMenu(false);
+    render();
+    $("state").textContent = {
+      forget: "Access forgotten. The token and everything read with it were cleared, and open tabs were closed.",
+      demo: "Left the demo.",
+      left: "Signed out when you left the page.",
+      restored: "Page restored: signed out, nothing old is kept.",
+      revoked: "No access: the token is invalid, expired or revoked. Everything read with it was cleared.",
+    }[why] || "Signed out";
+  }
+
+  // ---- Actions the views call
+
+  const entryOf = id => S.entries.find(e => e.w.id === id);
+
+  const A = {
+    render,
+    docKey,
+    closeMenu: () => setMenu(false),
+    go(project, view, opts) {
+      if (project !== S.current) { S.filters = { q: "", phase: "", status: "", doer: "" }; S.selected = null; }
+      S.current = project;
+      S.view = view;
+      S.activeTab = null;
+      if (opts && opts.phase !== undefined) S.filters = { q: "", phase: opts.phase, status: "", doer: "" };
+      if (opts && opts.select !== undefined) S.selected = opts.select;
+      render();
+      if (S.selected) loadDocs(entryOf(project), S.selected);
+      if (opts && opts.focus) { const n = $(opts.focus); if (n) { n.focus(); return; } }
+      $("main").focus();
+    },
+    showStage(project, stage) { A.go(project, { kind: "overview", stage: stage || null }); },
+    showPhase(project, phase) { A.go(project, { kind: "tasks" }, { phase, focus: "tasks-h" }); },
+    setFilter(key, value, focusId) {
+      S.filters[key] = value;
+      if (key !== "q") S.selected = null;
+      const caret = key === "q" ? $("q").selectionStart : null;
+      render();
+      const n = $(focusId);
+      if (n) { n.focus(); if (caret !== null) n.setSelectionRange(caret, caret); }
+    },
+    select(id) {
+      S.selected = id;
+      render();
+      focusRow(id);
+      loadDocs(entryOf(S.current), id);
+    },
+    closeDetails() {
+      const id = S.selected;
+      S.selected = null;
+      render();
+      focusRow(id);
+    },
+    visibleTabs: () => S.tabs.filter(t => t.project === S.current),
+    openTab(project, id) {
+      const entry = entryOf(project);
+      if (!entry || !V.rowsVisible(entry)) return;
+      const task = entry.tasks.find(t => t.id === id && !t.invalid);
+      if (!task) return;
+      const key = SB.tabKey(project, entry.w.plan.repo, entry.plan.data.commit, "task", id);
+      if (!S.tabs.some(t => t.key === key)) {
+        S.tabs.push({ key, project, id, repo: entry.w.plan.repo, commit: entry.plan.data.commit,
+                      plan: entry.plan, progress: entry.progress, tasks: entry.tasks, task });
+      }
+      S.activeTab = key;
+      render();
+      focusTab(key);
+      announce("Opened task " + id + " as a tab.");
+      loadDocs(entry, id);
+    },
+    showTab(key) { S.activeTab = key; render(); focusTab(key); },
+    closeTab(key) {
+      const mine = A.visibleTabs();
+      const i = mine.findIndex(t => t.key === key);
+      S.tabs = S.tabs.filter(t => t.key !== key);
+      if (S.activeTab === key) S.activeTab = (mine[i + 1] || mine[i - 1] || {}).key || null;
+      render();
+      focusTab(S.activeTab);
+      announce("Closed the tab.");
+    },
+    async copy(node, status) {
+      const text = node.textContent;
+      try {
+        await navigator.clipboard.writeText(text);
+        status.textContent = "Copied. Nothing was sent anywhere.";
+      } catch (e) {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        status.textContent = "Copy didn't work here, so nothing was copied. The text is selected: press Ctrl+C or ⌘C.";
+      }
+    },
+  };
+
+  function focusRow(id) {
+    for (const n of document.querySelectorAll("#task-list .row")) if (n.dataset.id === id) { n.focus(); return; }
+  }
+  function focusTab(key) {
+    if (!key) { const v = $("tab-view"); if (v) v.focus(); return; }
+    for (const n of document.querySelectorAll(".tabs [role=tab]")) if (n.dataset.key === key) { n.focus(); return; }
+  }
+
+  function refresh() {
+    if (!session) return;
+    S.docs = new Map();
+    const ctx = session.start();  // same token, new run: replies to the old run are dropped
+    announce("Refreshing.");
+    load(ctx);
+  }
+
+  // ---- Go to: places only (projects, views, repositories, the open project's tasks, themes)
+
+  let gotoItems = [];
+  let gotoSel = 0;
+
+  function places() {
+    const out = [];
+    for (const e of S.entries) {
+      const w = e.w;
+      if (w.plan) {
+        out.push([w.label + ": overview", "Project", () => A.go(w.id, { kind: "overview" })]);
+        out.push([w.label + ": tasks", "Project", () => A.go(w.id, { kind: "tasks" }, { phase: "" })]);
+      }
+      for (const r of [w.plan && w.plan.repo, ...w.code.map(c => c.repo)].filter(Boolean)) {
+        out.push([r + " (" + w.label + ")", "Repository", () => A.go(w.id, { kind: "repo", repo: r })]);
+      }
+    }
+    const current = entryOf(S.current);
+    if (current && V.rowsVisible(current)) {
+      for (const t of current.tasks.filter(x => !x.invalid)) {
+        out.push([t.id + " " + (t.title || ""), "Task", () => A.go(current.w.id, { kind: "tasks" }, { phase: "", select: t.id })]);
+      }
+    }
+    out.push(["Light theme", "Setting", () => setTheme("light")], ["Dark theme", "Setting", () => setTheme("dark")],
+             ["Device theme", "Setting", () => setTheme("device")]);
+    return out;
+  }
+
+  function renderGoto() {
+    if (!S.signedIn) { gotoItems = []; $("goto-list").replaceChildren(); return; }
+    const q = $("goto-q").value.trim().toLowerCase();
+    gotoItems = places().filter(p => !q || p[0].toLowerCase().includes(q)).slice(0, 12);
+    gotoSel = Math.min(gotoSel, Math.max(0, gotoItems.length - 1));
+    $("goto-list").replaceChildren(...(gotoItems.length ? gotoItems.map((p, i) => V.el("li", { role: "option", id: "goto-" + i,
+      "aria-selected": String(i === gotoSel), onclick: () => runGoto(i) }, V.el("span", {}, p[0]), V.el("span", { class: "kind" }, p[1])))
+      : [V.el("li", { role: "option", "aria-disabled": "true" }, "No place matches")]));
+    $("goto-q").setAttribute("aria-activedescendant", gotoItems.length ? "goto-" + gotoSel : "");
+  }
+
+  function runGoto(i) {
+    const p = gotoItems[i];
+    if (!p) return;
+    gotoBox.close();
+    p[2]();
+  }
+
+  function openGoto() {
+    if (!S.signedIn) return;
+    $("goto-q").value = "";
+    gotoSel = 0;
+    renderGoto();
+    gotoBox.showModal();
+    $("goto-q").focus();
+  }
+
+  // ---- Theme: device setting by default; a choice lasts for this visit only (nothing is stored)
+
+  function setTheme(choice) {
+    if (choice === "device") root.removeAttribute("data-theme");
+    else root.setAttribute("data-theme", choice);
+    for (const b of document.querySelectorAll("[data-theme-choice]")) b.setAttribute("aria-pressed", String(b.dataset.themeChoice === choice));
+  }
+
+  function setMenu(open) {
+    $("shell").classList.toggle("menu-open", open);
+    $("menu").setAttribute("aria-expanded", String(open));
+  }
+
+  // ---- Events
+
   $("connect").addEventListener("submit", connect);
-  $("forget").addEventListener("click", () => endSession("Token forgotten; everything read with it was cleared."));
+  $("show-demo").addEventListener("click", showDemo);
+  $("forget").addEventListener("click", () => { endSession(S.demo ? "demo" : "forget"); $("main").focus(); });
+  $("refresh").addEventListener("click", refresh);
+  $("goto-open").addEventListener("click", openGoto);
+  $("help-open").addEventListener("click", () => helpBox.showModal());
+  $("help-close").addEventListener("click", () => helpBox.close());
+  $("menu").addEventListener("click", () => {
+    const open = !$("shell").classList.contains("menu-open");
+    setMenu(open);
+    if (open) V.focusTree(S);
+  });
+  for (const b of document.querySelectorAll("[data-theme-choice]")) b.addEventListener("click", () => setTheme(b.dataset.themeChoice));
+  $("goto-q").addEventListener("input", () => { gotoSel = 0; renderGoto(); });
+  $("goto-q").addEventListener("keydown", e => {
+    if (e.key === "ArrowDown") { e.preventDefault(); gotoSel = Math.min(gotoSel + 1, gotoItems.length - 1); renderGoto(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); gotoSel = Math.max(gotoSel - 1, 0); renderGoto(); }
+    else if (e.key === "Enter") { e.preventDefault(); runGoto(gotoSel); }
+  });
+
+  document.addEventListener("keydown", e => {
+    const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName);
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      if (gotoBox.open) gotoBox.close(); else openGoto();
+    } else if (gotoBox.open || helpBox.open) {
+      return;
+    } else if (e.key === "/" && !typing && S.signedIn) {
+      const entry = entryOf(S.current);
+      if (!entry || !entry.w.plan) return;
+      e.preventDefault();
+      if (S.view.kind !== "tasks" || S.activeTab) A.go(S.current, { kind: "tasks" }, { focus: "q" });
+      else $("q").focus();
+    } else if (e.key === "?" && !typing) {
+      e.preventDefault();
+      helpBox.showModal();
+    } else if (e.key === "Escape" && S.selected && !typing && !S.activeTab) {
+      A.closeDetails();
+    }
+  });
+
   // Leaving the page (including into the back/forward cache) ends the session;
   // a restored page starts signed out.
-  window.addEventListener("pagehide", () => endSession());
-  window.addEventListener("pageshow", e => { if (e.persisted) endSession("Page restored: signed out, data cleared."); });
+  window.addEventListener("pagehide", () => endSession("left"));
+  window.addEventListener("pageshow", e => { if (e.persisted) endSession("restored"); });
+
+  render();
 })();

@@ -197,7 +197,7 @@
       }
       const date = commit.commit && commit.commit.committer && commit.commit.committer.date;
       return result("current", { commit: commit.sha, ref: branch, date: typeof date === "string" ? date : null,
-                                 private: info.private === true },
+                                 private: info.private === true, web: webAddress(info.html_url, repo) },
                     { repo, ref: branch, commit: commit.sha });
     }
 
@@ -213,6 +213,17 @@
       if (e instanceof TransportFailure) return result("failed", null, source, { error: "network error" });
       throw e;
     }
+  }
+
+  // The repository's web address as GitHub's own reply gives it, for links the
+  // owner clicks; null unless it is a plain https address ending in the repository's name.
+  function webAddress(value, repo) {
+    if (typeof value !== "string") return null;
+    let url;
+    try { url = new URL(value); } catch (e) { return null; }
+    if (url.protocol.slice(0, -1) !== "https" || url.username || url.password || url.search || url.hash ||
+        url.pathname.toLowerCase() !== "/" + String(repo).toLowerCase()) return null;
+    return url.origin + url.pathname;
   }
 
   function validRepo(repo) {
@@ -231,5 +242,5 @@
   }
 
   Object.assign(SB, { API, STATES, Stale, Revoked, NotAllowed, TransportFailure, result, guard, createSession, createClient,
-                      allowed, validRepo, parseRepoRef });
+                      allowed, validRepo, parseRepoRef, webAddress });
 })(typeof window !== "undefined" ? window : globalThis);

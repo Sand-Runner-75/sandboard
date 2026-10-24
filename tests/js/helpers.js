@@ -5,8 +5,9 @@ const crypto = require("node:crypto");
 const path = require("node:path");
 
 const SRC = path.join(__dirname, "..", "..", "src");
-const MODULES = ["sb-core.js", "sb-readers.js", "sb-render.js"];
+const MODULES = ["sb-core.js", "sb-readers.js", "sb-render.js", "sb-model.js", "sb-demo.js"];
 const API = "https://api.github.com";
+const WEB = "https://github.example.invalid";  // synthetic web address; .invalid never resolves
 
 function loadSB() {
   delete globalThis.SB;
@@ -31,19 +32,24 @@ function json(body, status = 200, headers = {}) {
 
 // repos: {"owner/name": {private, default_branch, branches: {name: commit}, files: {commit: {path: text}},
 //          checks: {commit: [runs] | {status, headers}}}}
-// overrides: [[RegExp on the path, (path, init) => Response | Promise<Response>]], tried first.
+// overrides: [[RegExp on the path, (path, init) => Response | Promise<Response> | null]], tried first.
 function mockGitHub(repos, overrides = []) {
   const calls = [];
   async function fetch(url, init) {
     calls.push({ url, init });
     if (!url.startsWith(API + "/")) throw new Error("unexpected host: " + url);
     const p = url.slice(API.length);
-    for (const [re, handler] of overrides) if (re.test(p)) return handler(p, init);
+    for (const [re, handler] of overrides) {
+      if (!re.test(p)) continue;
+      const res = await handler(p, init);  // a handler may return null to let the plain mock answer
+      if (res) return res;
+    }
     if (p === "/user") return json({ login: "synthetic-user" });
     let m = /^\/repos\/([^/]+\/[^/]+)$/.exec(p);
     if (m) {
       const r = repos[m[1]];
-      return r ? json({ full_name: m[1], private: r.private !== false, default_branch: r.default_branch || "main" })
+      return r ? json({ full_name: m[1], private: r.private !== false, default_branch: r.default_branch || "main",
+                        html_url: WEB + "/" + m[1] })
                : json({ message: "Not Found" }, 404);
     }
     m = /^\/repos\/([^/]+\/[^/]+)\/commits\/([0-9a-f]{40})\/check-runs\?per_page=100&page=(\d+)$/.exec(p);
@@ -96,4 +102,4 @@ function fakeDocument() {
   };
 }
 
-module.exports = { loadSB, mockGitHub, blobSha, sha, json, fakeDocument, API };
+module.exports = { loadSB, mockGitHub, blobSha, sha, json, fakeDocument, API, WEB };
