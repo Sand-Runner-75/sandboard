@@ -1,4 +1,5 @@
-# Tests and the public audit on every pull request and every push to main.
+# Tests, build and the public audit on every pull request and every push to main.
+# The audit also reads this job's own log of the steps before it.
 name: Checks
 
 on:
@@ -17,8 +18,10 @@ jobs:
         with:
           fetch-depth: 0
       - name: Tests
-        run: python3 -m unittest discover -s tests -v
-      - name: Public audit (files, history, build output)
+        run: python3 -m unittest discover -s tests -v 2>&1 | tee -a ci-log.txt; test "${PIPESTATUS[0]}" -eq 0
+      - name: Build
+        run: python3 scripts/build.py --out dist 2>&1 | tee -a ci-log.txt; test "${PIPESTATUS[0]}" -eq 0
+      - name: Public audit (files, history, build output, this log)
         env:
           PUBLIC_AUDIT_TERMS: ${{ secrets.PUBLIC_AUDIT_TERMS }}
-        run: python3 scripts/public_audit.py
+        run: python3 scripts/public_audit.py --build-dir dist --log ci-log.txt

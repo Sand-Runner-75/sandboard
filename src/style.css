@@ -1,0 +1,12 @@
+/* The page stays invisible until app.js confirms it is not framed. */
+html.pending body, html.framed main { visibility: hidden; }
+html.framed body { visibility: visible; }
+
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+body { margin: 0 auto; max-width: 48rem; padding: 1rem; line-height: 1.5; }
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.state, .note { color: GrayText; }
+#projects { list-style: none; padding: 0; }
+#projects li { border: 1px solid GrayText; border-radius: 0.5rem; padding: 0.75rem; margin: 0.5rem 0; }
+.bar { height: 0.5rem; background: color-mix(in srgb, GrayText 30%, transparent); border-radius: 0.25rem; }
+.bar > span { display: block; height: 100%; background: CanvasText; border-radius: 0.25rem; }

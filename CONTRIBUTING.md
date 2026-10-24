@@ -36,7 +36,8 @@ Two AI agents, Claude and ChatGPT, write the code. The repository owner decides 
 1. every tracked file, and its file name,
 2. every blob ever committed on any branch and every path any commit touched, so a deleted or renamed file, text or binary, is still checked,
 3. every commit's message, author and committer,
-4. build output folders when present (`dist/`, `_site/`, `build/`), tracked or not.
+4. build output folders when present (`dist/`, `_site/`, `build/`), tracked or not,
+5. the CI job's own log of the test and build steps (`--log`).
 
 It fails on:
 
@@ -49,7 +50,7 @@ It fails on:
 
 Output never contains a matched value. Findings give only the kind and a location, and locations are redacted (a private term in a file name shows as `[term #n]`, a credential pattern or email as `[redacted]`, control characters are escaped). The check fails if `PUBLIC_AUDIT_TERMS` is not set, so the owner-specific part can never be skipped silently. Pull requests from forks get no secrets and fail for that reason.
 
-It is a heuristic guard, not a proof. It does not read compressed content inside images or fonts, CI logs, or pull request titles and descriptions; the public-safety checklist and the review cover those.
+It is a heuristic guard, not a proof. It does not read compressed content inside images or fonts, GitHub's stored logs beyond the job's own captured log, or pull request titles and descriptions; the public-safety checklist and the review cover those.
 
 Run it locally with:
 
@@ -60,6 +61,10 @@ PUBLIC_AUDIT_TERMS="$(cat ~/private-terms.txt)" python3 scripts/public_audit.py
 Test values that look like secrets live reversed in `tests/fixtures/` and are rebuilt only at run time, so neither the source nor anything compiled from it holds them.
 
 If something private is ever committed, do not just delete it in a new commit: it stays in history. Stop and tell the owner.
+
+## Build and publishing
+
+`python3 scripts/build.py --out dist` builds the site; CI builds it and audits the output on every pull request. Publishing to GitHub Pages is off and only the owner turns it on. See [docs/RELEASE.md](docs/RELEASE.md) for the page rules, publishing and rollback.
 
 ## Tests
 

@@ -1,0 +1,22 @@
+{
+  "note": "Synthetic demo data. Every project and task here is made up.",
+  "projects": [
+    {
+      "name": "Example Garden Planner",
+      "progress": 40,
+      "tasks": [
+        {"id": "T-1", "title": "Sketch the plot layout", "status": "Done"},
+        {"id": "T-2", "title": "List seeds to buy", "status": "In Progress"},
+        {"id": "T-3", "title": "Plan watering schedule", "status": "Not Started"}
+      ]
+    },
+    {
+      "name": "Sample Recipe Box",
+      "progress": 10,
+      "tasks": [
+        {"id": "T-1", "title": "Choose recipe fields", "status": "Ready for Review"},
+        {"id": "T-2", "title": "Import three test recipes", "status": "Not Started"}
+      ]
+    }
+  ]
+}

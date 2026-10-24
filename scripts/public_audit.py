@@ -3,9 +3,10 @@
 
 Scans every tracked file, every blob ever committed on any ref (so deleted
 files, text or binary, are still checked), every commit's message, author and
-committer, and build output folders. It looks for credential patterns,
-email addresses other than the allowed noreply ones, private record markers,
-generated artifacts that must not be committed, and the private terms listed
+committer, build output folders and any CI log files given with --log. It
+looks for credential patterns, email addresses other than the allowed noreply
+ones, private record markers, generated artifacts that must not be committed,
+and the private terms listed
 in the PUBLIC_AUDIT_TERMS environment variable (one per line, matched
 case-insensitively in contents and in file names).
 
@@ -14,8 +15,8 @@ location, and every location is redacted (private terms replaced by their
 number, control characters escaped) before it is printed.
 
 Limits: compressed or encoded content inside allowed media files (images,
-fonts) is scanned only as raw bytes; CI logs and pull request text are
-outside this script.
+fonts) is scanned only as raw bytes; GitHub's own log store and pull
+request text are outside this script.
 """
 import argparse
 import fnmatch
@@ -140,6 +141,14 @@ def scan_build(root, terms, dirs):
                     yield from scan_file("build", os.path.relpath(path, root), f.read(), terms)
 
 
+def scan_logs(terms, paths):
+    for path in paths or ():
+        with open(path, "rb") as f:
+            data = f.read()
+        for n, kind in scan_bytes(data, terms):
+            yield "log", os.path.basename(path), n, kind
+
+
 def history_blobs(root):
     """{blob id: path where it was first seen} for every blob on every ref."""
     blobs = {}
@@ -186,11 +195,11 @@ def scan_history(root, terms):
                 yield f"history commit {sha[:7]}", part, n if part == "message" else None, kind
 
 
-def audit(root, terms, build_dirs=BUILD_DIRS):
+def audit(root, terms, build_dirs=BUILD_DIRS, logs=None):
     """Sorted, de-duplicated, already-redacted (location, kind) findings."""
     findings = set()
     for scan in (scan_tracked(root, terms), scan_history(root, terms),
-                 scan_build(root, terms, build_dirs)):
+                 scan_build(root, terms, build_dirs), scan_logs(terms, logs)):
         for label, path, n, kind in scan:
             where = f"{label} {path}" + (f":{n}" if n else "")
             findings.add((safe(where, terms), kind))
@@ -202,6 +211,8 @@ def main(argv=None):
     ap.add_argument("--root", default=".", help="repository root (default: .)")
     ap.add_argument("--build-dir", action="append",
                     help="build output folder to scan (default: dist, _site, build)")
+    ap.add_argument("--log", action="append",
+                    help="CI log file to scan as well (repeatable)")
     ap.add_argument("--allow-missing-terms", action="store_true",
                     help="run without PUBLIC_AUDIT_TERMS (local use only)")
     args = ap.parse_args(argv)
@@ -209,13 +220,13 @@ def main(argv=None):
     if not terms and not args.allow_missing_terms:
         print("FAIL: PUBLIC_AUDIT_TERMS is not set, so private terms cannot be checked.")
         return 1
-    findings = audit(args.root, terms, args.build_dir or BUILD_DIRS)
+    findings = audit(args.root, terms, args.build_dir or BUILD_DIRS, args.log)
     for where, kind in findings:
         print(f"FAIL: {kind} in {where}")
     if findings:
         return 1
     print(f"OK: no finding ({len(terms)} private terms checked in tracked files, "
-          "every committed blob, commit metadata and build output).")
+          "every committed blob, commit metadata, build output and logs given).")
     return 0
 
 
