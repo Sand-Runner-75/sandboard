@@ -201,6 +201,16 @@ class BrowserTest(unittest.TestCase):
                 self.assertEqual(r["menuShown"], width <= 860)
         self.assertEqual(lay["switched"], ["light", "rgb(243, 245, 248)"])
 
+    def test_targets_focus_and_roles(self):
+        for width, a in self.r["a11y"].items():
+            self.assertEqual(a["small"], [], f"{width}: controls under 24 px (WCAG 2.5.8)")
+            self.assertEqual(a["hidden"], [], f"{width}: focus hidden under the top bar (WCAG 2.4.11)")
+            self.assertEqual(a["roles"], ["tree", "treeitem", "listbox", "option", "tablist", "tab", "combobox", "dialog"])
+            s = a["states"]
+            self.assertTrue(s["expanded"] and s["pressed"])
+            self.assertEqual((s["selectedOption"], s["selectedTab"], s["current"]), (1, 1, 1), width)
+            self.assertEqual(s["unnamed"], [], f"{width}: controls without a name")
+
     def test_framed_page_refuses_to_show(self):
         self.assertEqual(self.r["framed"], {"state": "This page cannot be shown inside another site.", "shell": "hidden"})
 

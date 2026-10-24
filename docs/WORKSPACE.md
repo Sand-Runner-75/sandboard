@@ -38,7 +38,7 @@ Device, Light or Dark, for this visit only. The choice is not remembered, becaus
 
 ## Tests
 
-- `tests/test_browser.py` builds the site and runs `tests/browser/workspace.check.js` in Chromium: the keyboard journey, figures that filters never change, states, tabs, the access lifecycle, copy, layouts at 320 to 1280 px in both themes, result-file links and GET-only requests against a mocked private plan, and the framed-page refusal. It needs Node.js and Playwright and is skipped without them, as on CI; set `SANDBOARD_PLAYWRIGHT` to the playwright module's folder when it is not found.
+- `tests/test_browser.py` builds the site and runs `tests/browser/workspace.check.js` in Chromium: the keyboard journey, figures that filters never change, states, tabs, the access lifecycle, copy, layouts at 320 to 1280 px in both themes, result-file links and GET-only requests against a mocked private plan, the framed-page refusal, and WCAG 2.2 target size (24 px), focus not hidden under the top bar, and the roles and states of the tree, list, tabs, Go to and dialogs. It needs Node.js and Playwright and is skipped without them, as on CI; set `SANDBOARD_PLAYWRIGHT` to the playwright module's folder when it is not found.
 - `tests/test_style.py` checks that both dark palettes match, text contrast is at least 4.5:1, borders and the focus ring at least 3:1, in both themes.
 - `tests/test_demo.py` checks the demo's stored progress against its files.
 
@@ -46,3 +46,4 @@ Device, Light or Dark, for this visit only. The choice is not remembered, becaus
 
 - Account views and the fuller repository view.
 - Browser checks on CI (Playwright is not installed there).
+- A pass with a real screen reader; the browser checks cover roles, names and states only.

@@ -167,7 +167,7 @@ dl.props dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .btn.ghost { background: none; color: var(--fg); border: 1px solid var(--control); }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .status-line { min-height: 1.4em; font-size: 0.84rem; margin: 0; }
-details summary { cursor: pointer; }
+details summary { cursor: pointer; min-height: 24px; padding: 2px 0; }
 
 /* Sign-in */
 .signed-out { display: grid; gap: 12px; max-width: 36rem; padding-top: 12px; }

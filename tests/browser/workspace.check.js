@@ -204,6 +204,50 @@ function privateRepos() {
   out.layout.switched = await p.evaluate(() => [document.documentElement.dataset.theme, getComputedStyle(document.body).backgroundColor]);
   await p.close();
 
+  // 5b. Accessibility checks the design names (WCAG 2.2): target size, focus not obscured, roles and states.
+  out.a11y = {};
+  for (const width of [320, 1280]) {
+    p = await open({ viewport: { width, height: 640 } }); await demo(p);
+    if (width <= 860) { await p.click("#menu"); }
+    await tree(p, "v:demo:tasks"); await p.waitForTimeout(100);
+    await p.click("#task-list .row[data-id='DT103']"); await p.waitForTimeout(300);
+    await p.click("#inspector >> text=Open as tab"); await p.waitForTimeout(200);
+    await p.click("#tab-view"); await p.waitForTimeout(100);
+    const a = out.a11y[width] = {};
+    // 2.5.8: every control is at least 24 by 24 CSS px (inline text links are exempt).
+    a.small = await p.$$eval("button, input, select, summary, [role=tab], [role=option], #tree .ti", els => els
+      .filter(e => e.offsetParent !== null)
+      .map(e => { const r = e.getBoundingClientRect(); return [e.id || e.dataset.id || e.dataset.key || e.textContent.trim().slice(0, 20), Math.round(r.width), Math.round(r.height)]; })
+      .filter(([, w, h]) => w < 24 || h < 24));
+    // 2.4.11: Tab through the page from the top; the sticky top bar never hides the focused item entirely.
+    a.hidden = [];
+    await p.evaluate(() => { window.scrollTo(0, 0); document.activeElement.blur(); });
+    for (let i = 0; i < 40; i++) {
+      await p.keyboard.press("Tab");
+      const r = await p.evaluate(() => {
+        const e = document.activeElement, top = document.querySelector(".top");
+        if (!e || e === document.body || top.contains(e)) return null;
+        const box = e.getBoundingClientRect(), bar = top.getBoundingClientRect();
+        const at = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+        return box.bottom <= bar.bottom + 1 && at && top.contains(at) ? (e.id || e.dataset.id || e.dataset.key || e.tagName) : null;
+      });
+      if (r) a.hidden.push(r);
+    }
+    // 4.1.2: the roles and states the design lists are in the page.
+    a.roles = await p.evaluate(() => ["tree", "treeitem", "listbox", "option", "tablist", "tab", "combobox", "dialog"]
+      .filter(r => document.querySelector(r === "dialog" ? "dialog" : "[role=" + r + "]")));
+    a.states = await p.evaluate(() => ({
+      expanded: document.querySelectorAll("#tree [aria-expanded]").length > 0,
+      selectedOption: document.querySelectorAll("#task-list [aria-selected=true]").length,
+      selectedTab: document.querySelectorAll(".tabs [aria-selected=true]").length,
+      pressed: document.querySelectorAll("[aria-pressed]").length > 0,
+      current: document.querySelectorAll("#tree [aria-current]").length,
+      unnamed: [...document.querySelectorAll("button, input, select, [role=tab], [role=option], [role=treeitem]")]
+        .filter(e => e.offsetParent !== null && !(e.getAttribute("aria-label") || e.textContent.trim() || (e.labels && e.labels.length) || e.title))
+        .map(e => e.id || e.tagName) }));
+    await p.close();
+  }
+
   // 6. Private path against the mocked API: links at the pinned commit, GET only, 401 clears everything.
   const priv = out.private = { methods: [], auth: [], hosts: [] };
   let revoke = false;
