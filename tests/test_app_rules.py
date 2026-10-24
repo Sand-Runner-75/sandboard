@@ -80,7 +80,7 @@ class NodeTest(unittest.TestCase):
         self.assertIsNotNone(node, "Node.js is needed to test the browser modules")
         files = sorted(glob.glob(os.path.join(HERE, "js", "*.test.js")))
         self.assertGreaterEqual(len(files), 3)
-        done = subprocess.run([node, "--test", *files], cwd=ROOT, capture_output=True, text=True)
+        done = subprocess.run([node, "--test", "--test-reporter=tap", *files], cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(done.returncode, 0, done.stdout[-6000:] + done.stderr[-2000:])
         self.assertRegex(done.stdout, r"# fail 0")
 
