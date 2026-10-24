@@ -93,6 +93,23 @@ class PublicAuditTest(unittest.TestCase):
         self.assert_no_term_in_output(findings)
         self.assertTrue(any("[term #1]" in w for w, _ in findings))
 
+    def test_generic_secret_in_a_file_name_is_not_echoed(self):
+        token = fixture("token")
+        self.repo.commit({"keys/" + token + ".txt": "harmless\n"})
+        findings = self.findings()
+        self.assertIn("a GitHub token in the file name", [k for _, k in findings])
+        self.assertNotIn(token, repr(findings))
+        self.assertNotIn(fixture("email"), pa.safe("a/" + fixture("email") + "/b", []))
+
+    def test_private_name_is_found_after_an_unchanged_rename(self):
+        self.repo.commit({"Zebulon Quarry.txt": "same content\n"})
+        git(self.repo.root, "mv", "Zebulon Quarry.txt", "neutral.txt")
+        git(self.repo.root, "commit", "-q", "-m", "rename")
+        findings = self.findings()
+        self.assertTrue(any(w.startswith("history path ") and k == "private term #1 in the file name"
+                            for w, k in findings), findings)
+        self.assert_no_term_in_output(findings)
+
     def test_control_characters_in_names_are_escaped(self):
         self.repo.commit({"odd\tname.txt": "x\n"})
         self.assertEqual(pa.safe("odd\tname\x1b.txt", []), "odd\\x09name\\x1b.txt")

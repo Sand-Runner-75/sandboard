@@ -56,7 +56,11 @@ def load_terms(raw):
 
 
 def safe(text, terms):
-    """A location string with private terms and control characters removed."""
+    """A location string with private terms, generic secret values and control
+    characters removed."""
+    for pattern, _ in PATTERNS:
+        text = pattern.sub("[redacted]", text)
+    text = EMAIL.sub(lambda m: m.group(0) if is_allowed_email(m.group(0)) else "[redacted]", text)
     if terms:
         alternation = "|".join(re.escape(t) for t in sorted(terms, key=len, reverse=True))
         number = {t: i for i, t in enumerate(terms, 1)}
@@ -168,6 +172,11 @@ def scan_history(root, terms):
     for oid, data in read_blobs(root, list(blobs)):
         for _, path, n, kind in scan_file("history", blobs[oid], data, terms):
             yield f"history blob {oid[:7]}", path, n, kind
+    # Every path any commit ever touched, so a private name survives no rename.
+    names = git(root, "log", "--all", "--no-renames", "--name-only", "-z", "--format=")
+    for path in sorted({p for p in names.decode("utf-8", "replace").split("\0") if p.strip()}):
+        for kind in scan_path(path.strip("\n"), terms):
+            yield "history path", path.strip("\n"), None, kind
     sep, nul = "\x1e", "\x00"
     log = git(root, "log", "--all", "--format=%x1e%H%x00%an <%ae>%x00%cn <%ce>%x00%B")
     for record in log.decode("utf-8", "replace").split(sep)[1:]:
