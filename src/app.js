@@ -28,12 +28,14 @@
   let session = null;
   let client = null;
 
+  const noFilters = () => ({ q: "", stage: "", phase: "", status: "", doer: "" });
+
   // Everything shown comes from here, and everything here is dropped on sign-out.
   function freshState() {
     return {
       signedIn: false, demo: false, planRepo: "", run: null,
       list: { state: "loading" }, entries: [], current: null,
-      view: { kind: "overview" }, filters: { q: "", phase: "", status: "", doer: "" }, selected: null,
+      view: { kind: "overview" }, filters: noFilters(), selected: null,
       tabs: [], activeTab: null, docs: new Map(), mapped: new Map(),
       expanded: new Set(["g:projects"]), treeFocus: null,
     };
@@ -47,10 +49,12 @@
     $("refresh").hidden = !S.signedIn;
     $("forget").hidden = !S.signedIn;
     $("forget").textContent = S.demo ? "Leave demo" : "Forget access";
+    $("tree-tools").hidden = !(S.signedIn && S.entries.length);
     $("mode").textContent = !S.signedIn ? "read-only" : S.demo ? "synthetic demo · made-up data" : "private · read-only";
     $("signed-out").hidden = S.signedIn;
     $("workspace").hidden = !S.signedIn;
     const focus = focusMark();
+    hideTip();
     V.tree(S, A);
     V.main(S, A);
     restoreFocus(focus);
@@ -58,7 +62,7 @@
   }
 
   // Views are rebuilt on every change; keep keyboard focus on the same item when it is still there.
-  const MARKS = ["id", "data-id", "data-key", "data-phase", "data-stage", "data-copy"];
+  const MARKS = ["id", "data-id", "data-key", "data-phase", "data-stage", "data-copy", "data-sub", "data-open"];
   function focusMark() {
     const a = document.activeElement;
     if (!a || !(a.closest("#workspace") || a.closest("#tree"))) return null;
@@ -116,8 +120,10 @@
       S.entries = list.data.workspaces.map(w => ({ w, loading: true, plan: null, table: null, progress: null,
                                                    code: w.code.map(c => ({ c, pinned: null, checks: null })), tasks: [] }));
       if (!S.entries.some(e => e.w.id === S.current)) { S.current = S.entries[0].w.id; S.view = { kind: "overview" }; }
+      // A project seen for the first time opens with its stages or phases showing; a refresh keeps what was opened or closed.
+      const known = new Set(S.mapped.keys());
       keepMapped();
-      for (const e of S.entries) for (const g of ["p:", "stages:"]) S.expanded.add(g + e.w.id);
+      for (const e of S.entries) if (!known.has(e.w.id)) for (const g of ["p:", "stages:", "phases:"]) S.expanded.add(g + e.w.id);
       render();
       for (let i = 0; i < S.entries.length; i++) {
         const w = S.entries[i].w;
@@ -175,12 +181,12 @@
   // What a tab was read from, in the shape loadDocs reads: its own repository, templates and commit.
   const tabSource = t => ({ w: { id: t.project, plan: t.source }, plan: t.plan });
 
-  // The task's brief and handover, read once per source and commit and kept in memory with the rest.
+  // The task's brief, handover and cross-references, read once per source and commit and kept in memory with the rest.
   async function loadDocs(entry, id) {
     if (V.planState(entry) !== "current") return;
     const ctx = S.run;
     const commit = entry.plan.data.commit;
-    for (const kind of ["brief", "handover"]) {
+    for (const kind of ["brief", "handover", "crossref"]) {
       const template = entry.w.plan.files[kind];
       const key = docKey(entry.w.id, entry.w.plan.repo, commit, kind, template, id);
       if (!template || S.docs.has(key)) continue;
@@ -247,6 +253,7 @@
     $("goto-q").value = "";
     clearTimeout(liveTimer);
     $("live").textContent = "";
+    hideTip();
     setMenu(false);
     render();
     $("state").textContent = {
@@ -267,11 +274,11 @@
     docKey,
     closeMenu: () => setMenu(false),
     go(project, view, opts) {
-      if (project !== S.current) { S.filters = { q: "", phase: "", status: "", doer: "" }; S.selected = null; }
+      if (project !== S.current) { S.filters = noFilters(); S.selected = null; }
       S.current = project;
       S.view = view;
       S.activeTab = null;
-      if (opts && opts.phase !== undefined) S.filters = { q: "", phase: opts.phase, status: "", doer: "" };
+      if (opts && opts.phase !== undefined) S.filters = Object.assign(noFilters(), { phase: opts.phase });
       if (opts && opts.select !== undefined) S.selected = opts.select;
       render();
       if (S.selected) loadDocs(entryOf(project), S.selected);
@@ -282,6 +289,7 @@
     showPhase(project, phase) { A.go(project, { kind: "tasks" }, { phase, focus: "tasks-h" }); },
     setFilter(key, value, focusId) {
       S.filters[key] = value;
+      if (key === "stage") S.filters.phase = "";  // a new stage starts from all of its phases
       if (key !== "q") S.selected = null;
       const caret = key === "q" ? $("q").selectionStart : null;
       render();
@@ -318,6 +326,14 @@
       loadDocs(tabSource(S.tabs.find(t => t.key === key)), id);
     },
     showTab(key) { S.activeTab = key; render(); focusTab(key); },
+    showSection(key, section) {
+      const tab = S.tabs.find(t => t.key === key);
+      if (!tab) return;
+      tab.sub = section;
+      render();
+      const n = $("sub-" + section);
+      if (n) n.focus();
+    },
     closeTab(key) {
       const mine = A.visibleTabs();
       const i = mine.findIndex(t => t.key === key);
@@ -429,8 +445,66 @@
     $("menu").setAttribute("aria-expanded", String(open));
   }
 
+  // ---- Explanation bubbles: shown on hover or keyboard focus of anything with data-tip.
+  // The bubble can be hovered, stays until the pointer or focus leaves, and Esc hides it.
+
+  const tipBox = $("tip");
+  let tipFor = null;
+  let tipTimer;
+
+  function tipNode(node, focus) {
+    if (!(node instanceof Element) || !node.closest("#workspace, #tree, .top")) return null;
+    if (focus && node.getAttribute("role") === "treeitem") return node.querySelector(":scope > .ti[data-tip]");
+    return node.closest("[data-tip]");
+  }
+
+  function showTip(node, describe) {
+    clearTimeout(tipTimer);
+    if (!node || !node.isConnected) return;
+    tipFor = node;
+    tipBox.textContent = node.getAttribute("data-tip");
+    tipBox.hidden = false;
+    const r = node.getBoundingClientRect(), w = tipBox.offsetWidth, h = tipBox.offsetHeight;
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+    const below = r.bottom + 6 + h <= window.innerHeight;
+    tipBox.style.left = left + "px";
+    tipBox.style.top = (below ? r.bottom + 6 : Math.max(8, r.top - h - 6)) + "px";
+    if (describe && !describe.hasAttribute("aria-describedby")) { describe.setAttribute("aria-describedby", "tip"); describe.dataset.tipDescribed = "1"; }
+  }
+
+  function hideTip() {
+    clearTimeout(tipTimer);
+    tipFor = null;
+    tipBox.hidden = true;
+    tipBox.textContent = "";
+    for (const n of document.querySelectorAll("[data-tip-described]")) { n.removeAttribute("aria-describedby"); delete n.dataset.tipDescribed; }
+  }
+
+  document.addEventListener("mouseover", e => {
+    if (tipBox.contains(e.target)) { clearTimeout(tipTimer); return; }
+    const node = tipNode(e.target, false);
+    if (node === tipFor) { clearTimeout(tipTimer); return; }
+    clearTimeout(tipTimer);
+    tipTimer = node ? setTimeout(() => showTip(node, null), 350) : setTimeout(hideTip, 200);
+  });
+  document.addEventListener("focusin", e => {
+    const node = tipNode(e.target, true);
+    if (node) showTip(node, e.target); else hideTip();
+  });
+  document.addEventListener("focusout", () => hideTip());
+  // Esc hides a bubble first, before anything else Esc does.
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && !tipBox.hidden) { hideTip(); e.stopImmediatePropagation(); e.preventDefault(); }
+  }, true);
+
+  // The help dialog lists the same explanations, for anyone who cannot hover.
+  $("glossary").replaceChildren(...Object.entries(V.TIPS).flatMap(([word, text]) =>
+    [V.el("dt", {}, { plan: "plan (repository role)", code: "Code repository" }[word] || word), V.el("dd", {}, text)]));
+
   // ---- Events
 
+  $("expand-all").addEventListener("click", () => { for (const id of V.treeGroups(S, A)) S.expanded.add(id); render(); });
+  $("collapse-all").addEventListener("click", () => { S.expanded = new Set(["g:projects"]); render(); });
   $("connect").addEventListener("submit", connect);
   $("show-demo").addEventListener("click", showDemo);
   $("forget").addEventListener("click", () => { endSession(S.demo ? "demo" : "forget"); $("main").focus(); });

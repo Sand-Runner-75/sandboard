@@ -49,13 +49,62 @@
       el("div", {}, el("b", {}, title || name), el("div", {}, detail || text)));
   }
 
+  // Short explanations shown in a bubble on hover or keyboard focus (app.js shows them), and
+  // listed in the help dialog for anyone who cannot hover.
+  const TIPS = {
+    "Done": "The plan's table marks this task finished. Only the owner's approval, recorded by the plan's progress script, makes it count.",
+    "Ready for Review": "The work is finished and waits for the other AI's review or the owner's decision.",
+    "In Progress": "Work on this task has started.",
+    "Blocked": "Work cannot go on until something else happens; see what it needs.",
+    "Not Started": "No work has started yet.",
+    "Removed": "Dropped from the plan. The row stays for history and its hours no longer count. Its original plan notes usually say where the work went.",
+    "Invalid row": "This table row is not in the expected form, so it is shown as its raw text and not counted.",
+    "Verified": "Every row counted here has an hour estimate, so the figure is firm.",
+    "Not verified": "Some rows are still to be estimated, so this figure can change once they get hours.",
+    "To be estimated": "No hours have been estimated yet; the row is not counted in the figures.",
+    "No active work": "Nothing in this phase or scope is counted yet, so no percentage is shown.",
+    "Whole project": "Share of all estimated hours approved as done, as the plan's own progress script worked it out.",
+    "Remaining": "Estimated hours not yet approved as done.",
+    "Forecast": "A finish date. The plan's progress output gives none, so none is shown rather than a guess.",
+    "Next gate": "A readiness check the owner approves before work moves to the next stage.",
+    "Approval not supplied": "The progress output does not say the owner approved this gate, so it is not shown as approved.",
+    "Pilot": "Tasks needed for the first version used for real with one partner.",
+    "MVP": "Tasks needed for the first full version.",
+    "Post-MVP": "Tasks planned for after the first full version.",
+    "Stage": "A group of phases that ends at a readiness gate.",
+    "Phase": "A step of the plan, as the task table's headings name it.",
+    "Dots": "One dot per task: filled for done or started, hollow for not started, dashed for removed. Past 40 tasks, one dot per status with its count.",
+    "Commit": "Everything on this page was read from the plan at exactly this commit.",
+    "Evidence": "What the table says and what the owner approved are shown apart, because a Done row is not proof of approval.",
+    "Result files": "The files the task produced. Links appear only once the owner's approval is recorded.",
+    "Needs": "Tasks that must be finished before this one starts. Pick one to open it as a tab.",
+    "Needed by": "Tasks that wait for this one. Pick one to open it as a tab.",
+    "Steps": "Smaller steps of this task, with no hours of their own.",
+    "Original plan notes": "The Notes column of this task's row in the plan's task table, copied as written.",
+    "Cross-references": "The plan's index of everything related to this task: rules, research, decisions and other files.",
+    "Brief": "The instructions given to whoever does the task.",
+    "Handover": "What the doer wrote when handing the work over for review.",
+    "Check runs": "Automatic checks GitHub ran on this commit. Passing checks are not the owner's approval.",
+    "plan": "The repository that holds this project's plan, task table and records.",
+    "code": "A repository with this project's code.",
+    "Read-only": "Sandboard only reads. Nothing here can change a plan, a task or a repository.",
+    "Task tab": "A task opened on its own, as it was read at that commit. It stays as it was until you close it.",
+  };
+  // Attaches an explanation to a node; returns the node.
+  function tip(node, key) {
+    const text = TIPS[key] || key;
+    if (text) node.setAttribute("data-tip", text);
+    return node;
+  }
+
   const STATUS_CLASS = { "Done": "done", "Ready for Review": "review", "In Progress": "progress", "Blocked": "blocked",
                          "Not Started": "not", "Removed": "removed" };
   const DOT_LIMIT = 40;
   // GitHub's check-run conclusions that mean the check did not pass.
   const NOT_PASSING = ["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"];
-  const pill = status => STATUS_CLASS[status] ? el("span", { class: "pill st-" + STATUS_CLASS[status] }, status)
+  const pill = status => STATUS_CLASS[status] ? tip(el("span", { class: "pill st-" + STATUS_CLASS[status] }, status), status)
     : el("span", { class: "pill st-invalid" }, status ? "Unknown status: " + status : "No status");
+  const lab = (text, key, attrs) => tip(el("p", Object.assign({ class: "label" }, attrs || {}), text), key || text);
   const hours = h => String(h) + " h";
   const short = SB.short;
   const given = v => v === undefined ? el("span", { class: "muted" }, "Not given in the table")
@@ -97,7 +146,8 @@
         : " (not read)") : el("span", {}, "No plan repository");
     const code = el("span", {}, w.code.length ? ["Code ", w.code.map((c, i) => [i ? ", " : "", el("b", { class: "mono" }, c.repo), " (" + c.role + ")"])]
       : "No code repository assigned");
-    return el("p", { class: "source" }, plan, code, el("span", {}, KIND[w.kind] || w.kind));
+    return el("p", { class: "source" }, tip(plan, "Commit"), code,
+      tip(el("span", {}, KIND[w.kind] || w.kind), w.kind === "project" ? "A project in use, with its own plan." : w.kind === "kit" ? "A reusable starting kit, not a project in use." : "Code only: there is no plan, so no tasks or progress."));
   }
 
   function header(id, title, entry, extra) {
@@ -121,17 +171,18 @@
     const active = f.rows > 0;
     return el("div", { class: "summary", id, "aria-label": label + " figures" },
       el("div", { class: "card ring-card" }, ring(active ? f.progress_pct : null),
-        el("div", {}, el("p", { class: "label" }, label),
+        el("div", {}, lab(label, TIPS[label] ? label : "Stage"),
           el("div", { class: "big num" + (active ? "" : " muted") }, active ? f.progress_pct + "%" : "No active work"),
-          el("div", { class: "qual" + (f.verified ? "" : " muted") }, active ? verifiedText(f) : "Nothing to count in this scope."),
+          active ? tip(el("div", { class: "qual" + (f.verified ? "" : " muted") }, verifiedText(f)), f.verified ? "Verified" : "Not verified")
+            : tip(el("div", { class: "qual muted" }, "Nothing to count in this scope."), "No active work"),
           f.proposed_rows ? el("div", { class: "qual muted" }, f.proposed_rows + " proposed percentages not counted until approved") : null)),
-      el("div", { class: "card" }, el("p", { class: "label" }, "Remaining"),
+      el("div", { class: "card" }, lab("Remaining"),
         el("div", { class: "big num" + (active ? "" : " muted") }, active ? hours(f.remaining_h) : "—"),
         el("div", { class: "qual muted" }, active ? "of " + hours(f.estimated_h) + " estimated" + (f.verified ? "" : ", not verified") : "No estimated work.")),
-      el("div", { class: "card" }, el("p", { class: "label" }, "Forecast"), el("div", { class: "big muted" }, "Not supplied"),
+      el("div", { class: "card" }, lab("Forecast"), el("div", { class: "big muted" }, "Not supplied"),
         el("div", { class: "qual muted" }, "The progress output gives no finish date, so none is shown.")),
-      el("div", { class: "card" }, el("p", { class: "label" }, "Next gate"),
-        gateName ? el("div", {}, el("b", {}, gateName + " "), el("span", { class: "pill hollow st-not" }, "Approval not supplied"))
+      el("div", { class: "card" }, lab("Next gate"),
+        gateName ? el("div", {}, el("b", {}, gateName + " "), tip(el("span", { class: "pill hollow st-not" }, "Approval not supplied"), "Approval not supplied"))
           : el("div", { class: "muted" }, gateName === null ? "No gate in this scope" : "Not supplied"),
         el("div", { class: "qual muted" }, "Gate approvals are not in this progress output, so no gate is shown as approved.")));
   }
@@ -159,8 +210,8 @@
     if (p.state !== "current") return el("div", { class: "stack tight" }, p.state === "loading" ? null : progressNotice(p), unavailableCards(p.state));
     const d = p.data;
     return el("div", { class: "stack tight" }, scopeCards("Whole project", d.scopes["Whole project"], undefined, "whole-cards"),
-      el("p", { class: "qual muted plain" }, "From " + d.producer.path + " (" + p.schema + ") at " + short(p.source.commit) +
-        ", matching the task table and record at that commit. Search, filters and tabs never change these figures."));
+      tip(el("p", { class: "qual muted plain" }, "From " + d.producer.path + " (" + p.schema + ") at " + short(p.source.commit) +
+        ", matching the task table and record at that commit. Search, filters and tabs never change these figures."), "Commit"));
   }
 
   function scopeRow(entry) {
@@ -169,10 +220,10 @@
     return el("div", { class: "scopes", "aria-label": "Figures by scope" }, ["Pilot", "MVP", "Post-MVP"].map(name => {
       const f = p.data.scopes[name];
       const active = f.rows > 0;
-      return el("div", { class: "card", "data-scope": name }, el("p", { class: "label" }, name),
+      return el("div", { class: "card", "data-scope": name }, lab(name),
         el("div", { class: "num" }, active ? el("b", {}, f.progress_pct + "%") : el("span", { class: "muted" }, "No active work"),
           active ? " · " + hours(f.remaining_h) + " of " + hours(f.estimated_h) + " remaining" : ""),
-        active ? el("div", { class: "qual" + (f.verified ? "" : " muted") }, verifiedText(f)) : null);
+        active ? tip(el("div", { class: "qual" + (f.verified ? "" : " muted") }, verifiedText(f)), f.verified ? "Verified" : "Not verified") : null);
     }));
   }
 
@@ -191,7 +242,7 @@
     const bar = el("span", { class: "bar" + (active && !ph.verified ? " unverified" : "") });
     if (active) { const fill = el("span"); fill.style.width = ph.progress_pct + "%"; bar.append(fill); }
     const pressed = S.view.kind === "tasks" && S.filters.phase === ph.id;
-    return el("button", { type: "button", class: "phase", "data-phase": ph.id, "aria-pressed": String(pressed),
+    const btn = el("button", { type: "button", class: "phase", "data-phase": ph.id, "aria-pressed": String(pressed),
         "aria-label": ph.id + " " + ph.name + ": " + (active ? ph.progress_pct + "% " + (ph.verified ? "verified" : "not verified") : "no active work") +
           ". " + counts + ". Show its tasks.",
         onclick: () => A.showPhase(entry.w.id, ph.id) },
@@ -199,7 +250,11 @@
       el("span", { class: "top2" }, el("span", { class: "num" + (active ? "" : " muted") }, active ? ph.progress_pct + "%" : "No active work"),
         el("span", { class: "qual muted" }, active ? (ph.verified ? "verified" : "not verified") : "")),
       bar, dots);
+    return tip(btn, "Tasks: " + counts + ". " + TIPS.Dots + " Pick it to see its tasks.");
   }
+
+  const pctText = f => f.rows ? f.progress_pct + "% of its estimated hours approved as done" + (f.verified ? "" : " (not verified)") : "no active work yet";
+  const stageTip = x => "Stage: phases " + x.phases.join(", ") + "; " + pctText(x) + ". Gate: " + (x.gate || "none") + ".";
 
   function progressBlock(S, A, entry, stageId) {
     const p = progressOf(entry);
@@ -213,7 +268,7 @@
       sec.append(el("div", { class: "chips", role: "group", "aria-label": "Stage" },
         el("button", { type: "button", "aria-pressed": String(!st), onclick: () => A.showStage(entry.w.id, null) }, "All stages"),
         stages.map((x, i) => el("button", { type: "button", "data-stage": x.id, "aria-pressed": String(!!st && st.id === x.id),
-          onclick: () => A.showStage(entry.w.id, x.id) }, (i + 1) + " " + x.name,
+          "data-tip": stageTip(x), onclick: () => A.showStage(entry.w.id, x.id) }, (i + 1) + " " + x.name,
           el("span", { class: "sr" }, x.rows ? ", " + x.progress_pct + "%" : ", no active work")))));
     } else {
       sec.append(el("p", { class: "qual muted plain" }, "Stage figures are not in this progress output, so phases are shown without stages."));
@@ -235,18 +290,28 @@
       const at = (kind, extra) => S.current === w.id && !S.activeTab && S.view.kind === kind && (!extra || extra());
       if (w.plan) {
         kids.push({ id: "v:" + w.id + ":overview", label: "Overview", act: () => A.go(w.id, { kind: "overview" }), cur: at("overview", () => !S.view.stage) });
-        kids.push({ id: "v:" + w.id + ":tasks", label: "Tasks", act: () => A.go(w.id, { kind: "tasks" }, { phase: "" }), cur: at("tasks", () => !S.filters.phase) });
+        kids.push({ id: "v:" + w.id + ":tasks", label: "Tasks", act: () => A.go(w.id, { kind: "tasks" }, { phase: "" }),
+                    cur: at("tasks", () => !S.filters.phase && !S.filters.stage) });
         const p = progressOf(entry);
-        if (p.state === "current" && Array.isArray(p.data.stages)) {
-          kids.push({ id: "stages:" + w.id, label: "Stages", kids: p.data.stages.map((st, i) => ({
-            id: "st:" + w.id + ":" + st.id, label: (i + 1) + " " + st.name, sub: st.rows ? st.progress_pct + "%" : "—",
-            act: () => A.showStage(w.id, st.id),
-            cur: at("overview", () => S.view.stage === st.id) || at("tasks", () => st.phases.includes(S.filters.phase)) })) });
+        if (p.state === "current") {
+          // Phases sit under their stage when the progress output supplies stages, else under the project.
+          const phase = ph => ({ id: "ph:" + w.id + ":" + ph.id, label: ph.id + " " + ph.name, sub: ph.rows ? ph.progress_pct + "%" : "—",
+            tip: "Phase " + ph.id + ": " + pctText(ph) + ". Pick it to see its tasks.",
+            act: () => A.showPhase(w.id, ph.id), cur: at("tasks", () => S.filters.phase === ph.id) });
+          if (Array.isArray(p.data.stages)) {
+            kids.push({ id: "stages:" + w.id, label: "Stages", tip: TIPS.Stage, kids: p.data.stages.map((st, i) => ({
+              id: "st:" + w.id + ":" + st.id, label: (i + 1) + " " + st.name, sub: st.rows ? st.progress_pct + "%" : "—", tip: stageTip(st),
+              act: () => A.showStage(w.id, st.id),
+              kids: p.data.phases.filter(ph => st.phases.includes(ph.id)).map(phase),
+              cur: at("overview", () => S.view.stage === st.id) || at("tasks", () => !S.filters.phase && S.filters.stage === st.id) })) });
+          } else {
+            kids.push({ id: "phases:" + w.id, label: "Phases", tip: TIPS.Phase, kids: p.data.phases.map(phase) });
+          }
         }
       }
       const repos = [w.plan && { repo: w.plan.repo, role: "plan" }, ...w.code].filter(Boolean);
       kids.push({ id: "repos:" + w.id, label: "Repositories", kids: repos.map(r => ({
-        id: "r:" + w.id + ":" + r.repo, label: r.repo.split("/")[1], sub: r.role,
+        id: "r:" + w.id + ":" + r.repo, label: r.repo.split("/")[1], sub: r.role, tip: r.repo + ": " + (r.role === "plan" ? TIPS.plan : TIPS.code + " Its role here: " + r.role + "."),
         act: () => A.go(w.id, { kind: "repo", repo: r.repo }), cur: at("repo", () => S.view.repo === r.repo) })) });
       const plan = planState(entry);
       const sub = entry.loading ? "loading" : plan !== "current" && plan !== "none" ? (STATE[plan] || STATE.failed)[2].toLowerCase()
@@ -255,6 +320,14 @@
         act: () => A.go(w.id, w.plan ? { kind: "overview" } : { kind: "repo", repo: w.code[0].repo }) });
     }
     return [projects];
+  }
+
+  // The IDs of every tree item that has children (for Expand all).
+  function treeGroups(S, A) {
+    const out = [];
+    const walk = nodes => { for (const n of nodes) if (n.kids && n.kids.length) { out.push(n.id); walk(n.kids); } };
+    walk(treeData(S, A));
+    return out;
   }
 
   function tree(S, A) {
@@ -269,16 +342,22 @@
       const open = hasKids && S.expanded.has(n.id);
       const li = el("li", { role: "treeitem", "aria-level": level, "aria-expanded": hasKids ? String(open) : null, "data-id": n.id,
         tabindex: "-1", "aria-current": n.cur ? "page" : null, "aria-label": n.label + (n.sub ? ", " + n.sub : "") });
-      li.append(el("span", { class: "ti" + (n.cur ? " current" : ""), onclick: e => { e.stopPropagation(); activate(n); } },
-        el("span", { class: "tw", "aria-hidden": "true" }, hasKids ? (open ? "▾" : "▸") : ""), el("span", {}, n.label),
-        n.sub ? el("span", { class: "sub", "aria-hidden": "true" }, n.sub) : null));
+      // The arrow opens and closes a group; the name goes to the place (and opens its group).
+      li.append(el("span", { class: "ti" + (n.cur ? " current" : ""), "data-tip": n.tip || null, onclick: e => { e.stopPropagation(); activate(n); } },
+        el("span", { class: "tw", "aria-hidden": "true", onclick: hasKids ? e => { e.stopPropagation(); toggle(n); } : null }, hasKids ? (open ? "▾" : "▸") : ""),
+        el("span", { class: "tl" }, n.label), n.sub ? el("span", { class: "sub", "aria-hidden": "true" }, n.sub) : null));
       flat.push({ n, li, parent });
       if (open) li.append(el("ul", { role: "group" }, build(n.kids, level + 1, n)));
       return li;
     });
-    const activate = n => {
+    const toggle = n => {
       S.treeFocus = n.id;
-      if (!n.act) { S.expanded.has(n.id) ? S.expanded.delete(n.id) : S.expanded.add(n.id); A.render(); focusTree(S); return; }
+      S.expanded.has(n.id) ? S.expanded.delete(n.id) : S.expanded.add(n.id);
+      A.render(); focusTree(S);
+    };
+    const activate = n => {
+      if (!n.act) { toggle(n); return; }
+      S.treeFocus = n.id;
       if (n.kids && n.kids.length) S.expanded.add(n.id);
       A.closeMenu();
       n.act();
@@ -340,7 +419,7 @@
   }
 
   function waitingCard(S, A, entry) {
-    const card = el("section", { class: "card", "aria-labelledby": "wait-h" }, el("h2", { id: "wait-h", class: "label" }, "Waiting on someone"));
+    const card = el("section", { class: "card", "aria-labelledby": "wait-h" }, tip(el("h2", { id: "wait-h", class: "label" }, "Waiting on someone"), "Tasks in review or blocked, as the table says: someone has to act before they move on."));
     const ts = tableState(entry);
     if (ts !== "current") { card.append(ts === "none" ? el("p", { class: "muted plain" }, "No plan, so no tasks.") : notice(ts, entry.table && entry.table.error)); return card; }
     const list = SB.waiting(entry.tasks);
@@ -374,7 +453,7 @@
   }
 
   function repoCard(entry) {
-    const card = el("section", { class: "card", "aria-labelledby": "repos-h" }, el("h2", { id: "repos-h", class: "label" }, "Code repositories"));
+    const card = el("section", { class: "card", "aria-labelledby": "repos-h" }, tip(el("h2", { id: "repos-h", class: "label" }, "Code repositories"), "code"));
     if (!entry.w.code.length) { card.append(el("p", { class: "muted plain" }, "No code repository assigned. Nothing is guessed from names.")); return card; }
     card.append(el("ul", { class: "feed" }, entry.code.map(c => el("li", {}, el("b", { class: "mono" }, c.c.repo), "(" + c.c.role + ")",
       !c.pinned ? el("span", { class: "muted" }, "Loading") : c.pinned.state === "current"
@@ -396,30 +475,48 @@
         ". No task from it is shown." : entry.plan.error));
       return sec;
     }
-    const stage = S.filters.phase ? SB.stageOfPhase(progressOf(entry).data, S.filters.phase) : null;
+    const stage = chosenStage(S, entry);
     sec.append(wholeCards(entry), progressBlock(S, A, entry, stage ? stage.id : null));
     const left = el("div", { class: "stack tight" }, el("h2", { id: "tasks-h", class: "label", tabindex: "-1" }, "Tasks"), filterBar(S, A, entry), taskList(S, A, entry));
-    const area = el("div", { class: "work" }, left);
+    // The list takes the whole width; with a task open, the details get a wide share beside it.
     const task = rowsVisible(entry) && S.selected ? entry.tasks.find(t => t.id === S.selected && !t.invalid) : null;
+    const area = el("div", { class: "work" + (task ? " with-details" : "") }, left);
     if (task) area.append(inspector(S, A, entry, task, null));
     sec.append(area);
     return sec;
   }
 
+  const stagesOf = entry => { const p = progressOf(entry); return p.state === "current" && Array.isArray(p.data.stages) ? p.data.stages : null; };
+  // The stage the task filters are on: the one picked, or the one holding the picked phase.
+  function chosenStage(S, entry) {
+    const stages = stagesOf(entry);
+    if (!stages) return null;
+    if (S.filters.phase) return SB.stageOfPhase({ stages }, S.filters.phase);
+    return stages.find(x => x.id === S.filters.stage) || null;
+  }
+  function activeFilters(S, entry) {
+    const st = !S.filters.phase && S.filters.stage ? chosenStage(S, entry) : null;
+    return st ? Object.assign({}, S.filters, { stagePhases: st.phases }) : S.filters;
+  }
+
   function filterBar(S, A, entry) {
     const opts = rowsVisible(entry) ? SB.filterOptions(entry.tasks) : { phases: [], statuses: [], doers: [] };
+    const stages = stagesOf(entry);
+    const st = chosenStage(S, entry);
     const select = (id, key, values, all) => {
       const s = el("select", { id, onchange: e => A.setFilter(key, e.target.value, id) },
         el("option", { value: "" }, all), values.map(v => el("option", { value: v.value }, v.label)));
-      s.value = S.filters[key];
+      s.value = key === "stage" ? (st ? st.id : "") : S.filters[key];
       return s;
     };
+    const phases = st ? opts.phases.filter(p => st.phases.includes(p.id)) : opts.phases;
     const q = el("input", { id: "q", type: "search", placeholder: "ID or title", autocomplete: "off", spellcheck: "false",
       oninput: e => A.setFilter("q", e.target.value, "q") });
     q.value = S.filters.q;
     return el("div", { class: "filters", role: "search" },
       el("label", {}, "Search tasks", q),
-      el("label", {}, "Phase", select("f-phase", "phase", opts.phases.map(p => ({ value: p.id, label: p.id + " " + p.name })), "All phases")),
+      stages ? tip(el("label", {}, "Stage", select("f-stage", "stage", stages.map((x, i) => ({ value: x.id, label: (i + 1) + " " + x.name })), "All stages")), "Stage") : null,
+      tip(el("label", {}, "Phase", select("f-phase", "phase", phases.map(p => ({ value: p.id, label: p.id + " " + p.name })), st ? "All phases in this stage" : "All phases")), "Phase"),
       el("label", {}, "Status", select("f-status", "status", opts.statuses.map(s => ({ value: s, label: s })), "All statuses")),
       el("label", {}, "Doer", select("f-doer", "doer", opts.doers.map(d => ({ value: d, label: d })), "Anyone")));
   }
@@ -433,7 +530,7 @@
         : notice(state, entry.table && entry.table.error));
       return out;
     }
-    const rows = SB.filterTasks(entry.tasks, S.filters);
+    const rows = SB.filterTasks(entry.tasks, activeFilters(S, entry));
     const invalid = entry.tasks.filter(t => t.invalid).length;
     if (invalid) out.append(notice("partial", invalid + (invalid === 1 ? " row is" : " rows are") + " not in the expected form; each is marked \"Invalid row\" with its source text.", "Some rows can't be read"));
     if (!rows.length) { out.append(notice("no-match")); return out; }
@@ -444,7 +541,7 @@
       const focusable = focusId ? t.id === focusId && !t.invalid : i === 0;
       if (t.invalid) {
         ul.append(el("li", { class: "row", role: "option", "aria-selected": "false", "data-line": t.line, tabindex: focusable ? "0" : "-1", onkeydown: e => listKeys(e, S, A, entry) },
-          el("span", { class: "id" }, t.id || "—"), el("span", { class: "pill st-invalid" }, "Invalid row"), el("span", { class: "muted qual" }, "line " + t.line + ": " + t.invalid),
+          el("span", { class: "id" }, t.id || "—"), tip(el("span", { class: "pill st-invalid" }, "Invalid row"), "Invalid row"), el("span", { class: "muted qual" }, "line " + t.line + ": " + t.invalid),
           el("span", { class: "raw mono" }, t.text)));
         return;
       }
@@ -483,7 +580,7 @@
       return el("span", { class: "meta results" }, "Results: ", fact.files.map((f, i) => [i ? ", " : "", fileLink(entry, f, true)]),
         fact.rejected.map(r => [", ", el("span", { class: "pill st-invalid", title: r }, "Invalid link")]));
     }
-    const box = el("div", { class: "results" }, el("p", { class: "label" }, "Result files"));
+    const box = el("div", { class: "results" }, lab("Result files"));
     if (!approved) box.append(el("p", { class: "muted plain" }, "This plan's progress output does not list approved result files, so none are linked."));
     else if (!fact) box.append(el("p", { class: "muted plain" }, "Links appear here once the owner approves the result files."));
     else {
@@ -505,63 +602,104 @@
       title: path + " at " + short(entry.plan.data.commit), onclick: e => e.stopPropagation() }, label);
   }
 
-  // ---- Task details (side panel or tab)
+  // ---- Task details: a short summary beside the list, everything in a task tab
 
-  function inspector(S, A, entry, task, tab) {
-    const approved = SB.approvals(entry.progress && entry.progress.state === "current" ? entry.progress.data : null);
-    const fact = approved ? approved.get(task.id) : null;
-    const box = el("aside", { class: "inspector" + (tab ? " in-tab" : ""), "aria-label": "Task details", id: tab ? "tab-details" : "inspector" });
-    box.append(el("header", {}, el("div", {}, el("div", { class: "id" }, task.id), el("h3", {}, task.title || "No title")),
-      tab ? null : el("button", { type: "button", class: "btn ghost", "aria-label": "Close details", onclick: () => A.closeDetails() }, "Close")));
-    const model = task.model === undefined ? given(undefined) : task.model ? task.model + (task.effort ? ", " + task.effort : "") : el("span", { class: "muted" }, "Not given in the table");
-    box.append(el("dl", { class: "props" },
-      el("dt", {}, "Status"), el("dd", {}, pill(task.status)),
-      el("dt", {}, "Phase"), el("dd", {}, task.phase ? task.phase.id + " " + task.phase.name : task.section || el("span", { class: "muted" }, "Not under a phase")),
-      el("dt", {}, "Job / task"), el("dd", {}, [task.job, task.group].filter(x => x).join(" · ") || el("span", { class: "muted" }, "Not given in the table")),
-      task.parent ? [el("dt", {}, "Step of"), el("dd", { class: "id" }, task.parent)] : null,
-      el("dt", {}, "Doer"), el("dd", {}, given(task.doer)), el("dt", {}, "Reviewer"), el("dd", {}, given(task.reviewer)),
-      el("dt", {}, "Mode"), el("dd", {}, given(task.mode)), el("dt", {}, "Model"), el("dd", {}, model),
-      el("dt", {}, "Estimate"), el("dd", {}, SB.estimateText(task.est)),
-      el("dt", {}, "Pilot / MVP"), el("dd", {}, task.pilot === undefined && task.mvp === undefined ? given(undefined) : (task.pilot || "—") + " / " + (task.mvp || "—")),
-      el("dt", {}, "Check"), el("dd", {}, given(task.check)),
-      el("dt", {}, "Expected result"), el("dd", {}, given(task.expected))));
-    box.append(el("div", { class: "facts" }, el("p", { class: "label" }, "Evidence, shown separately"),
+  const factsOf = entry => SB.approvals(entry.progress && entry.progress.state === "current" ? entry.progress.data : null);
+
+  function evidence(task, approved, fact) {
+    return tip(el("div", { class: "facts" }, lab("Evidence, shown separately", "Evidence"),
       el("ul", {},
         el("li", {}, "Source status: " + (task.status || "none") + (task.pct !== undefined && task.pct !== "" ? ", " + task.pct + " in the table" : "")),
         el("li", {}, fact ? "Owner approval: recorded (" + fact.approval + ")"
           : !approved ? "Owner approval: not supplied by this plan's progress output"
           : task.status === "Done" ? "Owner approval: not recorded. Done in the table is not owner approval." : "Owner approval: not recorded"),
-        el("li", {}, "Earned credit: counted only by the progress output, never here"))));
-    if (task.status !== "Removed") box.append(resultLinks(entry, task, approved, false));
-    const needs = SB.prerequisites(task, entry.tasks);
-    box.append(el("div", {}, el("p", { class: "label" }, "Needs"), task.prereqs === undefined ? el("p", { class: "muted plain" }, "No prerequisites column in the table")
-      : needs.length ? el("ul", { class: "needs" }, needs.map(n => el("li", {}, el("span", { class: "id" }, n.id), " ",
-          n.task ? pill(n.task.status) : el("span", { class: "pill st-invalid" }, "Not in this table"))))
-      : el("p", { class: "muted plain" }, "None")));
-    if (task.notes !== undefined && task.notes !== "") {
-      const notes = el("p", { class: "doc" });
-      notes.append(SB.renderText(doc, task.notes).node);
-      box.append(el("details", {}, el("summary", { class: "label" }, "Notes from the table"), notes));
+        el("li", {}, "Earned credit: counted only by the progress output, never here"))), "Evidence");
+  }
+
+  // A task named by another task: its ID opens it as a tab, with its status beside it.
+  function taskRef(A, entry, id, task) {
+    return el("li", {}, task ? el("button", { type: "button", class: "linkbtn id", "data-open": id, "aria-label": "Open " + id + " as a tab",
+        onclick: () => A.openTab(entry.w.id, id) }, id) : el("span", { class: "id" }, id), " ",
+      task ? [task.title ? el("span", { class: "ref-title" }, task.title) : null, " ", pill(task.status)]
+        : tip(el("span", { class: "pill st-invalid" }, "Not in this table"), "This ID is not a row of this plan's task table."));
+  }
+
+  function related(A, entry, task, full) {
+    const box = el("div", { class: "stack tight related" });
+    const list = (name, items, empty) => box.append(el("div", {}, lab(name),
+      items.length ? el("ul", { class: "needs" }, items) : el("p", { class: "muted plain" }, empty)));
+    list("Needs", task.prereqs === undefined ? [] : SB.prerequisites(task, entry.tasks).map(n => taskRef(A, entry, n.id, n.task)),
+      task.prereqs === undefined ? "No prerequisites column in the table" : "None");
+    list("Needed by", SB.dependents(task, entry.tasks).map(t => taskRef(A, entry, t.id, t)), "No task lists this one as a prerequisite.");
+    if (full) {
+      const parent = task.parent ? entry.tasks.find(t => t.id === task.parent && !t.invalid) : null;
+      if (task.parent) box.append(el("div", {}, lab("Step of", "Steps"), el("ul", { class: "needs" }, taskRef(A, entry, task.parent, parent))));
+      list("Steps", SB.steps(task, entry.tasks).map(t => taskRef(A, entry, t.id, t)), "No steps.");
     }
-    for (const kind of ["brief", "handover"]) box.append(taskFile(S, A, entry, task, kind, tab));
-    if (!tab) box.append(el("div", { class: "actions" }, el("button", { type: "button", class: "btn ghost", onclick: () => A.openTab(entry.w.id, task.id) }, "Open as tab")));
     return box;
   }
 
-  function taskFile(S, A, entry, task, kind, tab) {
-    const name = kind === "brief" ? "Brief" : "Handover";
+  function notesBox(task, open) {
+    if (task.notes === undefined || task.notes === "") return null;
+    const notes = el("p", { class: "doc" });
+    notes.append(SB.renderText(doc, task.notes).node);
+    return el("details", { open }, tip(el("summary", { class: "label" }, "Original plan notes"), "Original plan notes"), notes);
+  }
+
+  // The short summary beside the task list.
+  function inspector(S, A, entry, task) {
+    const approved = factsOf(entry);
+    const fact = approved ? approved.get(task.id) : null;
+    const box = el("aside", { class: "inspector", "aria-label": "Task details", id: "inspector" });
+    box.append(el("header", {}, el("div", {}, el("div", { class: "id" }, task.id), el("h3", {}, task.title || "No title")),
+      el("button", { type: "button", class: "btn ghost", "aria-label": "Close details", onclick: () => A.closeDetails() }, "Close")));
+    // Approved result files come first: for a finished task they are what there is to look at.
+    if (fact && task.status !== "Removed") box.append(resultLinks(entry, task, approved, false));
+    const model = task.model === undefined ? given(undefined) : task.model ? task.model + (task.effort ? ", " + task.effort : "") : el("span", { class: "muted" }, "Not given in the table");
+    box.append(el("dl", { class: "props" },
+      el("dt", {}, "Status"), el("dd", {}, pill(task.status)),
+      tip(el("dt", {}, "Phase"), "Phase"), el("dd", {}, task.phase ? task.phase.id + " " + task.phase.name : task.section || el("span", { class: "muted" }, "Not under a phase")),
+      el("dt", {}, "Job / task"), el("dd", {}, [task.job, task.group].filter(x => x).join(" · ") || el("span", { class: "muted" }, "Not given in the table")),
+      task.parent ? [tip(el("dt", {}, "Step of"), "Steps"), el("dd", { class: "id" }, task.parent)] : null,
+      el("dt", {}, "Doer"), el("dd", {}, given(task.doer)), el("dt", {}, "Reviewer"), el("dd", {}, given(task.reviewer)),
+      tip(el("dt", {}, "Mode"), "How the doer works on it, as the table says (for example Chat or Code)."), el("dd", {}, given(task.mode)),
+      tip(el("dt", {}, "Model"), "The AI model and effort the table chose for the task."), el("dd", {}, model),
+      el("dt", {}, "Estimate"), el("dd", {}, task.est === "TBE" ? tip(el("span", {}, SB.estimateText(task.est)), "To be estimated") : SB.estimateText(task.est)),
+      tip(el("dt", {}, "Pilot / MVP"), "Whether the task is needed for the Pilot and for the MVP, as the table says."),
+      el("dd", {}, task.pilot === undefined && task.mvp === undefined ? given(undefined) : (task.pilot || "—") + " / " + (task.mvp || "—")),
+      tip(el("dt", {}, "Check"), "How the result is checked, as the table says (for example DOC, CODE or TEST)."), el("dd", {}, given(task.check)),
+      el("dt", {}, "Expected result"), el("dd", {}, given(task.expected))));
+    box.append(evidence(task, approved, fact));
+    if (!fact && task.status !== "Removed") box.append(resultLinks(entry, task, approved, false));
+    box.append(related(A, entry, task, false));
+    const notes = notesBox(task, false);
+    if (notes) box.append(notes);
+    box.append(crossref(S, A, entry, task, false));
+    // A finished task's brief and handover stay folded until opened.
+    for (const kind of ["brief", "handover"]) box.append(taskFile(S, A, entry, task, kind, false, task.status === "Done"));
+    box.append(el("div", { class: "actions" }, tip(el("button", { type: "button", class: "btn ghost", onclick: () => A.openTab(entry.w.id, task.id) }, "Open as tab"),
+      "Opens everything about this task in its own tab, with sections for details, brief, handover, results, cross-references and related tasks.")));
+    return box;
+  }
+
+  const FILE_NAMES = { brief: "Brief", handover: "Handover", crossref: "Cross-references" };
+
+  // The task's file of one kind, read at the plan commit. folded: inside a closed details element.
+  function taskFile(S, A, entry, task, kind, tab, folded) {
+    const name = FILE_NAMES[kind];
     const files = entry.w.plan.files;
-    const wrap = el("div", { class: "stack tight", "data-file": kind });
+    const wrap = el(folded ? "details" : "div", { class: "stack tight", "data-file": kind });
+    const head = (text) => tip(el(folded ? "summary" : "p", { class: "label" }, text), name);
     if (!files[kind]) {
-      wrap.append(el("p", { class: "label" }, name), el("p", { class: "muted plain" }, "This workspace names no " + kind + " file."));
+      wrap.append(head(name), el("p", { class: "muted plain" }, "This workspace names no " + kind + " file."));
       return wrap;
     }
     const commit = entry.plan.data.commit;
     const res = S.docs.get(A.docKey(entry.w.id, entry.w.plan.repo, commit, kind, files[kind], task.id));
-    wrap.append(el("p", { class: "label" }, name + " · " + entry.w.plan.repo + " @ " + short(commit)));
+    wrap.append(head(name + " · " + entry.w.plan.repo + " @ " + short(commit)));
     if (!res || res.state === "loading") { wrap.append(el("p", { class: "muted plain" }, "Loading")); return wrap; }
     if (res.state !== "current") {
-      wrap.append(res.state === "missing" ? el("p", { class: "muted plain" }, "No " + kind + " for " + task.id + " at this commit.")
+      wrap.append(res.state === "missing" ? el("p", { class: "muted plain" }, "No " + (kind === "crossref" ? "cross-reference file" : kind) + " for " + task.id + " at this commit.")
         : notice(res.state, res.error));
       return wrap;
     }
@@ -571,9 +709,44 @@
     text.append(shown.node);
     const status = el("p", { class: "status-line", role: "status" });
     wrap.append(text, el("div", { class: "actions" }, el("button", { type: "button", class: "btn", "data-copy": kind,
-      onclick: () => A.copy(text, status) }, "Copy " + kind)), status);
+      onclick: () => A.copy(text, status) }, "Copy " + (kind === "crossref" ? "cross-references" : kind))), status);
     return wrap;
   }
+
+  // The task's cross-references: a link to the file on GitHub, and in a tab its text as well.
+  function crossref(S, A, entry, task, tab) {
+    const template = entry.w.plan.files.crossref;
+    const box = el("div", { class: "stack tight", "data-file": "crossref-link" }, lab("Cross-references"));
+    if (!template) { box.append(el("p", { class: "muted plain" }, "This project has no cross-reference files.")); return box; }
+    const commit = entry.plan.data.commit;
+    const res = S.docs.get(A.docKey(entry.w.id, entry.w.plan.repo, commit, "crossref", template, task.id));
+    if (!res || res.state === "loading") { box.append(el("p", { class: "muted plain" }, "Loading")); return box; }
+    if (res.state !== "current") {
+      box.append(res.state === "missing" ? el("p", { class: "muted plain" }, "No cross-reference file for this task.") : notice(res.state, res.error));
+      return box;
+    }
+    const path = template.replace("{id}", task.id);
+    box.append(el("p", { class: "plain" }, fileLink(entry, path, false)));
+    if (tab) box.append(taskFile(S, A, entry, task, "crossref", true, false));
+    return box;
+  }
+
+  // Every column of the task's row, in the table's order, as written.
+  function fullRow(A, entry, task) {
+    const dl = el("dl", { class: "props wide" });
+    for (const [name, value] of Object.entries(task.fields || {})) {
+      let shown;
+      if (value === "") shown = el("span", { class: "muted" }, "Blank in the table");
+      else if (name === "Status") shown = pill(value);
+      else if (name === "Est. h") shown = SB.estimateText(value) === value + " h" ? value + " h" : [value, el("span", { class: "muted" }, " (" + SB.estimateText(value) + ")")];
+      else { shown = el("span", {}); shown.append(SB.renderText(doc, value).node); }
+      dl.append(name === "Notes" ? tip(el("dt", {}, "Original plan notes"), "Original plan notes") : el("dt", {}, name), el("dd", {}, shown));
+    }
+    return dl;
+  }
+
+  const SECTIONS = [["details", "Details"], ["brief", "Brief"], ["handover", "Handover"], ["results", "Results"],
+                    ["crossref", "Cross-references"], ["related", "Related"]];
 
   // ---- Tabs
 
@@ -586,7 +759,7 @@
     for (const t of A.visibleTabs()) {
       bar.append(el("div", { class: "tab" + (S.activeTab === t.key ? " on" : "") },
         el("button", { type: "button", role: "tab", "data-key": t.key, "aria-selected": String(S.activeTab === t.key),
-          tabindex: S.activeTab === t.key ? "0" : "-1", title: t.repo + " @ " + short(t.commit), onclick: () => A.showTab(t.key),
+          tabindex: S.activeTab === t.key ? "0" : "-1", "data-tip": TIPS["Task tab"] + " Read from " + t.repo + " @ " + short(t.commit) + ".", onclick: () => A.showTab(t.key),
           onkeydown: e => tabKeys(e, A) }, el("span", { class: "kind" }, "Task"), el("span", { class: "id" }, t.id)),
         el("button", { type: "button", class: "x", "aria-label": "Close task " + t.id, onclick: () => A.closeTab(t.key) }, "×")));
     }
@@ -603,16 +776,40 @@
     } else if (e.key === "Delete" && e.currentTarget.dataset.key) { e.preventDefault(); A.closeTab(e.currentTarget.dataset.key); }
   }
 
-  // A tab keeps the task as it was read, at its own commit.
+  // A tab keeps the task as it was read, at its own commit, with everything about it in sections.
   function taskTab(S, A, tab, entry) {
+    const task = tab.task;
     const sec = el("section", { class: "stack tight", "aria-labelledby": "view-h", id: "tab-panel" },
       el("h1", { id: "view-h" }, "Task " + tab.id),
-      el("p", { class: "source" }, "Read from ", el("b", { class: "mono" }, tab.repo), " @ ", el("span", { class: "mono", title: tab.commit }, short(tab.commit)),
-        " in ", entry.w.label));
+      el("p", { class: "tab-title" }, task.title || el("span", { class: "muted" }, "No title"), " ", pill(task.status)),
+      tip(el("p", { class: "source" }, "Read from ", el("b", { class: "mono" }, tab.repo), " @ ", el("span", { class: "mono", title: tab.commit }, short(tab.commit)),
+        " in ", entry.w.label), "Task tab"));
     // The workspace mapping as it was when the tab opened (its repository and file templates), with today's code repositories.
     const snapshot = Object.assign({}, entry, { w: Object.assign({}, entry.w, { plan: tab.source }), plan: tab.plan, progress: tab.progress, tasks: tab.tasks });
-    sec.append(inspector(S, A, snapshot, tab.task, tab));
+    const sub = tab.sub || "details";
+    const bar = el("div", { class: "subtabs", role: "tablist", "aria-label": "Task sections" },
+      SECTIONS.map(([id, name]) => el("button", { type: "button", role: "tab", id: "sub-" + id, "data-sub": id, "aria-selected": String(sub === id),
+        "aria-controls": "sub-panel", tabindex: sub === id ? "0" : "-1", onclick: () => A.showSection(tab.key, id), onkeydown: e => subKeys(e, A, tab) }, name)));
+    const panel = el("div", { role: "tabpanel", id: "sub-panel", "aria-labelledby": "sub-" + sub, class: "stack tight sub-panel" });
+    const approved = factsOf(snapshot);
+    const fact = approved ? approved.get(task.id) : null;
+    if (sub === "details") panel.append(fullRow(A, snapshot, task), evidence(task, approved, fact));
+    else if (sub === "brief" || sub === "handover") panel.append(taskFile(S, A, snapshot, task, sub, true, false));
+    else if (sub === "results") panel.append(resultLinks(snapshot, task, approved, false));
+    else if (sub === "crossref") panel.append(crossref(S, A, snapshot, task, true));
+    else panel.append(related(A, snapshot, task, true));
+    sec.append(bar, panel);
     return sec;
+  }
+
+  function subKeys(e, A, tab) {
+    const ids = SECTIONS.map(x => x[0]);
+    const i = ids.indexOf(e.currentTarget.dataset.sub);
+    const go = j => { e.preventDefault(); A.showSection(tab.key, ids[(j + ids.length) % ids.length]); };
+    if (e.key === "ArrowRight") go(i + 1);
+    else if (e.key === "ArrowLeft") go(i - 1);
+    else if (e.key === "Home") go(0);
+    else if (e.key === "End") go(ids.length - 1);
   }
 
   // ---- One repository's read state
@@ -629,11 +826,11 @@
     if (pinned.state !== "current") { sec.append(notice(pinned.state, pinned.error)); return sec; }
     const d = pinned.data;
     sec.append(el("div", { class: "grid3" },
-      el("div", { class: "card" }, el("p", { class: "label" }, "Role in this project"), el("div", {}, role)),
-      el("div", { class: "card" }, el("p", { class: "label" }, "Read at"), el("div", { class: "mono" }, d.ref + " → " + short(d.commit)),
+      el("div", { class: "card" }, lab("Role in this project", role === "plan" ? "plan" : "code"), el("div", {}, role)),
+      el("div", { class: "card" }, lab("Read at", "Everything for this repository was read at exactly this commit of this branch."), el("div", { class: "mono" }, d.ref + " → " + short(d.commit)),
         el("div", { class: "qual muted" }, d.date ? "Committed " + d.date : "No commit date")),
-      el("div", { class: "card" }, el("p", { class: "label" }, "Visibility"), el("div", {}, d.private ? "Private" : "Public"))));
-    if (code) sec.append(el("div", { class: "card" }, el("p", { class: "label" }, "Check runs at this commit"), checksSummary(code.checks),
+      el("div", { class: "card" }, lab("Visibility", "Whether GitHub shows this repository to everyone (Public) or only to people given access (Private)."), el("div", {}, d.private ? "Private" : "Public"))));
+    if (code) sec.append(el("div", { class: "card" }, lab("Check runs at this commit", "Check runs"), checksSummary(code.checks),
       code.checks && code.checks.data && code.checks.data.runs.length ? el("ul", { class: "feed" }, code.checks.data.runs.map(r =>
         el("li", {}, el("b", {}, r.name), r.status === "completed" ? (r.conclusion || "no conclusion") : r.status))) : null,
       el("p", { class: "qual muted plain" }, "Checks passing is not owner approval.")));
@@ -663,5 +860,5 @@
     box.replaceChildren(...parts);
   }
 
-  SB.views = { el, notice, tree, focusTree, main, planState, tableState, rowsVisible, progressOf, STATE };
+  SB.views = { el, notice, tree, treeGroups, focusTree, main, planState, tableState, rowsVisible, progressOf, STATE, TIPS };
 })(typeof window !== "undefined" ? window : globalThis);

@@ -39,8 +39,8 @@ test("task file templates are optional, need exactly one {id} and a plain path",
   const withFiles = files => F.workspacesDoc({ workspaces: [{ id: "g", label: "G", kind: "project",
     plan: { repo: "acme/garden-plan", ref: null, files: Object.assign({}, F.FILES, files) }, code: [] }] });
   assert.equal(SB.validateWorkspaces(withFiles({})), null);
-  assert.equal(SB.validateWorkspaces(withFiles({ brief: "notes/{id}-brief.md", handover: "notes/{id}.md" })), null);
-  for (const bad of [{ brief: "notes/brief.md" }, { brief: "notes/{id}-{id}.md" }, { handover: "../{id}.md" },
+  assert.equal(SB.validateWorkspaces(withFiles({ brief: "notes/{id}-brief.md", handover: "notes/{id}.md", crossref: "plan/xref/{id}.md" })), null);
+  for (const bad of [{ brief: "notes/brief.md" }, { brief: "notes/{id}-{id}.md" }, { handover: "../{id}.md" }, { crossref: "plan/xref.md" },
                      { handover: "/notes/{id}.md" }, { handover: "notes/{id} x.md" }, { other: "notes/{id}.md" }]) {
     assert.equal(SB.validateWorkspaces(withFiles(bad)), "workspace 1: bad plan files", JSON.stringify(bad));
   }
@@ -156,6 +156,22 @@ test("filters only choose rows; invalid rows show unless a non-phase filter is s
   assert.deepEqual(SB.waiting(tasks).map(t => t.id), ["XQ201"]);
   const needs = SB.prerequisites({ prereqs: ["XQ101", "XQ999"] }, tasks);
   assert.deepEqual(needs.map(n => [n.id, n.task && n.task.status]), [["XQ101", "Done"], ["XQ999", null]]);
+  // A stage keeps only its own phases' rows (invalid rows included, as with a phase).
+  assert.deepEqual(ids({ stagePhases: ["P2"] }), ["XQ201", "XQ202"]);
+  assert.deepEqual(ids({ stagePhases: ["P1"], status: "Done" }), ["XQ101"]);
+});
+
+test("related tasks: who waits on a task, and its steps, from the table only", () => {
+  const tasks = SB.tasksFrom([
+    row("XQ101", { "Task": "Sketch", "Status": "Done", "Prerequisites": "—" }),
+    row("XQ102", { "Task": "Colours", "Status": "Not Started", "Prerequisites": "XQ101" }),
+    row("XQ102.1", { "Task": "Pick", "Status": "Not Started", "Prerequisites": "XQ101, XQ102" }),
+    row("XQ103", { "Task": "x" }, { invalid: "has 1 cell" }),
+  ]);
+  assert.deepEqual(SB.dependents(tasks[0], tasks).map(t => t.id), ["XQ102", "XQ102.1"]);
+  assert.deepEqual(SB.steps(tasks[1], tasks).map(t => t.id), ["XQ102.1"]);
+  assert.deepEqual(SB.dependents(tasks[2], tasks), []);
+  assert.deepEqual(Object.keys(tasks[1].fields), ["ID", "Task", "Status", "Prerequisites"], "every column is kept, in order");
 });
 
 test("owner approval comes only from the producer's list; result links only for plain paths at a full commit", () => {
