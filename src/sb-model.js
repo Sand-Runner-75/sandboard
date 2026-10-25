@@ -119,6 +119,73 @@
 
   const short = sha => typeof sha === "string" ? sha.slice(0, 7) : "";
 
+  // ---- A task's review cycle: evidence only. Nothing here sends, approves or merges anything,
+  // and none of it is owner approval: that comes only from the producer's approval facts.
+
+  const HANDOFF_STATES = ["READY FOR REVIEW", "CHANGES REQUESTED", "READY FOR RECHECK", "REVIEW PASSED", "BLOCKED", "OWNER DECISION"];
+  const ID_CHAR = "A-Za-z0-9_-";
+
+  // Does a pull request title name the task? The ID must stand alone: "XQ02" is not "XQ026",
+  // and a step "XQ026.1" is not its sub-task "XQ026".
+  function namesTask(title, id) {
+    if (typeof title !== "string" || !/^[A-Za-z0-9_.-]{1,40}$/.test(id || "")) return false;
+    const re = new RegExp("(^|[^." + ID_CHAR + "])" + id.replace(/[.]/g, "[.]") + "(?![" + ID_CHAR + "]|[.][A-Za-z0-9])");
+    return re.test(title);
+  }
+
+  // Pull requests of other repositories that a text names: a web link to the pull request,
+  // "owner/name#12", or the repository's own name followed by "#12" or "PR #12".
+  function linkedPulls(text, repos) {
+    const out = [];
+    const add = (repo, n) => { const number = Number(n);
+      if (number >= 1 && number < 1e9 && !out.some(x => x.repo === repo && x.number === number)) out.push({ repo, number }); };
+    for (const repo of repos) {
+      const [owner, name] = repo.split("/");
+      const esc = v => v.replace(/[.]/g, "[.]");
+      const forms = [new RegExp("github[.]com/" + esc(owner) + "/" + esc(name) + "/pull/([0-9]{1,9})(?![0-9])", "gi"),
+                     new RegExp("(?:^|[^A-Za-z0-9_.-])" + esc(owner) + "/" + esc(name) + "#([0-9]{1,9})(?![0-9])", "gi"),
+                     new RegExp("(?:^|[^A-Za-z0-9_./-])" + esc(name) + "(?: +PR)? *#([0-9]{1,9})(?![0-9])", "gi")];
+      for (const re of forms) for (const m of String(text || "").matchAll(re)) add(repo, m[1]);
+    }
+    return out.slice(0, 10);
+  }
+
+  // A comment in the agreed handoff form, or null: FROM, STATE and HEAD lines are needed.
+  // Every value is text from the comment, shown as text, never followed or run.
+  function handoff(body) {
+    const lines = String(body || "").split("\n").map(l => l.trim());
+    const value = key => { const l = lines.find(x => x.startsWith(key + ":")); return l === undefined ? null : l.slice(key.length + 1).trim(); };
+    let from = value("FROM"), to = value("TO");
+    const state = value("STATE"), headLine = value("HEAD");
+    if (from === null || state === null || headLine === null) return null;
+    const inline = /^(.*?)\s*(?:->|→)\s*TO:\s*(.*)$/.exec(from);
+    if (inline) { from = inline[1]; to = to === null ? inline[2] : to; }
+    const head = /(?:^|[^0-9a-f])([0-9a-f]{40})(?![0-9a-f])/.exec(headLine);
+    const cut = (v, n) => v === null ? null : v.slice(0, n);
+    return { from: cut(from, 80) || "unnamed", to: cut(to, 80), state: cut(state, 120),
+             kind: HANDOFF_STATES.find(k => state.toUpperCase().startsWith(k)) || null,
+             head: head ? head[1] : null, result: cut(value("RESULT"), 600), checks: cut(value("CHECKS"), 300),
+             details: cut(value("DETAILS"), 300), next: cut(value("NEXT"), 300) };
+  }
+
+  // The handoffs on one pull request, oldest first, each labelled against the pull request's head:
+  // for the head it has now, for an older commit, or with no full commit; and superseded when a
+  // later handoff from the same sender follows it.
+  function handoffs(pr, comments) {
+    const list = [];
+    let other = 0;
+    for (const c of comments) {
+      const h = handoff(c.body);
+      if (h) list.push(Object.assign(h, { at: c.at })); else other += 1;
+    }
+    list.forEach((h, i) => {
+      h.target = !h.head ? "none" : h.head === pr.head ? "head" : "older";
+      h.superseded = list.slice(i + 1).some(x => x.from.toLowerCase() === h.from.toLowerCase());
+    });
+    return { list, other };
+  }
+
   Object.assign(SB, { ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
-                      approvals, resultHref, tabKey, stageOfPhase, short });
+                      approvals, resultHref, tabKey, stageOfPhase, short,
+                      HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs });
 })(typeof window !== "undefined" ? window : globalThis);

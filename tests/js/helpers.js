@@ -31,7 +31,7 @@ function json(body, status = 200, headers = {}) {
 }
 
 // repos: {"owner/name": {private, default_branch, branches: {name: commit}, files: {commit: {path: text}},
-//          checks: {commit: [runs] | {status, headers}}}}
+//          checks: {commit: [runs] | {status, headers}}, pulls: [{number, title, state, ..., comments}]}}
 // overrides: [[RegExp on the path, (path, init) => Response | Promise<Response> | null]], tried first.
 function mockGitHub(repos, overrides = []) {
   const calls = [];
@@ -61,6 +61,20 @@ function mockGitHub(repos, overrides = []) {
       const page = Number(m[3]);
       const total = checks.total === undefined ? checks.length : checks.total;
       return json({ total_count: total, check_runs: checks.slice((page - 1) * 100, page * 100) });
+    }
+    m = /^\/repos\/([^/]+\/[^/]+)\/pulls\?state=all&per_page=100&page=(\d+)$/.exec(p);
+    if (m) {
+      const r = repos[m[1]];
+      if (!r) return json({ message: "Not Found" }, 404);
+      const page = Number(m[2]);
+      return json((r.pulls || []).slice((page - 1) * 100, page * 100).map(({ comments, ...pr }) => pr));
+    }
+    m = /^\/repos\/([^/]+\/[^/]+)\/issues\/(\d+)\/comments\?per_page=100&page=(\d+)$/.exec(p);
+    if (m) {
+      const pr = repos[m[1]] && (repos[m[1]].pulls || []).find(x => x.number === Number(m[2]));
+      if (!pr) return json({ message: "Not Found" }, 404);
+      const page = Number(m[3]);
+      return json((pr.comments || []).slice((page - 1) * 100, page * 100));
     }
     m = /^\/repos\/([^/]+\/[^/]+)\/commits\/([^/?]+)$/.exec(p);
     if (m) {

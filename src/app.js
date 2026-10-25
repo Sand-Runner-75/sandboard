@@ -133,7 +133,7 @@
         dropUnreadableTabs(S.entries[i]);
         render();
         if (w.id === S.current && S.selected) loadDocs(S.entries[i], S.selected);
-        for (const t of S.tabs) if (t.project === w.id) loadDocs(tabSource(t), t.id);
+        for (const t of S.tabs) if (t.project === w.id) { loadDocs(tabSource(t), t.id); if (t.sub === "cycle") loadCycle(tabSource(t), t.id); }
       }
       announce("Reading finished.");
     } catch (err) {
@@ -203,6 +203,58 @@
         S.docs.set(key, SB.result("failed", null, null, { error: "browser error (" + err.name + ")" }));
         render();
       }
+    }
+  }
+
+  // A task's review cycle, read live from GitHub when it is asked for: the plan repository's pull
+  // requests whose title names the task, the code pull requests their descriptions link to, and
+  // each one's comments and check runs at its head. Kept under the plan repository, so it goes
+  // with the plan; a refresh reads it again.
+  const MAX_CYCLE_PULLS = 10;
+  const cycleKey = (entry, id) => docKey(entry.w.id, entry.w.plan.repo, "live", "cycle", "", id);
+  async function loadCycle(entry, id) {
+    if (V.planState(entry) !== "current") return;
+    const key = cycleKey(entry, id);
+    if (S.docs.has(key)) return;
+    const ctx = S.run;
+    const now = entryOf(entry.w.id);
+    const code = (now ? now.code : []).filter(c => c.pinned && c.pinned.state === "current").map(c => ({ repo: c.c.repo, web: c.pinned.data.web }));
+    S.docs.set(key, { state: "loading" });
+    render();
+    try {
+      const list = await SB.readPulls(ctx, client, entry.w.plan.repo);
+      session.alive(ctx);
+      let res;
+      if (!list.data) res = SB.result(list.state, null, list.source, { error: list.error });
+      else {
+        const mine = list.data.pulls.filter(p => SB.namesTask(p.title, id)).slice(0, MAX_CYCLE_PULLS);
+        const items = mine.map(pr => ({ repo: entry.w.plan.repo, web: entry.plan.data.web, number: pr.number, pr, via: null }));
+        const codeLists = new Map();
+        for (const pr of mine) for (const link of SB.linkedPulls(pr.body, code.map(c => c.repo))) {
+          if (items.length >= MAX_CYCLE_PULLS || items.some(x => x.repo === link.repo && x.number === link.number)) continue;
+          if (!codeLists.has(link.repo)) { codeLists.set(link.repo, await SB.readPulls(ctx, client, link.repo)); session.alive(ctx); }
+          const pulls = codeLists.get(link.repo);
+          const found = pulls.data ? pulls.data.pulls.find(p => p.number === link.number) || null : null;
+          items.push({ repo: link.repo, web: code.find(c => c.repo === link.repo).web, number: link.number, pr: found, via: pr.number,
+                       listState: pulls.state });
+        }
+        for (const it of items) {
+          if (!it.pr) continue;
+          it.comments = await SB.readComments(ctx, client, it.repo, it.number);
+          session.alive(ctx);
+          it.checks = await SB.readCheckRuns(ctx, client, it.repo, it.pr.head);
+          session.alive(ctx);
+        }
+        res = SB.result(items.length ? "current" : "no-match", { items, searched: list.data.pulls.length, listState: list.state,
+                                                                  readAt: new Date().toISOString() }, { repo: entry.w.plan.repo });
+      }
+      S.docs.set(key, res);
+      render();
+    } catch (err) {
+      if (err instanceof SB.Revoked) { endSession("revoked"); return; }
+      try { session.alive(ctx); } catch (e) { if (S.docs.get(key) && S.docs.get(key).state === "loading") S.docs.delete(key); return; }
+      S.docs.set(key, SB.result("failed", null, null, { error: "browser error (" + err.name + ")" }));
+      render();
     }
   }
 
@@ -313,7 +365,7 @@
     visibleTabs: () => S.tabs.filter(t => t.project === S.current),
     // Opens a task as a tab, read as the project is now, or, from another tab (its key in `from`), at
     // that tab's own commit and mapping. Either way the plan must still be readable and mapped.
-    openTab(project, id, from) {
+    openTab(project, id, from, section) {
       const entry = entryOf(project);
       if (!entry || !V.rowsVisible(entry)) { announce("Task " + id + " cannot be opened: its plan is not readable now."); return; }
       const src = from ? S.tabs.find(t => t.key === from) : { repo: entry.w.plan.repo, commit: entry.plan.data.commit, source: entry.w.plan,
@@ -327,10 +379,19 @@
                       plan: src.plan, progress: src.progress, tasks: src.tasks, task });
       }
       S.activeTab = key;
+      if (section) S.tabs.find(t => t.key === key).sub = section;
       render();
       focusTab(key);
       announce("Opened task " + id + " as a tab.");
       loadDocs(tabSource(S.tabs.find(t => t.key === key)), id);
+      if (section === "cycle") loadCycle(tabSource(S.tabs.find(t => t.key === key)), id);
+    },
+    cycleKey,
+    readCycleAgain(key) {
+      const tab = S.tabs.find(t => t.key === key);
+      if (!tab) return;
+      S.docs.delete(cycleKey(tabSource(tab), tab.id));
+      loadCycle(tabSource(tab), tab.id);
     },
     showTab(key) { S.activeTab = key; render(); focusTab(key); },
     showSection(key, section) {
@@ -338,6 +399,7 @@
       if (!tab) return;
       tab.sub = section;
       render();
+      if (section === "cycle") loadCycle(tabSource(tab), tab.id);
       const n = $("sub-" + section);
       if (n) n.focus();
     },
@@ -378,7 +440,7 @@
     if (!session) return;
     // A document read at a commit stays right for that commit; only reads that did not finish
     // with an answer about the file are dropped, so they are tried again.
-    for (const [key, res] of [...S.docs]) if (!["current", "empty", "missing", "invalid"].includes(res.state)) S.docs.delete(key);
+    for (const [key, res] of [...S.docs]) if (!["current", "empty", "missing", "invalid"].includes(res.state) || key.includes("|live|")) S.docs.delete(key);
     const ctx = session.start();  // same token, new run: replies to the old run are dropped
     announce("Refreshing.");
     load(ctx);

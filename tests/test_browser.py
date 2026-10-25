@@ -269,6 +269,45 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(v["current"], {"key": "garden|acme/garden-plan|" + b + "|task|XQ101", "title": "Sketch the layout again In Progress"},
                          "from the list, the task opens as it is now")
 
+    def test_a_complete_review_cycle_keeps_each_kind_of_evidence_apart(self):
+        v = self.r["cycle"]["complete"]
+        self.assertEqual(v["sub"], "cycle")
+        self.assertEqual(v["pulls"], ["example-org/demo-plan #3"], "a step's pull request (DT201.1) or an unrelated one is not listed")
+        self.assertEqual(v["handoffs"], [["READY FOR REVIEW", "older", True], ["CHANGES REQUESTED", "older", True],
+                                         ["READY FOR RECHECK", "head", False], ["REVIEW PASSED", "head", False]])
+        self.assertIn("Merged 2026-01-10 10:00 UTC", v["text"])
+        self.assertIn("1 other comment not in the handoff form", v["text"])
+        self.assertIn("it is not the owner's approval", v["text"])
+        self.assertEqual(v["owner"], "Owner decisionOwner approval: recorded (PR #3)")
+        self.assertEqual(v["buttons"], ["Read again"], "nothing here sends, approves or merges")
+        self.assertEqual(v["links"], [], "the demo has no web address, so nothing links out")
+
+    def test_a_private_review_cycle_links_out_at_the_pull_request_and_reads_only(self):
+        v = self.r["cycle"]["private"]
+        web = "https://github.example.invalid/"
+        self.assertEqual(v["links"], [[web + "acme/garden-plan/pull/9", "_blank", "noopener noreferrer"],
+                                      [web + "acme/garden/pull/2", "_blank", "noopener noreferrer"]])
+        self.assertEqual(v["handoffs"], [["REVIEW PASSED", "head", False]])
+        self.assertIn("Owner approval: not supplied by this plan's progress output", v["owner"])
+        self.assertEqual(sorted(set(v["reads"])), ["comments", "pulls"])
+        self.assertEqual(set(v["methods"]), {"GET"})
+        self.assertGreater(v["readsAfterAgain"], len(v["reads"]), "Read again reads the cycle again")
+
+    def test_disputed_moved_and_missing_review_cycles(self):
+        c = self.r["cycle"]
+        self.assertEqual(c["disputed"]["handoffs"][-1], ["OWNER DECISION", "head", False])
+        self.assertIn("Owner approval: not recorded. A review, passing checks or a merge are not owner approval.", c["disputed"]["owner"])
+        m = c["moved"]
+        self.assertEqual(m["pulls"], ["example-org/demo-plan #5", "example-org/demo-app #2"])
+        self.assertEqual(m["handoffs"][1], ["REVIEW PASSED", "older", False], "a review of an older head keeps that head")
+        self.assertIn("Linked from the description of plan pull request #5.", m["text"])
+        self.assertIn("3 check runs: 1 passing, 1 not passing, 1 running or queued", m["text"])
+        self.assertIn("<script>alert('demo')</script> stays text.", m["text"])
+        self.assertIn("Written: notes/DT201-brief.md", m["brief"])
+        self.assertIn("No pull request in example-org/demo-plan names DT202 in its title (5 read).", c["missing"]["text"])
+        self.assertEqual(c["missing"]["handoffs"], [])
+        self.assertEqual(c["keyTo"]["id"], "sub-cycle")
+
     def test_expand_all_and_collapse_all(self):
         f = self.r["firstUse"]
         self.assertEqual(f["expandAll"], 0)
@@ -305,7 +344,7 @@ class BrowserTest(unittest.TestCase):
 
     def test_a_task_tab_holds_every_column_in_sections(self):
         f = self.r["firstUse"]
-        self.assertEqual(f["sections"], ["Details", "Brief", "Handover", "Results", "Cross-references", "Related"])
+        self.assertEqual(f["sections"], ["Details", "Brief", "Handover", "Results", "Review cycle", "Cross-references", "Related"])
         for part in ("Expected resultA list the owner accepts", "CheckDOC", "Est. h4 h", "Original plan notesDraft shared",
                      "ModeChat", "EffortHigh", "Owner approval: not recorded"):
             self.assertIn(part, f["details"])

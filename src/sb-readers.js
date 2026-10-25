@@ -275,6 +275,69 @@
     return result("current", { runs }, source);
   }
 
+  // ---- Pull requests and their comments, for a task's review cycle. These are read live,
+  // not at the pinned commit: a pull request's state, head and comments are GitHub's now.
+
+  const MAX_PULL_PAGES = 3;
+  const MAX_COMMENT_PAGES = 5;
+  const PULL_STATES = ["open", "closed"];
+  const isSha = v => typeof v === "string" && /^[0-9a-f]{40}$/.test(v);
+  const isTime = v => v === null || (typeof v === "string" && v.length <= 40 && !Number.isNaN(Date.parse(v)));
+
+  function readPulls(ctx, client, repo) {
+    return SB.guard(readPullsUnguarded(ctx, client, repo), { repo });
+  }
+
+  async function readPullsUnguarded(ctx, client, repo) {
+    const source = { repo };
+    const pulls = [];
+    for (let page = 1; page <= MAX_PULL_PAGES; page++) {
+      const res = await client.get(ctx, "/repos/" + repo + "/pulls?state=all&per_page=100&page=" + page);
+      if (!res.ok) return result(client.stateFor(res), null, source, { error: "HTTP " + res.status });
+      const body = await client.json(ctx, res);
+      if (!Array.isArray(body) || body.length > 100) return result("invalid", null, source, { error: "unexpected pull request list" });
+      for (const pr of body) {
+        if (!isObject(pr) || !Number.isInteger(pr.number) || pr.number < 1 || typeof pr.title !== "string" ||
+            !PULL_STATES.includes(pr.state) || !isObject(pr.head) || !isSha(pr.head.sha) ||
+            !isTime(pr.merged_at === undefined ? null : pr.merged_at) ||
+            !(pr.merge_commit_sha === null || pr.merge_commit_sha === undefined || isSha(pr.merge_commit_sha)) ||
+            !(pr.body === null || pr.body === undefined || typeof pr.body === "string")) {
+          return result("invalid", null, source, { error: "malformed pull request" });
+        }
+        pulls.push({ number: pr.number, title: pr.title.slice(0, 300), state: pr.state, head: pr.head.sha,
+                     merged: pr.merged_at || null, mergeCommit: pr.merged_at ? pr.merge_commit_sha || null : null,
+                     body: (pr.body || "").slice(0, 20000) });
+      }
+      // A full last page may hide more: the list is then marked partial.
+      if (body.length < 100) return result(pulls.length ? "current" : "empty", { pulls }, source);
+    }
+    return result("partial", { pulls }, source, { coverage: { shown: pulls.length, total: null } });
+  }
+
+  function readComments(ctx, client, repo, number) {
+    return SB.guard(readCommentsUnguarded(ctx, client, repo, number), { repo, number });
+  }
+
+  async function readCommentsUnguarded(ctx, client, repo, number) {
+    const source = { repo, number };
+    if (!Number.isInteger(number) || number < 1) return result("invalid", null, source, { error: "not a pull request number" });
+    const comments = [];
+    for (let page = 1; page <= MAX_COMMENT_PAGES; page++) {
+      const res = await client.get(ctx, "/repos/" + repo + "/issues/" + number + "/comments?per_page=100&page=" + page);
+      if (!res.ok) return result(client.stateFor(res), null, source, { error: "HTTP " + res.status });
+      const body = await client.json(ctx, res);
+      if (!Array.isArray(body) || body.length > 100) return result("invalid", null, source, { error: "unexpected comment list" });
+      for (const c of body) {
+        if (!isObject(c) || typeof c.body !== "string" || !isTime(c.created_at || null)) {
+          return result("invalid", null, source, { error: "malformed comment" });
+        }
+        comments.push({ body: c.body.slice(0, 20000), at: c.created_at || null });
+      }
+      if (body.length < 100) return result(comments.length ? "current" : "empty", { comments }, source);
+    }
+    return result("partial", { comments }, source, { coverage: { shown: comments.length, total: null } });
+  }
+
   // ---- One workspace: every read it needs, in order, each with its own result.
   // A failure stops only the reads that depend on it, never other workspaces.
 
@@ -300,5 +363,5 @@
   }
 
   Object.assign(SB, { WORKSPACES_FILE, STATUSES, SCOPES, readWorkspace, readTaskFile, isPath, validateWorkspaces, readWorkspaces, splitRow, parsePlanTables, readPlan,
-                      validateProgress, readProgress, readCheckRuns });
+                      validateProgress, readProgress, readCheckRuns, readPulls, readComments });
 })(typeof window !== "undefined" ? window : globalThis);

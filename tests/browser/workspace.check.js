@@ -471,6 +471,68 @@ function privateRepos() {
   rel.commits = [RA, RB];
   await p.close();
 
+  // 10. A task's review cycle: brief, pull requests, handoffs against the head, checks, merge and owner decision, each apart.
+  const cy = out.cycle = {};
+  p = await open(); await demo(p);
+  await tree(p, "v:demo:tasks"); await p.waitForTimeout(150);
+  const cycleOf = async id => {
+    await p.click(`#task-list .row[data-id='${id}']`); await p.waitForTimeout(300);
+    await p.click("#open-cycle"); await p.waitForTimeout(500);
+    const r = await p.evaluate(() => {
+      const panel = document.getElementById("sub-panel");
+      return { sub: document.querySelector(".subtabs [aria-selected=true]").dataset.sub,
+               pulls: [...panel.querySelectorAll("[data-pull]")].map(n => n.dataset.pull),
+               handoffs: [...panel.querySelectorAll(".handoff")].map(n => [n.dataset.kind, n.dataset.target, n.classList.contains("superseded")]),
+               links: [...panel.querySelectorAll("[data-part=cycle-pulls] a")].map(a => [a.getAttribute("href"), a.target, a.rel]),
+               buttons: [...panel.querySelectorAll("button")].map(b => b.textContent),
+               brief: panel.querySelector("[data-part=cycle-brief]").textContent,
+               owner: panel.querySelector("[data-part=cycle-owner]").textContent,
+               text: panel.textContent };
+    });
+    await p.click("#tab-view"); await p.waitForTimeout(150);
+    return r;
+  };
+  cy.complete = await cycleOf("DT101");
+  cy.disputed = await cycleOf("DT103");
+  cy.moved = await cycleOf("DT201");
+  cy.missing = await cycleOf("DT202");
+  // The section keys move through Review cycle like the others.
+  await p.click(".tabs [role=tab][data-key$='|task|DT101']"); await p.waitForTimeout(150);
+  await p.focus("#sub-results"); await p.keyboard.press("ArrowRight"); await p.waitForTimeout(300);
+  cy.keyTo = await active(p);
+  await p.close();
+  // The private path: links at the pull requests' own web addresses, and only GET reads.
+  const crepos = F.planRepos();
+  crepos["acme/garden-plan"].pulls = [{ number: 9, title: "XQ101: sketch the layout", state: "open", merged_at: null, merge_commit_sha: null,
+    head: { sha: sha("xq101-head") }, body: "Code in acme/garden#2.",
+    comments: [{ body: "FROM: Reviewer\nSTATE: REVIEW PASSED\nHEAD: " + sha("xq101-head"), created_at: "2026-01-02T03:04:05Z" }] }];
+  crepos["acme/garden"].pulls = [{ number: 2, title: "Layout", state: "open", merged_at: null, merge_commit_sha: null, head: { sha: sha("code-head") }, body: "", comments: [] }];
+  const cgh = mockGitHub(crepos);
+  const creads = [], cmethods = [];
+  p = await open();
+  await p.route("https://api.github.com/**", async route => {
+    const req = route.request();
+    cmethods.push(req.method());
+    const m = /[/](pulls|comments)[?]/.exec(req.url());
+    if (m) creads.push(m[1]);
+    const res = await cgh.fetch(req.url(), { method: req.method() });
+    await route.fulfill({ status: res.status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }, body: await res.text() });
+  });
+  await p.fill("#plan-repo", "acme/garden-plan"); await p.fill("#token", "synthetic-token"); await p.click("#connect button[type=submit]");
+  await finished();
+  await tree(p, "v:garden:tasks"); await p.waitForTimeout(150);
+  await p.click("#task-list .row[data-id='XQ101']"); await p.waitForTimeout(300);
+  await p.click("#open-cycle"); await p.waitForTimeout(600);
+  cy.private = await p.evaluate(() => { const panel = document.getElementById("sub-panel");
+    return { links: [...panel.querySelectorAll("[data-part=cycle-pulls] a")].map(a => [a.getAttribute("href"), a.target, a.rel]),
+             handoffs: [...panel.querySelectorAll(".handoff")].map(n => [n.dataset.kind, n.dataset.target, n.classList.contains("superseded")]),
+             owner: panel.querySelector("[data-part=cycle-owner]").textContent }; });
+  cy.private.reads = creads.slice();
+  cy.private.methods = cmethods;
+  await p.click("#cycle-again"); await p.waitForTimeout(600);
+  cy.private.readsAfterAgain = creads.length;
+  await p.close();
+
   // 7. Framed: the page refuses to show.
   p = await open();
   await p.goto(BASE + "/frame.html"); await p.waitForTimeout(400);

@@ -3,18 +3,180 @@
  "sign_in": "example-org/demo-plan",
  "date": "2026-01-15T09:30:00Z",
  "repos": {
-  "example-org/demo-plan": {"files": "demo-plan"},
-  "example-org/demo-app": {"files": null, "checks": [
-   {"name": "Tests", "status": "completed", "conclusion": "success"},
-   {"name": "Build", "status": "completed", "conclusion": "failure"},
-   {"name": "Audit", "status": "in_progress", "conclusion": null}]},
-  "example-org/second-plan": {"files": "second-plan"},
-  "example-org/second-site": {"files": null, "checks": {"status": 403}},
-  "example-org/notes-plan": {"files": "notes-plan"},
-  "example-org/starter-kit": {"files": "starter-kit"},
-  "example-org/locked-plan": {"status": 403},
-  "example-org/locked-app": {"status": 403},
-  "example-org/tools": {"files": null, "private": false, "checks": [
-   {"name": "Tests", "status": "completed", "conclusion": "success"}]}
+  "example-org/demo-plan": {
+   "files": "demo-plan",
+   "pulls": [
+    {
+     "number": 3,
+     "title": "DT101: interview notes and findings",
+     "state": "closed",
+     "merged_at": "2026-01-10T10:00:00Z",
+     "merge_commit_sha": "{sha:dt101-merge}",
+     "head": "dt101-b",
+     "body": "Interview notes for DT101 and DT104.",
+     "comments": [
+      {
+       "at": "2026-01-08T09:00:00Z",
+       "body": "FROM: Agent A → TO: Agent B\nSTATE: READY FOR REVIEW\nHEAD: {sha:dt101-a}\nRESULT: Notes from five sessions.\nNEXT: Agent B reviews."
+      },
+      {
+       "at": "2026-01-08T15:00:00Z",
+       "body": "FROM: Agent B → TO: Agent A\nSTATE: CHANGES REQUESTED\nHEAD: {sha:dt101-a}\nRESULT: Two sessions lack their consent notes.\nNEXT: Agent A adds them."
+      },
+      {
+       "at": "2026-01-09T09:00:00Z",
+       "body": "FROM: Agent A → TO: Agent B\nSTATE: READY FOR RECHECK\nHEAD: {sha:dt101-b}\nRESULT: Consent notes added for both sessions."
+      },
+      {
+       "at": "2026-01-09T12:00:00Z",
+       "body": "FROM: Agent B → TO: Agent A\nSTATE: REVIEW PASSED\nHEAD: {sha:dt101-b}\nRESULT: Both fixes confirmed. Not merge permission.\nNEXT: The owner decides."
+      },
+      {
+       "at": "2026-01-09T12:05:00Z",
+       "body": "Thanks, looks good to me."
+      }
+     ]
+    },
+    {
+     "number": 4,
+     "title": "DT103: audience size range",
+     "state": "open",
+     "merged_at": null,
+     "merge_commit_sha": null,
+     "head": "dt103-b",
+     "body": "",
+     "comments": [
+      {
+       "at": "2026-01-12T09:00:00Z",
+       "body": "FROM: Agent A → TO: Agent B\nSTATE: READY FOR REVIEW\nHEAD: {sha:dt103-a}\nRESULT: A range with three sources."
+      },
+      {
+       "at": "2026-01-12T14:00:00Z",
+       "body": "FROM: Agent B → TO: Agent A\nSTATE: CHANGES REQUESTED\nHEAD: {sha:dt103-a}\nRESULT: The upper bound has only one source."
+      },
+      {
+       "at": "2026-01-13T09:00:00Z",
+       "body": "FROM: Agent A → TO: Agent B\nSTATE: READY FOR RECHECK\nHEAD: {sha:dt103-b}\nRESULT: Kept the upper bound; one source is enough for a range."
+      },
+      {
+       "at": "2026-01-13T11:00:00Z",
+       "body": "FROM: Agent B → TO: Agent A\nSTATE: OWNER DECISION\nHEAD: {sha:dt103-b}\nRESULT: We disagree on the upper bound.\nNEXT: The owner decides between the two readings."
+      }
+     ]
+    },
+    {
+     "number": 5,
+     "title": "DT201: first feature list",
+     "state": "open",
+     "merged_at": null,
+     "merge_commit_sha": null,
+     "head": "dt201-b",
+     "body": "The list, with its screens in demo-app #2.",
+     "comments": [
+      {
+       "at": "2026-01-14T09:00:00Z",
+       "body": "FROM: Agent A → TO: Agent B\nSTATE: READY FOR REVIEW\nHEAD: {sha:dt201-a}\nRESULT: Twelve features, each with a reason."
+      },
+      {
+       "at": "2026-01-14T13:00:00Z",
+       "body": "FROM: Agent B → TO: Agent A\nSTATE: REVIEW PASSED\nHEAD: {sha:dt201-a}\nRESULT: The list reads well."
+      },
+      {
+       "at": "2026-01-15T08:00:00Z",
+       "body": "FROM: Agent A → TO: Agent B\nSTATE: READY FOR RECHECK\nHEAD: {sha:dt201-b}\nRESULT: Added two features after the review.\nNEXT: Agent B rechecks the new head."
+      }
+     ]
+    },
+    {
+     "number": 6,
+     "title": "Tidy the read-me",
+     "state": "closed",
+     "merged_at": null,
+     "merge_commit_sha": null,
+     "head": "tidy",
+     "body": "",
+     "comments": []
+    },
+    {
+     "number": 7,
+     "title": "DT201.1: sessions with two sample users",
+     "state": "open",
+     "merged_at": null,
+     "merge_commit_sha": null,
+     "head": "dt2011",
+     "body": "",
+     "comments": []
+    }
+   ]
+  },
+  "example-org/demo-app": {
+   "files": null,
+   "checks": [
+    {
+     "name": "Tests",
+     "status": "completed",
+     "conclusion": "success"
+    },
+    {
+     "name": "Build",
+     "status": "completed",
+     "conclusion": "failure"
+    },
+    {
+     "name": "Audit",
+     "status": "in_progress",
+     "conclusion": null
+    }
+   ],
+   "pulls": [
+    {
+     "number": 2,
+     "title": "Feature list screen",
+     "state": "open",
+     "merged_at": null,
+     "merge_commit_sha": null,
+     "head": "{commit}",
+     "body": "",
+     "comments": [
+      {
+       "at": "2026-01-15T09:00:00Z",
+       "body": "FROM: Agent B → TO: Agent A\nSTATE: REVIEW PASSED\nHEAD: {commit}\nRESULT: The screen matches the list. <script>alert('demo')</script> stays text."
+      }
+     ]
+    }
+   ]
+  },
+  "example-org/second-plan": {
+   "files": "second-plan"
+  },
+  "example-org/second-site": {
+   "files": null,
+   "checks": {
+    "status": 403
+   }
+  },
+  "example-org/notes-plan": {
+   "files": "notes-plan"
+  },
+  "example-org/starter-kit": {
+   "files": "starter-kit"
+  },
+  "example-org/locked-plan": {
+   "status": 403
+  },
+  "example-org/locked-app": {
+   "status": 403
+  },
+  "example-org/tools": {
+   "files": null,
+   "private": false,
+   "checks": [
+    {
+     "name": "Tests",
+     "status": "completed",
+     "conclusion": "success"
+    }
+   ]
+  }
  }
 }
