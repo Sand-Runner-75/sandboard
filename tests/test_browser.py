@@ -158,6 +158,30 @@ class BrowserTest(unittest.TestCase):
         self.assertIn("No access", v["tasksAfterDenial"])
         self.assertNotIn("XQ101", v["tasksAfterDenial"])
 
+    def test_a_tab_keeps_its_own_commits_brief_after_the_branch_moves(self):
+        v = self.r["private"]
+        self.assertEqual(v["tabBriefA"], "Synthetic brief for XQ101.\n")
+        self.assertEqual(v["tabBriefAfterAdvance"], v["tabBriefA"], "the old tab neither changes nor stays on Loading")
+        self.assertIn("Read from acme/garden-plan @ " + v["commit"][:7], v["tabSourceAfterAdvance"])
+        self.assertEqual(v["briefB"], "Changed brief at the newer commit.\n")
+
+    def test_a_repository_no_longer_mapped_takes_its_tabs_with_it(self):
+        v = self.r["private"]
+        self.assertEqual((v["tabsBeforeRemap"], v["tabsAfterRemap"]), (3, 1))
+        self.assertNotIn("garden-plan", v["afterRemap"])
+        self.assertEqual(v["remapBrief"], "Brief in the replacement repository.\n")
+        self.assertIn("acme/replacement-plan", v["remapSource"])
+
+    def test_check_runs_pass_only_on_an_explicit_success(self):
+        line = next(l for l in self.r["private"]["checksAll"].splitlines() if "check runs:" in l)
+        self.assertEqual(line, "6 check runs: 1 passing, 1 not passing, 1 running or queued, 1 neutral or skipped, "
+                               "1 finished with no conclusion, 1 with a conclusion not known here")
+
+    def test_a_huge_status_count_stays_a_few_elements_with_its_exact_number(self):
+        big = self.r["private"]["bigPhase"]
+        self.assertIn("1000000000 Not Started", big["label"])
+        self.assertEqual(big["dots"], 2)
+
     def test_tabs_keep_their_source_and_project(self):
         life = self.r["lifecycle"]
         self.assertTrue(life["tabKey"].startswith("demo|example-org/demo-plan|"))

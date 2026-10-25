@@ -8,13 +8,13 @@ The first usable workspace, built on the read-only data layer in [DATA-LAYER.md]
 - **Overview**: the supplied figures for the whole plan and each scope (Pilot, MVP, Post-MVP) with what they are based on, then stage chips, a phase strip, the tasks waiting to start, and the repositories. A denied plan shows only its notice and the repositories that could be read.
 - **Tasks**: the same whole-plan figures, the phase strip, filters (search, phase, status, doer), the task list and an inspector. Filters, stages and phases choose which rows and cards are shown; they never change a figure.
 - **Inspector**: the row's properties; evidence, shown separately from status ("Done" in the table is not owner approval); prerequisites, with any not in the table marked; notes; the task's brief and handover when the workspace names where they are; result-file links; and **Open as tab**.
-- **Tabs**: a task tab keeps the project, repository and commit it was read from, and says so ("Read from … @ commit"). Tabs of another project are not in the page. A tab whose source is no longer readable is closed on refresh.
-- **Repository**: role, when it was read, visibility and check runs. Later slices add more.
+- **Tabs**: a task tab keeps the project, repository, file templates and commit it was read from, and says so ("Read from … @ commit"); its brief and handover stay those of that commit after the branch moves on. Tabs of another project are not in the page. On refresh, a tab closes when its repository is no longer mapped to its project or can no longer be read, and its documents go with it.
+- **Repository**: role, when it was read, visibility and check runs. A run counts as passing only on an explicit success; a finished run with no conclusion, or one not known here, is shown as such, never as passing. Later slices add more.
 - **Go to** (Ctrl K or ⌘K): places only (projects, views, the current project's tasks, themes). It does not search inside files.
 
 ## States
 
-Every surface shows one of the data layer's states with a glyph, a title and a sentence, never a blank or a zero standing in for "unknown": loading, empty, no match, missing, denied, rate limited, invalid, stale, unavailable, partial, failed and none. A phase with no rows says "No active work", never 0% or 100%. Stale progress is never shown as figures. Invalid table rows are listed with their line and raw text.
+Every surface shows one of the data layer's states with a glyph, a title and a sentence, never a blank or a zero standing in for "unknown": loading, empty, no match, missing, denied, rate limited, invalid, stale, unavailable, partial, failed and none. A phase with no rows says "No active work", never 0% or 100%. Phase dots show one dot per row up to 40 rows, then one dot per status with its exact count. Stale progress is never shown as figures. Invalid table rows are listed with their line and raw text.
 
 ## Result files
 

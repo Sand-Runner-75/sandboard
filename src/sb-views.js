@@ -51,6 +51,9 @@
 
   const STATUS_CLASS = { "Done": "done", "Ready for Review": "review", "In Progress": "progress", "Blocked": "blocked",
                          "Not Started": "not", "Removed": "removed" };
+  const DOT_LIMIT = 40;
+  // GitHub's check-run conclusions that mean the check did not pass.
+  const NOT_PASSING = ["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"];
   const pill = status => STATUS_CLASS[status] ? el("span", { class: "pill st-" + STATUS_CLASS[status] }, status)
     : el("span", { class: "pill st-invalid" }, status ? "Unknown status: " + status : "No status");
   const hours = h => String(h) + " h";
@@ -175,11 +178,14 @@
 
   function phaseCard(S, A, entry, ph) {
     const active = ph.rows > 0;
+    // One dot per row while that stays small; past DOT_LIMIT rows, one dot per status with its exact count,
+    // so a large supplied count never turns into as many page elements.
     const dots = el("span", { class: "dots", "aria-hidden": "true" });
+    const dot = s => el("span", { class: "dot st-" + STATUS_CLASS[s] + (s === "Removed" ? " removed" : s === "Not Started" ? "" : " fill") });
+    const total = SB.ORDER.reduce((n, s) => n + ph.status_counts[s], 0);
     for (const s of SB.ORDER) {
-      for (let i = 0; i < ph.status_counts[s]; i++) {
-        dots.append(el("span", { class: "dot st-" + STATUS_CLASS[s] + (s === "Removed" ? " removed" : s === "Not Started" ? "" : " fill") }));
-      }
+      if (total > DOT_LIMIT) { if (ph.status_counts[s]) dots.append(dot(s), el("span", { class: "dot-n" }, "×" + ph.status_counts[s])); }
+      else for (let i = 0; i < ph.status_counts[s]; i++) dots.append(dot(s));
     }
     const counts = SB.ORDER.filter(s => ph.status_counts[s]).map(s => ph.status_counts[s] + " " + s).join(", ") || "no rows";
     const bar = el("span", { class: "bar" + (active && !ph.verified ? " unverified" : "") });
@@ -350,11 +356,21 @@
     if (!["current", "partial", "empty"].includes(res.state)) {
       return el("span", {}, (STATE[res.state] || STATE.failed)[2], res.error ? el("span", { class: "muted" }, " (" + res.error + ")") : null);
     }
+    // Each run counts only by what it states: passing needs an explicit success, and a finished run
+    // without a conclusion, or with one not known here, is never counted as passing.
     const runs = res.data.runs;
-    const failing = runs.filter(r => r.conclusion && !["success", "neutral", "skipped"].includes(r.conclusion)).length;
-    const running = runs.filter(r => r.status !== "completed").length;
-    return el("span", {}, res.state === "empty" ? "No check runs" : runs.length + " check runs: " + (runs.length - failing - running) + " passing, " +
-      failing + " not passing, " + running + " running", res.coverage ? " (" + res.coverage.shown + " of " + res.coverage.total + " read)" : "");
+    const count = test => runs.filter(test).length;
+    const done = r => r.status === "completed";
+    const groups = [[count(r => done(r) && r.conclusion === "success"), "passing"],
+      [count(r => done(r) && NOT_PASSING.includes(r.conclusion)), "not passing"],
+      [count(r => !done(r)), "running or queued"],
+      [count(r => done(r) && ["neutral", "skipped"].includes(r.conclusion)), "neutral or skipped"],
+      [count(r => done(r) && !r.conclusion), "finished with no conclusion"]];
+    const other = runs.length - groups.reduce((n, g) => n + g[0], 0);
+    if (other) groups.push([other, "with a conclusion not known here"]);
+    const text = groups.filter((g, i) => i < 3 || g[0]).map(g => g[0] + " " + g[1]).join(", ");
+    return el("span", {}, res.state === "empty" ? "No check runs" : runs.length + " check runs: " + text,
+      res.coverage ? " (" + res.coverage.shown + " of " + res.coverage.total + " read)" : "");
   }
 
   function repoCard(entry) {
@@ -541,7 +557,7 @@
       return wrap;
     }
     const commit = entry.plan.data.commit;
-    const res = S.docs.get(A.docKey(entry.w.id, commit, kind, task.id));
+    const res = S.docs.get(A.docKey(entry.w.id, entry.w.plan.repo, commit, kind, files[kind], task.id));
     wrap.append(el("p", { class: "label" }, name + " · " + entry.w.plan.repo + " @ " + short(commit)));
     if (!res || res.state === "loading") { wrap.append(el("p", { class: "muted plain" }, "Loading")); return wrap; }
     if (res.state !== "current") {
@@ -593,7 +609,8 @@
       el("h1", { id: "view-h" }, "Task " + tab.id),
       el("p", { class: "source" }, "Read from ", el("b", { class: "mono" }, tab.repo), " @ ", el("span", { class: "mono", title: tab.commit }, short(tab.commit)),
         " in ", entry.w.label));
-    const snapshot = Object.assign({}, entry, { plan: tab.plan, progress: tab.progress, tasks: tab.tasks });
+    // The workspace mapping as it was when the tab opened (its repository and file templates), with today's code repositories.
+    const snapshot = Object.assign({}, entry, { w: Object.assign({}, entry.w, { plan: tab.source }), plan: tab.plan, progress: tab.progress, tasks: tab.tasks });
     sec.append(inspector(S, A, snapshot, tab.task, tab));
     return sec;
   }

@@ -116,6 +116,7 @@ main:focus { outline: none; }
 .dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid currentColor; }
 .dot.fill { background: currentColor; }
 .dot.removed { border-style: dashed; }
+.dot-n { font-size: 11px; line-height: 10px; margin-right: 6px; color: var(--muted); }
 .summary { display: grid; grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)); gap: 12px; }
 .ring-card { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 14px; }
 .ring { width: 68px; height: 68px; border-radius: 50%; display: grid; place-items: center; background: var(--sunken); }

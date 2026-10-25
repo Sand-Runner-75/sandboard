@@ -34,7 +34,7 @@
       signedIn: false, demo: false, planRepo: "", run: null,
       list: { state: "loading" }, entries: [], current: null,
       view: { kind: "overview" }, filters: { q: "", phase: "", status: "", doer: "" }, selected: null,
-      tabs: [], activeTab: null, docs: new Map(),
+      tabs: [], activeTab: null, docs: new Map(), mapped: new Map(),
       expanded: new Set(["g:projects"]), treeFocus: null,
     };
   }
@@ -112,10 +112,11 @@
       const list = await SB.readWorkspaces(ctx, client, target.repo, target.ref);
       session.alive(ctx);
       S.list = list;
-      if (list.state !== "current") { S.tabs = []; S.activeTab = null; S.selected = null; render(); return; }
+      if (list.state !== "current") { S.tabs = []; S.activeTab = null; S.selected = null; S.docs = new Map(); S.mapped = new Map(); render(); return; }
       S.entries = list.data.workspaces.map(w => ({ w, loading: true, plan: null, table: null, progress: null,
                                                    code: w.code.map(c => ({ c, pinned: null, checks: null })), tasks: [] }));
       if (!S.entries.some(e => e.w.id === S.current)) { S.current = S.entries[0].w.id; S.view = { kind: "overview" }; }
+      keepMapped();
       for (const e of S.entries) for (const g of ["p:", "stages:"]) S.expanded.add(g + e.w.id);
       render();
       for (let i = 0; i < S.entries.length; i++) {
@@ -126,6 +127,7 @@
         dropUnreadableTabs(S.entries[i]);
         render();
         if (w.id === S.current && S.selected) loadDocs(S.entries[i], S.selected);
+        for (const t of S.tabs) if (t.project === w.id) loadDocs(tabSource(t), t.id);
       }
       announce("Reading finished.");
     } catch (err) {
@@ -136,24 +138,51 @@
     }
   }
 
+  const planRepo = w => (w.plan ? w.plan.repo : null);
+
+  // Tabs and documents belong to a project's plan repository. When the refreshed workspace list no
+  // longer maps that repository to the project (removed, or the ID reused for another repository),
+  // they go before anything is drawn.
+  function keepMapped() {
+    const mapped = new Map(S.entries.map(e => [e.w.id, planRepo(e.w)]));
+    if (S.mapped.get(S.current) !== mapped.get(S.current)) S.selected = null;
+    S.mapped = mapped;
+    S.tabs = S.tabs.filter(t => mapped.get(t.project) === t.repo);
+    if (S.activeTab && !S.tabs.some(t => t.key === S.activeTab)) S.activeTab = null;
+    pruneDocs();
+  }
+
   // A plan that can no longer be read shows none of its tasks, in tabs either.
   function dropUnreadableTabs(entry) {
     if (V.tableState(entry) === "current") return;
     S.tabs = S.tabs.filter(t => t.project !== entry.w.id);
     if (S.activeTab && !S.tabs.some(t => t.key === S.activeTab)) S.activeTab = null;
     if (entry.w.id === S.current) S.selected = null;
+    pruneDocs();
   }
 
-  const docKey = (project, commit, kind, id) => [project, commit, kind, id].join("|");
+  // Documents are kept only for plans that are mapped and not known to be unreadable.
+  function pruneDocs() {
+    const keep = S.entries.filter(e => e.w.plan && (e.loading || V.tableState(e) === "current")).map(e => docKey(e.w.id, e.w.plan.repo, ""));
+    for (const key of [...S.docs.keys()]) if (!keep.some(k => key.startsWith(k))) S.docs.delete(key);
+  }
 
-  // The task's brief and handover, read once per commit and kept in memory with the rest.
+  // Full source identity: project, repository, commit, file kind and template, task ID.
+  function docKey(project, repo, commit, kind, template, id) {
+    return [project, repo, commit, kind, template, id].filter(x => x !== undefined).join("|");
+  }
+
+  // What a tab was read from, in the shape loadDocs reads: its own repository, templates and commit.
+  const tabSource = t => ({ w: { id: t.project, plan: t.source }, plan: t.plan });
+
+  // The task's brief and handover, read once per source and commit and kept in memory with the rest.
   async function loadDocs(entry, id) {
     if (V.planState(entry) !== "current") return;
     const ctx = S.run;
     const commit = entry.plan.data.commit;
     for (const kind of ["brief", "handover"]) {
       const template = entry.w.plan.files[kind];
-      const key = docKey(entry.w.id, commit, kind, id);
+      const key = docKey(entry.w.id, entry.w.plan.repo, commit, kind, template, id);
       if (!template || S.docs.has(key)) continue;
       S.docs.set(key, { state: "loading" });
       try {
@@ -163,7 +192,8 @@
         render();
       } catch (err) {
         if (err instanceof SB.Revoked) { endSession("revoked"); return; }
-        try { session.alive(ctx); } catch (e) { return; }
+        // A newer run or an ended session: leave no Loading behind, so the newer run reads it again.
+        try { session.alive(ctx); } catch (e) { if (S.docs.get(key) && S.docs.get(key).state === "loading") S.docs.delete(key); return; }
         S.docs.set(key, SB.result("failed", null, null, { error: "browser error (" + err.name + ")" }));
         render();
       }
@@ -278,14 +308,14 @@
       if (!task) return;
       const key = SB.tabKey(project, entry.w.plan.repo, entry.plan.data.commit, "task", id);
       if (!S.tabs.some(t => t.key === key)) {
-        S.tabs.push({ key, project, id, repo: entry.w.plan.repo, commit: entry.plan.data.commit,
+        S.tabs.push({ key, project, id, repo: entry.w.plan.repo, commit: entry.plan.data.commit, source: entry.w.plan,
                       plan: entry.plan, progress: entry.progress, tasks: entry.tasks, task });
       }
       S.activeTab = key;
       render();
       focusTab(key);
       announce("Opened task " + id + " as a tab.");
-      loadDocs(entry, id);
+      loadDocs(tabSource(S.tabs.find(t => t.key === key)), id);
     },
     showTab(key) { S.activeTab = key; render(); focusTab(key); },
     closeTab(key) {
@@ -323,7 +353,9 @@
 
   function refresh() {
     if (!session) return;
-    S.docs = new Map();
+    // A document read at a commit stays right for that commit; only reads that did not finish
+    // with an answer about the file are dropped, so they are tried again.
+    for (const [key, res] of [...S.docs]) if (!["current", "empty", "missing", "invalid"].includes(res.state)) S.docs.delete(key);
     const ctx = session.start();  // same token, new run: replies to the old run are dropped
     announce("Refreshing.");
     load(ctx);

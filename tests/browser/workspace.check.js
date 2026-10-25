@@ -33,8 +33,15 @@ function privateRepos() {
   ws.workspaces[0].plan.files = Object.assign({}, F.FILES, { brief: "notes/{id}-brief.md" });
   ws.workspaces.push({ id: "locked", label: "Locked Garden", kind: "project",
                        plan: { repo: "acme/locked-plan", ref: null, files: F.FILES }, code: [] });
-  return F.planRepos({ workspaces: ws, files: {
-    [F.FILES.progress]: JSON.stringify(F.progressDoc({ approved_results: APPROVED }), null, 1),
+  // A phase with a huge supplied count must not become as many page elements.
+  const progress = F.progressDoc({ approved_results: APPROVED });
+  progress.phases[1].status_counts["Not Started"] = 1000000000;
+  // Check runs with every kind of outcome, including a finished run with no conclusion.
+  const checks = [["passes", "completed", "success"], ["fails", "completed", "failure"], ["queued", "queued", null],
+                  ["skipped", "completed", "skipped"], ["unfinished conclusion", "completed", null], ["odd", "completed", "something_new"]]
+    .map(([name, status, conclusion]) => ({ name, status, conclusion }));
+  return F.planRepos({ workspaces: ws, checks, files: {
+    [F.FILES.progress]: JSON.stringify(progress, null, 1),
     "notes/XQ101-brief.md": "Synthetic brief for XQ101.\n",
   } });
 }
@@ -252,7 +259,8 @@ function privateRepos() {
   const priv = out.private = { methods: [], auth: [], hosts: [] };
   let revoke = false;
   let denyTable = false;
-  const gh = mockGitHub(privateRepos(), [[/^[/]repos[/]acme[/]locked-plan/, () => json({ message: "denied" }, 403)],
+  const repos = privateRepos();
+  const gh = mockGitHub(repos, [[/^[/]repos[/]acme[/]locked-plan/, () => json({ message: "denied" }, 403)],
                                          [/contents[/]plan[/]tasks[.]md/, (path, init) => denyTable ? json({ message: "denied" }, 403) : null]]);
   p = await open();
   await p.route("https://api.github.com/**", async route => {
@@ -262,8 +270,14 @@ function privateRepos() {
     const res = revoke ? json({ message: "Bad credentials" }, 401) : await gh.fetch(req.url(), { method: req.method() });
     await route.fulfill({ status: res.status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }, body: await res.text() });
   });
+  const finished = async () => { await p.waitForFunction(() => /Reading finished/.test(document.getElementById("live").textContent), null, { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(300); };
   await p.fill("#plan-repo", "acme/garden-plan"); await p.fill("#token", "synthetic-token"); await p.click("#connect button[type=submit]");
-  await p.waitForFunction(() => /Reading finished/.test(document.getElementById("live").textContent), null, { timeout: 8000 }).catch(() => {});
+  await finished();
+  priv.bigPhase = { label: await p.$eval(".phase[data-phase='P2']", n => n.getAttribute("aria-label")),
+                    dots: await p.$$eval(".phase[data-phase='P2'] .dots > *", n => n.length) };
+  await tree(p, "repos:garden"); await p.waitForTimeout(100);
+  await tree(p, "r:garden:acme/garden"); await p.waitForTimeout(150);
+  priv.checksAll = await p.evaluate(() => document.getElementById("workspace").innerText);
   priv.tokenField = await p.inputValue("#token");
   await tree(p, "v:garden:tasks"); await p.waitForTimeout(150);
   priv.rowLinks = await p.$$eval("#task-list .row[data-id='XQ101'] a", a => a.map(x => [x.getAttribute("href"), x.target, x.rel, x.tabIndex]));
@@ -283,6 +297,43 @@ function privateRepos() {
   await tree(p, "v:garden:tasks"); await p.waitForTimeout(150);
   priv.tasksAfterDenial = await p.evaluate(() => document.getElementById("workspace").innerText);
   denyTable = false;
+  // The branch moves on: a tab keeps its own commit's brief, a new read shows the new one.
+  const plan = repos["acme/garden-plan"];
+  const A = plan.branches.main;
+  await p.click("#refresh"); await finished();
+  await tree(p, "v:garden:tasks"); await p.waitForTimeout(150);
+  await p.click("#task-list .row[data-id='XQ101']"); await p.waitForTimeout(300);
+  await p.click("#inspector >> text=Open as tab"); await p.waitForTimeout(300);
+  priv.tabBriefA = await text(p, "#tab-brief-text");
+  const B = sha("plan-b");
+  plan.files[B] = Object.assign({}, plan.files[A], { "notes/XQ101-brief.md": "Changed brief at the newer commit.\n" });
+  plan.branches.main = B;
+  await p.click("#refresh"); await finished();
+  priv.tabBriefAfterAdvance = await text(p, "#tab-brief-text");
+  priv.tabSourceAfterAdvance = await text(p, "#tab-panel .source");
+  await p.click("#tab-view"); await p.waitForTimeout(150);
+  await p.click("#task-list .row[data-id='XQ101']"); await p.waitForTimeout(300);
+  priv.briefB = await text(p, "#brief-text");
+  // The same project ID now maps another repository: the old repository's tab and details go.
+  await p.click("#inspector >> text=Open as tab"); await p.waitForTimeout(300);
+  priv.tabsBeforeRemap = await p.$$eval(".tabs [role=tab]", t => t.length);
+  const ws = JSON.parse(plan.files[B]["sandboard.workspaces.json"]);
+  ws.workspaces[0].plan.repo = "acme/replacement-plan";
+  const R = sha("replacement");
+  repos["acme/replacement-plan"] = { default_branch: "main", branches: { main: R },
+    files: { [R]: Object.assign({}, plan.files[B], { "notes/XQ101-brief.md": "Brief in the replacement repository.\n" }) } };
+  const C = sha("plan-c");
+  plan.files[C] = Object.assign({}, plan.files[B], { "sandboard.workspaces.json": JSON.stringify(ws) });
+  plan.branches.main = C;
+  await p.click("#refresh"); await finished();
+  priv.tabsAfterRemap = await p.$$eval(".tabs [role=tab]", t => t.length);
+  priv.afterRemap = await p.evaluate(() => document.getElementById("workspace").innerText);
+  await tree(p, "v:garden:tasks"); await p.waitForTimeout(150);
+  await p.click("#task-list .row[data-id='XQ101']"); await p.waitForTimeout(300);
+  priv.remapBrief = await text(p, "#brief-text");
+  priv.remapSource = await text(p, "[data-file='brief'] .label");
+  plan.branches.main = A;
+  await p.click("#refresh"); await finished();
   await tree(p, "p:locked"); await p.waitForTimeout(150);
   priv.locked = await p.$$eval("#workspace .notice", n => n.map(x => x.dataset.state));
   priv.storage = await p.evaluate(() => localStorage.length + sessionStorage.length + document.cookie.length);
