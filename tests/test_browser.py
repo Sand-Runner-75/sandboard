@@ -263,6 +263,9 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(v["changed"]["title"], "Sketch the layout Done", "a changed task opens as it was at the tab's commit")
         self.assertEqual(v["deleted"]["key"], "garden|acme/garden-plan|" + a + "|task|XQ103", "a task deleted later still opens")
         self.assertEqual(v["deleted"]["live"], "Opened task XQ103 as a tab.")
+        self.assertEqual(v["neededBy"]["key"], "garden|acme/garden-plan|" + a + "|task|XQ102", "Needed by keeps the commit")
+        self.assertEqual(v["step"]["key"], "garden|acme/garden-plan|" + a + "|task|XQ102.1", "Steps keep the commit")
+        self.assertEqual(v["step"]["title"], "Mix swatches Not Started")
         self.assertEqual(v["current"], {"key": "garden|acme/garden-plan|" + b + "|task|XQ101", "title": "Sketch the layout again In Progress"},
                          "from the list, the task opens as it is now")
 

@@ -433,7 +433,7 @@ function privateRepos() {
   const filesAt = table => { const pr = F.progressDoc(); pr.inputs.table.blob_sha = blobSha(table);
     return { [F.FILES.table]: table, [F.FILES.progress]: JSON.stringify(pr, null, 1) }; };
   const tA = tableAt(["| XQ101 | Sketch the layout | Done | 2 | — |", "| XQ102 | Pick colours | In Progress | 3 | XQ101, XQ103 |",
-                      "| XQ103 | Gather samples | Not Started | 1 | — |"]);
+                      "| XQ102.1 | Mix swatches | Not Started | 1 | — |", "| XQ103 | Gather samples | Not Started | 1 | — |"]);
   const tB = tableAt(["| XQ101 | Sketch the layout again | In Progress | 2 | — |", "| XQ102 | Pick colours | In Progress | 3 | XQ101 |"]);
   const rrepos = F.planRepos({ files: filesAt(tA) });
   const rplan = rrepos["acme/garden-plan"];
@@ -460,6 +460,10 @@ function privateRepos() {
   rel.changed = await opened("XQ101");
   await p.click(`.tabs [role=tab][data-key$='|task|XQ102']`); await p.waitForTimeout(150);
   rel.deleted = await opened("XQ103");
+  // Needed by and Steps open at the same commit as well (the step is gone from the newer table too).
+  await p.click("#sub-related"); await p.waitForTimeout(100);
+  rel.neededBy = await opened("XQ102");
+  rel.step = await opened("XQ102.1");
   await p.click("#tab-view"); await p.waitForTimeout(150);
   await p.click("#task-list .row[data-id='XQ101']"); await p.waitForTimeout(300);
   await p.click("#inspector >> text=Open as tab"); await p.waitForTimeout(300);
