@@ -487,6 +487,12 @@
   }
 
   const stagesOf = entry => { const p = progressOf(entry); return p.state === "current" && Array.isArray(p.data.stages) ? p.data.stages : null; };
+  // The ID of the stage holding a phase, or "" when there is none.
+  function stageIdOf(entry, phase) {
+    const stages = entry && phase ? stagesOf(entry) : null;
+    const st = stages ? SB.stageOfPhase({ stages }, phase) : null;
+    return st ? st.id : "";
+  }
   // The stage the task filters are on: the one picked, or the one holding the picked phase.
   function chosenStage(S, entry) {
     const stages = stagesOf(entry);
@@ -616,25 +622,26 @@
         el("li", {}, "Earned credit: counted only by the progress output, never here"))), "Evidence");
   }
 
-  // A task named by another task: its ID opens it as a tab, with its status beside it.
-  function taskRef(A, entry, id, task) {
+  // A task named by another task: its ID opens it as a tab, with its status beside it. From a task
+  // tab, it opens at that tab's own commit, the revision the list was read from.
+  function taskRef(A, entry, id, task, from) {
     return el("li", {}, task ? el("button", { type: "button", class: "linkbtn id", "data-open": id, "aria-label": "Open " + id + " as a tab",
-        onclick: () => A.openTab(entry.w.id, id) }, id) : el("span", { class: "id" }, id), " ",
+        onclick: () => A.openTab(entry.w.id, id, from) }, id) : el("span", { class: "id" }, id), " ",
       task ? [task.title ? el("span", { class: "ref-title" }, task.title) : null, " ", pill(task.status)]
         : tip(el("span", { class: "pill st-invalid" }, "Not in this table"), "This ID is not a row of this plan's task table."));
   }
 
-  function related(A, entry, task, full) {
+  function related(A, entry, task, full, from) {
     const box = el("div", { class: "stack tight related" });
     const list = (name, items, empty) => box.append(el("div", {}, lab(name),
       items.length ? el("ul", { class: "needs" }, items) : el("p", { class: "muted plain" }, empty)));
-    list("Needs", task.prereqs === undefined ? [] : SB.prerequisites(task, entry.tasks).map(n => taskRef(A, entry, n.id, n.task)),
+    list("Needs", task.prereqs === undefined ? [] : SB.prerequisites(task, entry.tasks).map(n => taskRef(A, entry, n.id, n.task, from)),
       task.prereqs === undefined ? "No prerequisites column in the table" : "None");
-    list("Needed by", SB.dependents(task, entry.tasks).map(t => taskRef(A, entry, t.id, t)), "No task lists this one as a prerequisite.");
+    list("Needed by", SB.dependents(task, entry.tasks).map(t => taskRef(A, entry, t.id, t, from)), "No task lists this one as a prerequisite.");
     if (full) {
       const parent = task.parent ? entry.tasks.find(t => t.id === task.parent && !t.invalid) : null;
-      if (task.parent) box.append(el("div", {}, lab("Step of", "Steps"), el("ul", { class: "needs" }, taskRef(A, entry, task.parent, parent))));
-      list("Steps", SB.steps(task, entry.tasks).map(t => taskRef(A, entry, t.id, t)), "No steps.");
+      if (task.parent) box.append(el("div", {}, lab("Step of", "Steps"), el("ul", { class: "needs" }, taskRef(A, entry, task.parent, parent, from))));
+      list("Steps", SB.steps(task, entry.tasks).map(t => taskRef(A, entry, t.id, t, from)), "No steps.");
     }
     return box;
   }
@@ -797,7 +804,7 @@
     else if (sub === "brief" || sub === "handover") panel.append(taskFile(S, A, snapshot, task, sub, true, false));
     else if (sub === "results") panel.append(resultLinks(snapshot, task, approved, false));
     else if (sub === "crossref") panel.append(crossref(S, A, snapshot, task, true));
-    else panel.append(related(A, snapshot, task, true));
+    else panel.append(related(A, snapshot, task, true, tab.key));
     sec.append(bar, panel);
     return sec;
   }
@@ -860,5 +867,5 @@
     box.replaceChildren(...parts);
   }
 
-  SB.views = { el, notice, tree, treeGroups, focusTree, main, planState, tableState, rowsVisible, progressOf, STATE, TIPS };
+  SB.views = { el, notice, tree, treeGroups, focusTree, main, planState, tableState, rowsVisible, progressOf, stageIdOf, STATE, TIPS };
 })(typeof window !== "undefined" ? window : globalThis);

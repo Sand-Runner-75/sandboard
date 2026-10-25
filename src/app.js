@@ -278,7 +278,8 @@
       S.current = project;
       S.view = view;
       S.activeTab = null;
-      if (opts && opts.phase !== undefined) S.filters = Object.assign(noFilters(), { phase: opts.phase });
+      // A phase picked from the tree or a phase card brings its stage with it, as the filters show it.
+      if (opts && opts.phase !== undefined) S.filters = Object.assign(noFilters(), { stage: V.stageIdOf(entryOf(project), opts.phase), phase: opts.phase });
       if (opts && opts.select !== undefined) S.selected = opts.select;
       render();
       if (S.selected) loadDocs(entryOf(project), S.selected);
@@ -290,6 +291,7 @@
     setFilter(key, value, focusId) {
       S.filters[key] = value;
       if (key === "stage") S.filters.phase = "";  // a new stage starts from all of its phases
+      if (key === "phase" && value) S.filters.stage = V.stageIdOf(entryOf(S.current), value);  // clearing the phase keeps its stage
       if (key !== "q") S.selected = null;
       const caret = key === "q" ? $("q").selectionStart : null;
       render();
@@ -309,15 +311,20 @@
       focusRow(id);
     },
     visibleTabs: () => S.tabs.filter(t => t.project === S.current),
-    openTab(project, id) {
+    // Opens a task as a tab, read as the project is now, or, from another tab (its key in `from`), at
+    // that tab's own commit and mapping. Either way the plan must still be readable and mapped.
+    openTab(project, id, from) {
       const entry = entryOf(project);
-      if (!entry || !V.rowsVisible(entry)) return;
-      const task = entry.tasks.find(t => t.id === id && !t.invalid);
-      if (!task) return;
-      const key = SB.tabKey(project, entry.w.plan.repo, entry.plan.data.commit, "task", id);
+      if (!entry || !V.rowsVisible(entry)) { announce("Task " + id + " cannot be opened: its plan is not readable now."); return; }
+      const src = from ? S.tabs.find(t => t.key === from) : { repo: entry.w.plan.repo, commit: entry.plan.data.commit, source: entry.w.plan,
+                                                               plan: entry.plan, progress: entry.progress, tasks: entry.tasks };
+      if (!src || src.repo !== entry.w.plan.repo) { announce("Task " + id + " cannot be opened: that tab's plan is no longer this project's."); return; }
+      const task = src.tasks.find(t => t.id === id && !t.invalid);
+      if (!task) { announce("Task " + id + " is not a row of the task table at " + SB.short(src.commit) + "."); return; }
+      const key = SB.tabKey(project, src.repo, src.commit, "task", id);
       if (!S.tabs.some(t => t.key === key)) {
-        S.tabs.push({ key, project, id, repo: entry.w.plan.repo, commit: entry.plan.data.commit, source: entry.w.plan,
-                      plan: entry.plan, progress: entry.progress, tasks: entry.tasks, task });
+        S.tabs.push({ key, project, id, repo: src.repo, commit: src.commit, source: src.source,
+                      plan: src.plan, progress: src.progress, tasks: src.tasks, task });
       }
       S.activeTab = key;
       render();

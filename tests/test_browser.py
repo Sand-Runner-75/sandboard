@@ -249,6 +249,23 @@ class BrowserTest(unittest.TestCase):
         self.assertTrue(f["phaseCurrent"])
         self.assertEqual(v["phaseGroup"], ["ph:garden:P1", "ph:garden:P2"], "without stages, phases sit under the project")
 
+    def test_clearing_a_navigated_phase_keeps_its_stage(self):
+        f = self.r["firstUse"]
+        self.assertEqual(f["phaseStage"], "S1", "a phase picked in the tree brings its stage")
+        self.assertEqual(f["allInStage"], {"stage": "S1", "rows": f["stageRows"]})
+        self.assertEqual(f["allInCardStage"], {"stage": "S1", "phases": ["", "P1", "P2"]}, "the same from a phase card")
+
+    def test_related_tasks_in_a_tab_open_at_the_tabs_commit(self):
+        v = self.r["relatedRevisions"]
+        a, b = v["commits"]
+        self.assertIn("XQ103 Gather samples Not Started", v["related"], "the tab keeps the list it was read with")
+        self.assertEqual(v["changed"]["key"], "garden|acme/garden-plan|" + a + "|task|XQ101")
+        self.assertEqual(v["changed"]["title"], "Sketch the layout Done", "a changed task opens as it was at the tab's commit")
+        self.assertEqual(v["deleted"]["key"], "garden|acme/garden-plan|" + a + "|task|XQ103", "a task deleted later still opens")
+        self.assertEqual(v["deleted"]["live"], "Opened task XQ103 as a tab.")
+        self.assertEqual(v["current"], {"key": "garden|acme/garden-plan|" + b + "|task|XQ101", "title": "Sketch the layout again In Progress"},
+                         "from the list, the task opens as it is now")
+
     def test_expand_all_and_collapse_all(self):
         f = self.r["firstUse"]
         self.assertEqual(f["expandAll"], 0)
