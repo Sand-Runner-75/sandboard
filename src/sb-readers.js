@@ -14,7 +14,7 @@
   const KINDS = ["project", "kit", "standalone"];
   const PLAN_FILES = ["progress", "producer", "table", "record"];
   // Optional per-task files, as path templates with one "{id}" for the task's ID.
-  const TASK_FILES = ["brief", "handover"];
+  const TASK_FILES = ["brief", "handover", "crossref"];
   const SCOPES = ["Pilot", "MVP", "Post-MVP", "Whole project"];
   // Schema 1 figures as the producer writes them: hours are numbers, the
   // percentage and every row or status count is a whole number.

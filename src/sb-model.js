@@ -30,7 +30,7 @@
       const status = field(f, "Status");
       const prereqText = field(f, "Prerequisites");
       return {
-        id: r.id, line: r.line, text: r.text, invalid: r.invalid, section: r.section, phase: phaseOf(r.section),
+        id: r.id, line: r.line, text: r.text, invalid: r.invalid, section: r.section, phase: phaseOf(r.section), fields: f,
         title: hasSub ? f["Sub-task"] : field(f, "Task", "Title"),
         job: field(f, "Job"), group: hasSub ? field(f, "Task") : undefined,
         status, knownStatus: SB.STATUSES.includes(status),
@@ -57,10 +57,12 @@
 
   const blank = v => v === undefined || v === "" || v === "—";
 
-  // Rows matching every filter. Invalid rows show only when nothing but the phase is filtered.
+  // Rows matching every filter. Invalid rows show only when nothing but the stage or phase is filtered.
+  // stagePhases: the phases of the chosen stage, when one is chosen.
   function filterTasks(tasks, filters) {
     const q = (filters.q || "").trim().toLowerCase();
     return tasks.filter(t => {
+      if (filters.stagePhases && !(t.phase && filters.stagePhases.includes(t.phase.id))) return false;
       if (filters.phase && !(t.phase && t.phase.id === filters.phase)) return false;
       if (t.invalid) return !filters.status && !filters.doer && !q;
       if (filters.status && t.status !== filters.status) return false;
@@ -89,6 +91,10 @@
     });
   }
 
+  // Tasks that list this one as a prerequisite, and its steps (IDs like "DT201.1"), in source order.
+  const dependents = (task, tasks) => tasks.filter(t => !t.invalid && (t.prereqs || []).includes(task.id));
+  const steps = (task, tasks) => tasks.filter(t => !t.invalid && t.parent === task.id);
+
   // Owner approval facts from the producer's approved result files, by task ID.
   // null when this producer does not supply them: then nothing is shown as approved.
   function approvals(progress) {
@@ -113,6 +119,6 @@
 
   const short = sha => typeof sha === "string" ? sha.slice(0, 7) : "";
 
-  Object.assign(SB, { ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites,
+  Object.assign(SB, { ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
                       approvals, resultHref, tabKey, stageOfPhase, short });
 })(typeof window !== "undefined" ? window : globalThis);

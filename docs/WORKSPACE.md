@@ -4,13 +4,17 @@ The first usable workspace, built on the read-only data layer in [DATA-LAYER.md]
 
 ## Places
 
-- **Tree** (left, a menu button on narrow screens): projects, each with Overview, Tasks, its stages (when the progress output supplies them) and its repositories. Arrow keys move, open and close groups, as in the WAI-ARIA tree pattern.
+- **Tree** (left, a menu button on narrow screens): projects, each with Overview, Tasks, its stages with their phases (or, when the progress output supplies no stages, its phases) and its repositories. The arrow beside an item opens or closes it; the name goes to the place. **Expand all** and **Collapse all** sit above the tree, and a refresh keeps what was opened or closed. Arrow keys move, open and close groups, as in the WAI-ARIA tree pattern.
 - **Overview**: the supplied figures for the whole plan and each scope (Pilot, MVP, Post-MVP) with what they are based on, then stage chips, a phase strip, the tasks waiting to start, and the repositories. A denied plan shows only its notice and the repositories that could be read.
-- **Tasks**: the same whole-plan figures, the phase strip, filters (search, phase, status, doer), the task list and an inspector. Filters, stages and phases choose which rows and cards are shown; they never change a figure.
-- **Inspector**: the row's properties; evidence, shown separately from status ("Done" in the table is not owner approval); prerequisites, with any not in the table marked; notes; the task's brief and handover when the workspace names where they are; result-file links; and **Open as tab**.
-- **Tabs**: a task tab keeps the project, repository, file templates and commit it was read from, and says so ("Read from … @ commit"); its brief and handover stay those of that commit after the branch moves on. Tabs of another project are not in the page. On refresh, a tab closes when its repository is no longer mapped to its project or can no longer be read, and its documents go with it.
+- **Tasks**: the same whole-plan figures, the phase strip, filters (search, stage when the progress output supplies stages, phase, status, doer), the task list and the task details. Filters, stages and phases choose which rows and cards are shown; they never change a figure. A stage narrows the phase menu to its own phases. The list takes the whole width; with a task open, the details take a wide share beside it (stacked on narrow screens).
+- **Task details**: a summary. Approved result files come first when there are any; then the row's main properties; evidence, shown separately from status ("Done" in the table is not owner approval); what it needs and which tasks wait on it, each with its status and opening that task as a tab (any not in the table is marked); the original plan notes (folded); a link to its cross-reference file when the workspace names where they are; its brief and handover (folded for a Done task); and **Open as tab**.
+- **Tabs**: a task tab holds everything about the task in sections: Details (every column of its row, in the table's order, and the evidence), Brief, Handover, Results, Cross-references (link and text) and Related (needs, needed by, steps). It keeps the project, repository, file templates and commit it was read from, and says so ("Read from … @ commit"); its documents stay those of that commit after the branch moves on. Tabs of another project are not in the page. On refresh, a tab closes when its repository is no longer mapped to its project or can no longer be read, and its documents go with it. The tab bar scrolls sideways when many tabs are open, never up and down.
 - **Repository**: role, when it was read, visibility and check runs. A run counts as passing only on an explicit success; a finished run with no conclusion, or one not known here, is shown as such, never as passing. Later slices add more.
 - **Go to** (Ctrl K or ⌘K): places only (projects, views, the current project's tasks, themes). It does not search inside files.
+
+## Explanations
+
+Words and symbols that are not self-explanatory (statuses, figure labels, stages, phases, dots, evidence, repository roles, the commit line, tab sources) show a short explanation in a bubble when the pointer rests on them or the keyboard moves to them. The bubble can be hovered, goes when the pointer or focus leaves, and Esc hides it. The help dialog lists every explanation under "Words used here".
 
 ## States
 
@@ -34,11 +38,11 @@ Device, Light or Dark, for this visit only. The choice is not remembered, becaus
 
 ## Synthetic demo
 
-**Show the synthetic demo** runs the same code against made-up repositories in `fixtures/demo/`, built into `demo-data.js`, with no network. It covers a current plan with stages and approved result files, a stale plan, a plan without progress, a kit with broken rows, a denied plan and a code-only project. Brief and handover text includes hostile HTML that must show as text.
+**Show the synthetic demo** runs the same code against made-up repositories in `fixtures/demo/`, built into `demo-data.js`, with no network. It covers a current plan with stages, approved result files and a cross-reference file, a stale plan, a plan without progress, a kit with broken rows, a denied plan and a code-only project. Brief and handover text includes hostile HTML that must show as text.
 
 ## Tests
 
-- `tests/test_browser.py` builds the site and runs `tests/browser/workspace.check.js` in Chromium: the keyboard journey, figures that filters never change, states, tabs, the access lifecycle, copy, layouts at 320 to 1280 px in both themes, result-file links and GET-only requests against a mocked private plan, the framed-page refusal, and WCAG 2.2 target size (24 px), focus not hidden under the top bar, and the roles and states of the tree, list, tabs, Go to and dialogs. It needs Node.js and Playwright and is skipped without them, as on CI; set `SANDBOARD_PLAYWRIGHT` to the playwright module's folder when it is not found.
+- `tests/test_browser.py` builds the site and runs `tests/browser/workspace.check.js` in Chromium: the keyboard journey, figures that filters never change, states, tabs, the access lifecycle, copy, layouts at 320 to 1280 px in both themes, result-file links and GET-only requests against a mocked private plan, the framed-page refusal, the tree's arrows and Expand all / Collapse all, phases in the tree, the stage filter, the split layout, task-tab sections, prerequisite links, explanation bubbles, and WCAG 2.2 target size (24 px), focus not hidden under the top bar, and the roles and states of the tree, list, tabs, Go to and dialogs. It needs Node.js and Playwright and is skipped without them, as on CI; set `SANDBOARD_PLAYWRIGHT` to the playwright module's folder when it is not found.
 - `tests/test_style.py` checks that both dark palettes match, text contrast is at least 4.5:1, borders and the focus ring at least 3:1, in both themes.
 - `tests/test_demo.py` checks the demo's stored progress against its files.
 

@@ -5,7 +5,8 @@
    "id": "demo", "label": "Demo Project", "kind": "project",
    "plan": {"repo": "example-org/demo-plan", "ref": null,
             "files": {"progress": "plan/progress.json", "producer": "tools/progress.py", "table": "plan/tasks.md",
-                      "record": "plan/record.md", "brief": "notes/{id}-brief.md", "handover": "notes/{id}-handover.md"}},
+                      "record": "plan/record.md", "brief": "notes/{id}-brief.md", "handover": "notes/{id}-handover.md",
+                      "crossref": "notes/xref/{id}.md"}},
    "code": [{"repo": "example-org/demo-app", "ref": null, "role": "app"}]
   },
   {

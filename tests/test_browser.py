@@ -235,6 +235,98 @@ class BrowserTest(unittest.TestCase):
             self.assertEqual((s["selectedOption"], s["selectedTab"], s["current"]), (1, 1, 1), width)
             self.assertEqual(s["unnamed"], [], f"{width}: controls without a name")
 
+    def test_the_tree_arrow_closes_a_project_and_a_refresh_keeps_it_closed(self):
+        f = self.r["firstUse"]
+        self.assertEqual(f["openKids"], ["v:demo:overview", "v:demo:tasks", "stages:demo", "repos:demo"])
+        self.assertEqual(f["closed"], {"expanded": "false", "kids": []})
+        self.assertEqual(f["closedAfterRefresh"], "false")
+        self.assertEqual(f["reopened"], f["openKids"])
+
+    def test_phases_sit_under_their_stage_or_the_project(self):
+        f, v = self.r["firstUse"], self.r["private"]
+        self.assertEqual(f["stagePhases"], ["ph:demo:P1", "ph:demo:P2"])
+        self.assertEqual(f["phaseRows"], ["DT201", "DT201.1", "DT202", "DT203"])
+        self.assertTrue(f["phaseCurrent"])
+        self.assertEqual(v["phaseGroup"], ["ph:garden:P1", "ph:garden:P2"], "without stages, phases sit under the project")
+
+    def test_clearing_a_navigated_phase_keeps_its_stage(self):
+        f = self.r["firstUse"]
+        self.assertEqual(f["phaseStage"], "S1", "a phase picked in the tree brings its stage")
+        self.assertEqual(f["allInStage"], {"stage": "S1", "rows": f["stageRows"]})
+        self.assertEqual(f["allInCardStage"], {"stage": "S1", "phases": ["", "P1", "P2"]}, "the same from a phase card")
+
+    def test_related_tasks_in_a_tab_open_at_the_tabs_commit(self):
+        v = self.r["relatedRevisions"]
+        a, b = v["commits"]
+        self.assertIn("XQ103 Gather samples Not Started", v["related"], "the tab keeps the list it was read with")
+        self.assertEqual(v["changed"]["key"], "garden|acme/garden-plan|" + a + "|task|XQ101")
+        self.assertEqual(v["changed"]["title"], "Sketch the layout Done", "a changed task opens as it was at the tab's commit")
+        self.assertEqual(v["deleted"]["key"], "garden|acme/garden-plan|" + a + "|task|XQ103", "a task deleted later still opens")
+        self.assertEqual(v["deleted"]["live"], "Opened task XQ103 as a tab.")
+        self.assertEqual(v["neededBy"]["key"], "garden|acme/garden-plan|" + a + "|task|XQ102", "Needed by keeps the commit")
+        self.assertEqual(v["step"]["key"], "garden|acme/garden-plan|" + a + "|task|XQ102.1", "Steps keep the commit")
+        self.assertEqual(v["step"]["title"], "Mix swatches Not Started")
+        self.assertEqual(v["current"], {"key": "garden|acme/garden-plan|" + b + "|task|XQ101", "title": "Sketch the layout again In Progress"},
+                         "from the list, the task opens as it is now")
+
+    def test_expand_all_and_collapse_all(self):
+        f = self.r["firstUse"]
+        self.assertEqual(f["expandAll"], 0)
+        self.assertGreater(f["itemsExpanded"], 40)
+        self.assertEqual(f["itemsCollapsed"], ["g:projects", "p:demo", "p:second", "p:notes", "p:kit", "p:locked", "p:tools"])
+
+    def test_the_stage_filter_keeps_its_phases_and_never_changes_figures(self):
+        f, v = self.r["firstUse"], self.r["private"]
+        self.assertEqual(f["stageRows"], ["DT101", "DT102", "DT103", "DT104", "DT201", "DT201.1", "DT202", "DT203"])
+        self.assertEqual(f["stagePhaseOptions"], ["", "P1", "P2"])
+        self.assertEqual(f["wholeAfter"], f["wholeBefore"])
+        self.assertEqual(v["stageFilter"], 0, "no stage filter when the progress output has no stages")
+
+    def test_the_list_is_full_width_until_a_task_opens_beside_it(self):
+        f = self.r["firstUse"]
+        self.assertEqual(f["listOnly"], [1, 100])
+        self.assertGreaterEqual(f["withDetails"], 40)
+
+    def test_a_finished_task_shows_its_results_first_and_folds_its_documents(self):
+        v = self.r["private"]
+        self.assertEqual(v["panelOrder"][:2], ["header", "results"])
+        self.assertTrue(v["briefFolded"])
+        web = "https://github.example.invalid/acme/garden-plan/blob/" + v["commit"] + "/"
+        self.assertEqual(v["xrefLink"], [[web + "plan/xref/XQ101.md", "_blank", "noopener noreferrer"]])
+        self.assertEqual(self.r["firstUse"]["notesLabel"], "Original plan notes")
+
+    def test_prerequisites_show_their_status_and_open_as_tabs(self):
+        f = self.r["firstUse"]
+        self.assertEqual(f["needs"][:2], ["DT201 Agree the first feature list In Progress", "DT999 Not in this table"])
+        self.assertTrue(f["openedTab"].endswith("|task|DT201"))
+        self.assertIn("NeedsDT102 List similar tools Done", f["related"])
+        self.assertIn("Needed byDT202 Trace each feature to a check Not StartedDT401", f["related"])
+        self.assertIn("StepsDT201.1", f["related"])
+
+    def test_a_task_tab_holds_every_column_in_sections(self):
+        f = self.r["firstUse"]
+        self.assertEqual(f["sections"], ["Details", "Brief", "Handover", "Results", "Cross-references", "Related"])
+        for part in ("Expected resultA list the owner accepts", "CheckDOC", "Est. h4 h", "Original plan notesDraft shared",
+                     "ModeChat", "EffortHigh", "Owner approval: not recorded"):
+            self.assertIn(part, f["details"])
+        self.assertEqual((f["subKey"]["id"], f["subKey"]["outline"]), ("sub-brief", "3px"))
+        self.assertIn("Brief: DT201 (synthetic)", f["briefInTab"])
+        self.assertIn("notes/xref/DT201.md", f["crossref"])
+        self.assertIn("Synthetic index of what relates to DT201", f["crossref"])
+
+    def test_the_tab_bar_never_scrolls_up_and_down(self):
+        self.assertEqual(self.r["firstUse"]["tabBar"], ["hidden", True])
+
+    def test_explanation_bubbles_on_hover_and_focus_and_in_help(self):
+        f = self.r["firstUse"]
+        self.assertFalse(f["hoverTip"][0])
+        self.assertIn("Dropped from the plan", f["hoverTip"][1])
+        self.assertTrue(f["escHides"])
+        self.assertEqual(f["detailsStillOpen"], 1, "the first Esc only hides the bubble")
+        self.assertEqual(f["focusTip"], [False, "tip"])
+        for word in ("Removed", "Verified", "To be estimated", "Original plan notes", "Cross-references"):
+            self.assertIn(word, f["glossary"])
+
     def test_framed_page_refuses_to_show(self):
         self.assertEqual(self.r["framed"], {"state": "This page cannot be shown inside another site.", "shell": "hidden"})
 

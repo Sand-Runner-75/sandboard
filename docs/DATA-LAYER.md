@@ -44,7 +44,7 @@ Read from the private plan repository named at sign-in, file `sandboard.workspac
 
 `kind` is `project`, `kit` (a reusable template, not a live project) or `standalone` (code only); `plan` may be `null` when `code` is not empty; `ref` `null` means the default branch. The four plan file paths come from this private file, so the public code names no private file.
 
-`files` may also name `brief` and `handover`: path templates with exactly one `{id}`, such as `"notes/{id}-brief.md"`. A task's brief or handover is the template with the task's ID (letters, digits, `.`, `_`, `-`), read at the pinned plan commit (`SB.readTaskFile`): `current` with its text, `empty`, `missing` when the task has none, `invalid` when it is not UTF-8 or the ID or template is not valid (no request is made then), or the read's own failure state. Without a template the view says the workspace names no such file.
+`files` may also name `brief`, `handover` and `crossref` (the task's cross-reference index): path templates with exactly one `{id}`, such as `"notes/{id}-brief.md"`. A task's brief, handover or cross-reference file is the template with the task's ID (letters, digits, `.`, `_`, `-`), read at the pinned plan commit (`SB.readTaskFile`): `current` with its text, `empty`, `missing` when the task has none, `invalid` when it is not UTF-8 or the ID or template is not valid (no request is made then), or the read's own failure state. Without a template the view says the workspace names no such file.
 
 ## Plan table
 

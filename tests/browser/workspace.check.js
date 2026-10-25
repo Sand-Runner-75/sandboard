@@ -9,7 +9,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { chromium } = require(process.argv[2]);
 const DIST = path.resolve(process.argv[3]);
-const { mockGitHub, json, sha } = require("../js/helpers");
+const { mockGitHub, json, sha, blobSha } = require("../js/helpers");
 const F = require("../js/fixtures");
 
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json" };
@@ -30,7 +30,7 @@ const server = http.createServer((req, res) => {
 const APPROVED = [{ id: "XQ101", approval: "PR #4", files: ["notes/XQ101-result.md", "plan/tasks.md"], rejected: ["../../outside.md"] }];
 function privateRepos() {
   const ws = F.workspacesDoc();
-  ws.workspaces[0].plan.files = Object.assign({}, F.FILES, { brief: "notes/{id}-brief.md" });
+  ws.workspaces[0].plan.files = Object.assign({}, F.FILES, { brief: "notes/{id}-brief.md", crossref: "plan/xref/{id}.md" });
   ws.workspaces.push({ id: "locked", label: "Locked Garden", kind: "project",
                        plan: { repo: "acme/locked-plan", ref: null, files: F.FILES }, code: [] });
   // A phase with a huge supplied count must not become as many page elements.
@@ -43,6 +43,7 @@ function privateRepos() {
   return F.planRepos({ workspaces: ws, checks, files: {
     [F.FILES.progress]: JSON.stringify(progress, null, 1),
     "notes/XQ101-brief.md": "Synthetic brief for XQ101.\n",
+    "plan/xref/XQ101.md": "# XQ101 cross-references\n\n- Synthetic rules file\n",
   } });
 }
 
@@ -79,7 +80,7 @@ function privateRepos() {
   await p.keyboard.press("/"); k.search = await active(p);
   await p.keyboard.type("trace");
   k.rows = await p.$$eval("#task-list .row", r => r.map(x => x.dataset.id));
-  for (let i = 0; i < 4; i++) await p.keyboard.press("Tab");
+  for (let i = 0; i < 5; i++) await p.keyboard.press("Tab");  // stage, phase, status and doer filters, then the list
   k.onRow = await active(p);
   await p.keyboard.press("Enter"); await p.waitForTimeout(200);
   k.panel = await text(p, "#inspector");
@@ -285,6 +286,12 @@ function privateRepos() {
   await p.click("#task-list .row[data-id='XQ101']"); await p.waitForTimeout(300);
   priv.panelLinks = await p.$$eval("#inspector .results a", a => a.map(x => [x.getAttribute("href"), x.target, x.rel]));
   priv.panel = await text(p, "#inspector");
+  // A finished task: result files first, brief folded, cross-references linked at the commit.
+  priv.panelOrder = await p.$$eval("#inspector > *", n => n.map(x => x.className || x.tagName.toLowerCase()));
+  priv.briefFolded = await p.$eval("#inspector [data-file='brief']", n => n.tagName === "DETAILS" && !n.open);
+  priv.xrefLink = await p.$$eval("#inspector [data-file='crossref-link'] a", a => a.map(x => [x.getAttribute("href"), x.target, x.rel]));
+  priv.phaseGroup = await p.$$eval("#tree [data-id^='ph:garden:']", n => n.map(x => x.dataset.id));
+  priv.stageFilter = await p.$$eval("#f-stage", n => n.length);
   priv.commit = F.PLAN_COMMIT;
   // A plan that turns unreadable on refresh takes its open tabs and details with it.
   await p.click("#inspector >> text=Open as tab"); await p.waitForTimeout(200);
@@ -304,6 +311,7 @@ function privateRepos() {
   await tree(p, "v:garden:tasks"); await p.waitForTimeout(150);
   await p.click("#task-list .row[data-id='XQ101']"); await p.waitForTimeout(300);
   await p.click("#inspector >> text=Open as tab"); await p.waitForTimeout(300);
+  await p.click("#sub-brief"); await p.waitForTimeout(150);
   priv.tabBriefA = await text(p, "#tab-brief-text");
   const B = sha("plan-b");
   plan.files[B] = Object.assign({}, plan.files[A], { "notes/XQ101-brief.md": "Changed brief at the newer commit.\n" });
@@ -341,6 +349,126 @@ function privateRepos() {
   await p.click("#refresh"); await p.waitForTimeout(500);
   priv.afterRevoke = await p.evaluate(() => document.body.innerText);
   priv.hosts = [...new Set(out.requests.map(r => new URL(r.split(" ")[1]).host))];
+  await p.close();
+
+  // 8. The owner's first-use findings: tree, details, task tabs, stage filter, layout, bubbles.
+  const fu = out.firstUse = {};
+  p = await open(); await demo(p);
+  const kids = id => p.$$eval(`#tree [data-id="${id}"] > ul > li`, n => n.map(x => x.dataset.id));
+  // The arrow closes and opens a project; the name never closes it.
+  fu.openKids = await kids("p:demo");
+  await p.click('#tree [data-id="p:demo"] > .ti > .tw'); await p.waitForTimeout(100);
+  fu.closed = { expanded: await p.$eval('#tree [data-id="p:demo"]', n => n.getAttribute("aria-expanded")), kids: await kids("p:demo") };
+  await p.click("#refresh"); await p.waitForFunction(() => /Reading finished/.test(document.getElementById("live").textContent)); await p.waitForTimeout(200);
+  fu.closedAfterRefresh = await p.$eval('#tree [data-id="p:demo"]', n => n.getAttribute("aria-expanded"));
+  await p.click('#tree [data-id="p:demo"] > .ti > .tw'); await p.waitForTimeout(100);
+  fu.reopened = await kids("p:demo");
+  // Phases sit under their stage.
+  await p.click('#tree [data-id="st:demo:S1"] > .ti > .tw'); await p.waitForTimeout(100);
+  fu.stagePhases = await kids("st:demo:S1");
+  await tree(p, "ph:demo:P2"); await p.waitForTimeout(150);
+  fu.phaseRows = await p.$$eval("#task-list .row", r => r.map(x => x.dataset.id));
+  fu.phaseCurrent = await p.$eval('#tree [data-id="ph:demo:P2"] > .ti', n => n.classList.contains("current"));
+  // Back to all of the phase's stage: the stage it was shown under stays chosen.
+  fu.phaseStage = await p.$eval("#f-stage", n => n.value);
+  await p.selectOption("#f-phase", ""); await p.waitForTimeout(100);
+  fu.allInStage = { stage: await p.$eval("#f-stage", n => n.value), rows: await p.$$eval("#task-list .row", r => r.map(x => x.dataset.id)) };
+  await p.click(".phase[data-phase='P1']"); await p.waitForTimeout(150);
+  await p.selectOption("#f-phase", ""); await p.waitForTimeout(100);
+  fu.allInCardStage = { stage: await p.$eval("#f-stage", n => n.value), phases: await p.$$eval("#f-phase option", o => o.map(x => x.value)) };
+  // Expand all and Collapse all.
+  await p.click("#expand-all"); await p.waitForTimeout(100);
+  fu.expandAll = await p.$$eval("#tree [aria-expanded]", n => n.filter(x => x.getAttribute("aria-expanded") === "false").length);
+  fu.itemsExpanded = await p.$$eval("#tree [role=treeitem]", n => n.length);
+  await p.click("#collapse-all"); await p.waitForTimeout(100);
+  fu.itemsCollapsed = await p.$$eval("#tree [role=treeitem]", n => n.map(x => x.dataset.id));
+  await p.click("#expand-all"); await p.waitForTimeout(100);
+  // Stage filter: a stage keeps its own phases only.
+  await tree(p, "v:demo:tasks"); await p.waitForTimeout(150);
+  fu.wholeBefore = await text(p, "#whole-cards");
+  await p.selectOption("#f-stage", "S1"); await p.waitForTimeout(100);
+  fu.stageRows = await p.$$eval("#task-list .row", r => r.map(x => x.dataset.id));
+  fu.stagePhaseOptions = await p.$$eval("#f-phase option", o => o.map(x => x.value));
+  fu.wholeAfter = await text(p, "#whole-cards");
+  await p.selectOption("#f-stage", ""); await p.waitForTimeout(100);
+  // Layout: the list takes the whole width with nothing open; an open task gets a wide share.
+  fu.listOnly = await p.evaluate(() => { const w = document.querySelector(".work"); return [w.children.length, Math.round(w.firstElementChild.getBoundingClientRect().width / w.getBoundingClientRect().width * 100)]; });
+  await p.click("#task-list .row[data-id='DT202']"); await p.waitForTimeout(300);
+  fu.withDetails = await p.evaluate(() => { const w = document.querySelector(".work").getBoundingClientRect().width;
+    return Math.round(document.getElementById("inspector").getBoundingClientRect().width / w * 100); });
+  // Prerequisites and the tasks waiting on one, each opening its own tab.
+  fu.needs = await p.$$eval("#inspector .related li", n => n.map(x => x.textContent));
+  fu.notesLabel = await text(p, "#inspector details > summary");
+  await p.click("#inspector [data-open='DT201']"); await p.waitForTimeout(300);
+  fu.openedTab = await p.$eval(".tabs [role=tab][aria-selected=true]", n => n.dataset.key);
+  // A task tab holds every column, in sections.
+  fu.sections = await p.$$eval(".subtabs [role=tab]", t => t.map(x => x.textContent));
+  fu.details = await text(p, "#sub-panel");
+  await p.focus("#sub-details"); await p.keyboard.press("ArrowRight"); await p.waitForTimeout(100);
+  fu.subKey = await active(p);
+  fu.briefInTab = await text(p, "#tab-brief-text");
+  await p.click("#sub-related"); await p.waitForTimeout(100);
+  fu.related = await text(p, "#sub-panel");
+  await p.click("#sub-crossref"); await p.waitForTimeout(150);
+  fu.crossref = await text(p, "#sub-panel");
+  // Tab bar: sideways scroll only.
+  fu.tabBar = await p.$eval(".tabs", n => [getComputedStyle(n).overflowY, n.scrollHeight <= n.clientHeight]);
+  // Bubbles: on hover of a status, Esc hides it; on keyboard focus, described by it.
+  await p.click("#tab-view"); await p.waitForTimeout(100);
+  await p.hover("#task-list .row[data-id='DT203'] .pill"); await p.waitForTimeout(600);
+  fu.hoverTip = await p.$eval("#tip", n => [n.hidden, n.textContent]);
+  await p.keyboard.press("Escape"); await p.waitForTimeout(50);
+  fu.escHides = await p.$eval("#tip", n => n.hidden);
+  fu.detailsStillOpen = await p.$$eval("#inspector", n => n.length);
+  await p.focus(".phase[data-phase='P1']"); await p.waitForTimeout(100);
+  fu.focusTip = await p.evaluate(() => [document.getElementById("tip").hidden, document.activeElement.getAttribute("aria-describedby")]);
+  await p.keyboard.press("?"); await p.waitForTimeout(100);
+  fu.glossary = await p.$$eval("#glossary dt", n => n.map(x => x.textContent));
+  await p.keyboard.press("Escape");
+  await p.close();
+
+  // 9. Related tasks in a tab open at the tab's own commit, after the branch has moved on.
+  const rel = out.relatedRevisions = {};
+  const tableAt = rows => ["# Synthetic plan", "", "## P1 Start", "", "| ID | Task | Status | Est. h | Prerequisites |", "|---|---|---|---|---|", ...rows, ""].join("\n");
+  const filesAt = table => { const pr = F.progressDoc(); pr.inputs.table.blob_sha = blobSha(table);
+    return { [F.FILES.table]: table, [F.FILES.progress]: JSON.stringify(pr, null, 1) }; };
+  const tA = tableAt(["| XQ101 | Sketch the layout | Done | 2 | — |", "| XQ102 | Pick colours | In Progress | 3 | XQ101, XQ103 |",
+                      "| XQ102.1 | Mix swatches | Not Started | 1 | — |", "| XQ103 | Gather samples | Not Started | 1 | — |"]);
+  const tB = tableAt(["| XQ101 | Sketch the layout again | In Progress | 2 | — |", "| XQ102 | Pick colours | In Progress | 3 | XQ101 |"]);
+  const rrepos = F.planRepos({ files: filesAt(tA) });
+  const rplan = rrepos["acme/garden-plan"];
+  const RA = rplan.branches.main, RB = sha("related-b");
+  rplan.files[RB] = Object.assign({}, rplan.files[RA], filesAt(tB));
+  const rgh = mockGitHub(rrepos);
+  p = await open();
+  await p.route("https://api.github.com/**", async route => {
+    const res = await rgh.fetch(route.request().url(), { method: route.request().method() });
+    await route.fulfill({ status: res.status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }, body: await res.text() });
+  });
+  await p.fill("#plan-repo", "acme/garden-plan"); await p.fill("#token", "synthetic-token"); await p.click("#connect button[type=submit]");
+  await finished();
+  await tree(p, "v:garden:tasks"); await p.waitForTimeout(150);
+  await p.click("#task-list .row[data-id='XQ102']"); await p.waitForTimeout(300);
+  await p.click("#inspector >> text=Open as tab"); await p.waitForTimeout(300);
+  await p.click("#sub-related"); await p.waitForTimeout(100);
+  rplan.branches.main = RB;
+  await p.click("#refresh"); await finished();
+  rel.related = await text(p, "#sub-panel");
+  const opened = async id => { await p.click(`#sub-panel [data-open='${id}']`); await p.waitForTimeout(300);
+    return { key: await p.$eval(".tabs [role=tab][aria-selected=true]", n => n.dataset.key), title: await text(p, "#tab-panel .tab-title"),
+             live: await text(p, "#live") }; };
+  rel.changed = await opened("XQ101");
+  await p.click(`.tabs [role=tab][data-key$='|task|XQ102']`); await p.waitForTimeout(150);
+  rel.deleted = await opened("XQ103");
+  // Needed by and Steps open at the same commit as well (the step is gone from the newer table too).
+  await p.click("#sub-related"); await p.waitForTimeout(100);
+  rel.neededBy = await opened("XQ102");
+  rel.step = await opened("XQ102.1");
+  await p.click("#tab-view"); await p.waitForTimeout(150);
+  await p.click("#task-list .row[data-id='XQ101']"); await p.waitForTimeout(300);
+  await p.click("#inspector >> text=Open as tab"); await p.waitForTimeout(300);
+  rel.current = { key: await p.$eval(".tabs [role=tab][aria-selected=true]", n => n.dataset.key), title: await text(p, "#tab-panel .tab-title") };
+  rel.commits = [RA, RB];
   await p.close();
 
   // 7. Framed: the page refuses to show.

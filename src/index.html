@@ -21,7 +21,7 @@
 <div class="shell" id="shell">
   <header class="top">
     <button type="button" class="tool menu-btn" id="menu" aria-expanded="false" aria-controls="side">Menu</button>
-    <div class="brand">Sandboard <small class="muted" id="mode">read-only</small></div>
+    <div class="brand">Sandboard <small class="muted" id="mode" data-tip="Sandboard only reads. Nothing here can change a plan, a task or a repository.">read-only</small></div>
     <button type="button" class="tool" id="goto-open" aria-keyshortcuts="Control+K Meta+K" disabled>Go to… <kbd>Ctrl K</kbd></button>
     <div class="seg" role="group" aria-label="Theme">
       <button type="button" data-theme-choice="device" aria-pressed="true">Device</button>
@@ -33,6 +33,10 @@
     <button type="button" class="tool" id="forget" hidden>Forget access</button>
   </header>
   <nav class="side" id="side" aria-label="Workspace">
+    <div class="tree-tools" id="tree-tools" hidden>
+      <button type="button" class="tool small" id="expand-all">Expand all</button>
+      <button type="button" class="tool small" id="collapse-all">Collapse all</button>
+    </div>
     <ul class="tree" role="tree" aria-label="Projects" id="tree"></ul>
   </nav>
   <main id="main" tabindex="-1">
@@ -61,9 +65,13 @@
     <dt><kbd>Enter</kbd></dt><dd>Open the item; in the task list, show its details</dd>
     <dt><kbd>T</kbd></dt><dd>Open the task as a tab</dd>
     <dt><kbd>←</kbd> <kbd>→</kbd> on tabs</dt><dd>Move between tabs; <kbd>Delete</kbd> closes one</dd>
-    <dt><kbd>Esc</kbd></dt><dd>Close the details, this help or Go to</dd>
+    <dt><kbd>←</kbd> <kbd>→</kbd> on a task tab's sections</dt><dd>Move between Details, Brief, Handover, Results, Cross-references and Related</dd>
+    <dt><kbd>Esc</kbd></dt><dd>Hide an explanation bubble; close the details, this help or Go to</dd>
   </dl>
   <p class="muted">Sandboard only reads. There is no button that edits, assigns, merges, reviews, re-runs or publishes anything.</p>
+  <h2 id="glossary-title">Words used here</h2>
+  <p class="muted qual">The same explanations appear in a bubble when you rest the pointer on a word or move to it with the keyboard. Esc hides the bubble.</p>
+  <dl class="props glossary" id="glossary" aria-labelledby="glossary-title"></dl>
   <div class="actions"><button type="button" class="btn" id="help-close">Close</button></div>
 </dialog>
 <dialog id="goto" aria-labelledby="goto-title">
@@ -73,6 +81,7 @@
   <p class="muted qual">Goes to places only. It does not search inside files, pull requests or decisions.</p>
 </dialog>
 <div id="live" class="sr" role="status" aria-live="polite"></div>
+<div id="tip" class="tip" role="tooltip" hidden></div>
 <noscript>Sandboard needs JavaScript.</noscript>
 </body>
 </html>
