@@ -1,0 +1,20 @@
+{
+ "note": "Synthetic repositories for the Sandboard demo. Every name, task and figure is made up.",
+ "sign_in": "example-org/demo-plan",
+ "date": "2026-01-15T09:30:00Z",
+ "repos": {
+  "example-org/demo-plan": {"files": "demo-plan"},
+  "example-org/demo-app": {"files": null, "checks": [
+   {"name": "Tests", "status": "completed", "conclusion": "success"},
+   {"name": "Build", "status": "completed", "conclusion": "failure"},
+   {"name": "Audit", "status": "in_progress", "conclusion": null}]},
+  "example-org/second-plan": {"files": "second-plan"},
+  "example-org/second-site": {"files": null, "checks": {"status": 403}},
+  "example-org/notes-plan": {"files": "notes-plan"},
+  "example-org/starter-kit": {"files": "starter-kit"},
+  "example-org/locked-plan": {"status": 403},
+  "example-org/locked-app": {"status": 403},
+  "example-org/tools": {"files": null, "private": false, "checks": [
+   {"name": "Tests", "status": "completed", "conclusion": "success"}]}
+ }
+}

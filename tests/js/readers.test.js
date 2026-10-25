@@ -123,7 +123,9 @@ test("every field of the progress contract is enforced", async () => {
     "producer path": doc({ producer: { path: "other.py", blob_sha: blobSha(F.PRODUCER) } }),
     "producer replaced by the table": doc({ producer: { path: F.FILES.table, blob_sha: blobSha(F.TABLE) } }),
     "short sha": doc({ producer: { path: F.FILES.producer, blob_sha: "abc" } }),
-    "extra input": doc({ inputs: Object.assign({ extra: { path: "x", blob_sha: sha(1) } }, F.progressDoc().inputs) }),
+    "extra input outside the repository": doc({ inputs: Object.assign({ extra: { path: "../x", blob_sha: sha(1) } }, F.progressDoc().inputs) }),
+    "extra input without a hash": doc({ inputs: Object.assign({ extra: { path: "x.md" } }, F.progressDoc().inputs) }),
+    "no record input": doc({ inputs: { table: F.progressDoc().inputs.table } }),
     "table path": doc({ inputs: { table: { path: "x.md", blob_sha: blobSha(F.TABLE) }, record: F.progressDoc().inputs.record } }),
     "missing scope": doc({ scopes: { Pilot: F.progressDoc().scopes.Pilot } }),
     "over 100%": doc({ scopes: Object.assign({}, F.progressDoc().scopes, { MVP: Object.assign({}, F.progressDoc().scopes.MVP, { progress_pct: 101 }) }) }),
@@ -137,6 +139,19 @@ test("every field of the progress contract is enforced", async () => {
     assert.equal(r.state, "invalid", label);
     assert.equal(r.data, undefined, label);
   }
+});
+
+test("a further input the producer names is checked like the table and the record", async () => {
+  const TIMES = "| Task | Time |\n";
+  const withTimes = sha => JSON.stringify(F.progressDoc({ inputs: Object.assign({ times: { path: "plan/times.md", blob_sha: sha } }, F.progressDoc().inputs) }));
+  const current = await progress({ files: { [F.FILES.progress]: withTimes(blobSha(TIMES)), "plan/times.md": TIMES } });
+  assert.equal(current.state, "current");
+  const changed = await progress({ files: { [F.FILES.progress]: withTimes(blobSha(TIMES)), "plan/times.md": TIMES + "| x | 1 |\n" } });
+  assert.equal(changed.state, "stale");
+  assert.match(changed.error, /times plan[/]times[.]md changed/);
+  const missing = await progress({ files: { [F.FILES.progress]: withTimes(blobSha(TIMES)) } });
+  assert.equal(missing.state, "stale");
+  assert.equal(missing.data, undefined);
 });
 
 test("progress read failures keep their own state", async () => {

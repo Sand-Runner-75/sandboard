@@ -13,6 +13,8 @@
   const PROGRESS_SCHEMA = "sandboard.progress/1";
   const KINDS = ["project", "kit", "standalone"];
   const PLAN_FILES = ["progress", "producer", "table", "record"];
+  // Optional per-task files, as path templates with one "{id}" for the task's ID.
+  const TASK_FILES = ["brief", "handover"];
   const SCOPES = ["Pilot", "MVP", "Post-MVP", "Whole project"];
   // Schema 1 figures as the producer writes them: hours are numbers, the
   // percentage and every row or status count is a whole number.
@@ -26,6 +28,8 @@
   const isText = (v, max) => typeof v === "string" && v.trim() !== "" && v.length <= max;
   const isPath = v => typeof v === "string" && /^[A-Za-z0-9_.-]+([/][A-Za-z0-9_.-]+)*$/.test(v) &&
     !v.split("/").some(part => part === "." || part === "..");
+  const isTemplate = v => typeof v === "string" && v.split("{id}").length === 2 && isPath(v.replace("{id}", "x"));
+  const isTaskId = v => typeof v === "string" && /^[A-Za-z0-9_.-]{1,40}$/.test(v) && v !== "." && v !== "..";
   const isRef = v => v === undefined || v === null || (typeof v === "string" && /^[A-Za-z0-9_./-]{1,200}$/.test(v));
 
   function decode(bytes) {
@@ -49,7 +53,8 @@
         const p = w.plan;
         if (!isObject(p) || !SB.validRepo(p.repo) || !isRef(p.ref)) return where + "bad plan repository";
         if (!isObject(p.files) || !PLAN_FILES.every(f => isPath(p.files[f])) ||
-            Object.keys(p.files).some(f => !PLAN_FILES.includes(f))) return where + "bad plan files";
+            !TASK_FILES.every(f => p.files[f] === undefined || isTemplate(p.files[f])) ||
+            Object.keys(p.files).some(f => !PLAN_FILES.includes(f) && !TASK_FILES.includes(f))) return where + "bad plan files";
       }
       if (!Array.isArray(w.code) || !w.code.every(c => isObject(c) && SB.validRepo(c.repo) && isRef(c.ref) &&
                                                         isText(c.role, 40))) return where + "bad code repositories";
@@ -118,7 +123,7 @@
         else if (!fields.ID) invalid = "no ID";
         else if (seen.has(fields.ID)) invalid = "repeated ID";
         if (fields.ID) seen.add(fields.ID);
-        rows.push({ id: fields.ID, section, line: i + 1, fields, invalid });
+        rows.push({ id: fields.ID, section, line: i + 1, text: lines[i], fields, invalid });
       }
       i -= 1;
     }
@@ -152,9 +157,14 @@
     const p = doc.producer;
     const i = doc.inputs;
     if (!isObject(p) || p.path !== files.producer || !sha(p.blob_sha)) return "producer is not this plan's";
-    if (!isObject(i) || Object.keys(i).length !== 2) return "inputs are not exactly table and record";
+    // The table and the record are this plan's; any further input (some producers read more files) is named
+    // with its own path and hash, and is checked like the others.
+    if (!isObject(i) || Object.keys(i).length > 10) return "inputs are malformed";
     for (const name of ["table", "record"]) {
       if (!isObject(i[name]) || i[name].path !== files[name] || !sha(i[name].blob_sha)) return name + " input is not this plan's";
+    }
+    for (const [name, item] of Object.entries(i)) {
+      if (!/^[a-z_]{1,30}$/.test(name) || !isObject(item) || !isPath(item.path) || !sha(item.blob_sha)) return "input " + name + " is malformed";
     }
     if (!isObject(doc.scopes) || !SCOPES.every(n => figures(doc.scopes[n]))) return "a scope is missing or malformed";
     if (!Array.isArray(doc.phases) || doc.phases.length === 0) return "no phases";
@@ -163,6 +173,24 @@
       figures(ph) && goodCounts(ph.status_counts);
     if (!doc.phases.every(goodPhase)) return "a phase is malformed";
     if (new Set(doc.phases.map(ph => ph.id)).size !== doc.phases.length) return "a phase ID is repeated";
+    // Additive blocks: absent means the producer does not supply them; present means fully well formed.
+    if (doc.stages !== undefined) {
+      const phases = new Set(doc.phases.map(ph => ph.id));
+      const used = new Set();
+      const ids = new Set();
+      const goodStage = st => isObject(st) && typeof st.id === "string" && /^[A-Za-z0-9_-]{1,20}$/.test(st.id) &&
+        !ids.has(st.id) && ids.add(st.id) && isText(st.name, 60) && (st.gate === null || isText(st.gate, 100)) &&
+        Array.isArray(st.phases) && st.phases.length > 0 &&
+        st.phases.every(id => phases.has(id) && !used.has(id) && used.add(id)) && figures(st);
+      if (!Array.isArray(doc.stages) || doc.stages.length === 0 || !doc.stages.every(goodStage)) return "a stage is malformed";
+    }
+    if (doc.approved_results !== undefined) {
+      const ids = new Set();
+      const goodResult = a => isObject(a) && isTaskId(a.id) && !ids.has(a.id) && ids.add(a.id) && isText(a.approval, 200) &&
+        Array.isArray(a.files) && a.files.length <= 50 && a.files.every(isPath) &&
+        Array.isArray(a.rejected) && a.rejected.length <= 50 && a.rejected.every(r => typeof r === "string" && r.length <= 500);
+      if (!Array.isArray(doc.approved_results) || !doc.approved_results.every(goodResult)) return "approved result files are malformed";
+    }
     return null;
   }
 
@@ -178,7 +206,7 @@
     try { doc = JSON.parse(decode(file.data.bytes)); } catch (e) { doc = undefined; }
     const problem = validateProgress(doc, files);
     if (problem) return result("invalid", null, file.source, { error: problem });
-    for (const [name, item] of [["producer", doc.producer], ["table", doc.inputs.table], ["record", doc.inputs.record]]) {
+    for (const [name, item] of [["producer", doc.producer], ...Object.entries(doc.inputs)]) {
       const now = await client.readFile(ctx, repo, commit, item.path);
       if (now.state !== "current") {
         return result("stale", null, file.source, { error: name + " " + item.path + " unreadable at this commit (" + now.state + ")" });
@@ -188,6 +216,22 @@
       }
     }
     return result("current", doc, file.source, { schema: PROGRESS_SCHEMA });
+  }
+
+  // ---- A task's brief or handover: the configured template with the task's ID, at the pinned commit.
+
+  function readTaskFile(ctx, client, repo, commit, template, id) {
+    const path = isTemplate(template) && isTaskId(id) ? template.replace("{id}", id) : null;
+    return SB.guard(readTaskFileUnguarded(ctx, client, repo, commit, path), { repo, commit, path });
+  }
+
+  async function readTaskFileUnguarded(ctx, client, repo, commit, path) {
+    if (!path) return result("invalid", null, { repo, commit, path }, { error: "no valid file for this task" });
+    const file = await client.readFile(ctx, repo, commit, path);
+    if (file.state !== "current") return file;
+    const text = decode(file.data.bytes);
+    if (text === null) return result("invalid", null, file.source, { error: "not UTF-8 text" });
+    return result(text.trim() ? "current" : "empty", { text }, file.source);
   }
 
   // ---- Check runs (needs the token's Checks: read; shown as unavailable when not granted).
@@ -255,6 +299,6 @@
     return entries;
   }
 
-  Object.assign(SB, { WORKSPACES_FILE, readWorkspace, validateWorkspaces, readWorkspaces, splitRow, parsePlanTables, readPlan,
+  Object.assign(SB, { WORKSPACES_FILE, STATUSES, SCOPES, readWorkspace, readTaskFile, isPath, validateWorkspaces, readWorkspaces, splitRow, parsePlanTables, readPlan,
                       validateProgress, readProgress, readCheckRuns });
 })(typeof window !== "undefined" ? window : globalThis);

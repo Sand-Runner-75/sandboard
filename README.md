@@ -4,7 +4,7 @@ One place to see all my AI-built projects: tasks, progress, reviews and GitHub a
 
 ## Status
 
-Early. This repository holds the application code only: an app shell with synthetic demo data and the read-only data layer (sign-in with a read-only token kept in memory, workspace list, plan table, stored progress and check runs; see [docs/DATA-LAYER.md](docs/DATA-LAYER.md)). Nothing is published; publishing stays off until the owner turns it on (see [docs/RELEASE.md](docs/RELEASE.md)).
+Early. This repository holds the application code only: the first usable workspace (projects, overview with progress, tasks with their details, briefs and handovers, task tabs; see [docs/WORKSPACE.md](docs/WORKSPACE.md)) on a read-only data layer (sign-in with a read-only token kept in memory, workspace list, plan table, stored progress and check runs; see [docs/DATA-LAYER.md](docs/DATA-LAYER.md)), and a synthetic demo that runs the same code on made-up repositories. Nothing is published; publishing stays off until the owner turns it on (see [docs/RELEASE.md](docs/RELEASE.md)).
 
 ## What it will be
 
