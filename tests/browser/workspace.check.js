@@ -479,6 +479,14 @@ function privateRepos() {
                  shell: await frame.evaluate(() => getComputedStyle(document.getElementById("shell")).visibility) };
   await p.close();
 
+  // Text grows a little with the screen, from the browser's own size to an eighth more.
+  out.textSize = {};
+  for (const width of [390, 1280, 1920]) {
+    p = await open({ viewport: { width, height: 900 } });
+    out.textSize[width] = await p.evaluate(() => [getComputedStyle(document.documentElement).fontSize, getComputedStyle(document.body).fontSize]);
+    await p.close();
+  }
+
   await browser.close();
   server.close();
   process.stdout.write(JSON.stringify(out));

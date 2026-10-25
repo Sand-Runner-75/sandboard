@@ -31,7 +31,10 @@ html.framed #state { visibility: visible; }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { height: 100%; }
-body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--font-ui); }
+/* Text grows a little with the screen: the browser's own size on phones, about an eighth more on
+   wide screens. It follows the reader's browser setting and zoom, since it is a share of it. */
+html { font-size: clamp(100%, 90% + 0.25vw, 112.5%); }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 0.875rem/1.45 var(--font-ui); }
 button, input, select { font: inherit; color: inherit; }
 button:disabled { opacity: 0.6; cursor: not-allowed; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }

@@ -28,6 +28,10 @@ A result-file link appears only for a task whose owner approval the progress out
 
 Forget, leaving the demo, a revoked or expired token, leaving the page and coming back from the browser's page cache all end the session the same way: the token field is cleared, every tree item, view, tab, dialog, Go to entry and live message is removed, and the page returns to "Nothing loaded". A refresh that loses access to a plan removes its tasks and tabs.
 
+## Text size
+
+Text follows the browser's own size and zoom, and grows a little with the screen: the browser's size on phones, up to an eighth more on wide screens (about 14 px body text at 390 px, about 15.75 px from 1440 px, with the usual 16 px browser setting).
+
 ## Keyboard
 
 The help dialog (**?**) lists the keys: Ctrl K or ⌘K for Go to, **/** for search, arrows, Home and End in the tree and the task list, Enter to open, **T** to open a task as a tab, arrows and Delete on tabs, and Esc to close. The first Tab stop is a skip link to the main area. Focus stays where it was when the page redraws, and the focus ring is 3 px.
