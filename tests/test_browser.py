@@ -384,6 +384,12 @@ class BrowserTest(unittest.TestCase):
     def test_framed_page_refuses_to_show(self):
         self.assertEqual(self.r["framed"], {"state": "This page cannot be shown inside another site.", "shell": "hidden"})
 
+    def test_text_grows_a_little_with_the_screen(self):
+        size = {w: [float(v[:-2]) for v in vals] for w, vals in self.r["textSize"].items()}
+        self.assertEqual(size["390"], [16, 14], "phones keep the browser's own size")
+        self.assertGreater(size["1280"][1], 14)
+        self.assertEqual(size["1920"], [18, 15.75], "never more than an eighth above it")
+
 
 if __name__ == "__main__":
     unittest.main()
