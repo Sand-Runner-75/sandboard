@@ -284,14 +284,15 @@
   const isSha = v => typeof v === "string" && /^[0-9a-f]{40}$/.test(v);
   const isTime = v => v === null || (typeof v === "string" && v.length <= 40 && !Number.isNaN(Date.parse(v)));
 
-  function readPulls(ctx, client, repo) {
-    return SB.guard(readPullsUnguarded(ctx, client, repo), { repo });
+  // pages: how many pages of 100 to read at most (3 for a review cycle, 1 for an activity feed).
+  function readPulls(ctx, client, repo, pages) {
+    return SB.guard(readPullsUnguarded(ctx, client, repo, pages || MAX_PULL_PAGES), { repo });
   }
 
-  async function readPullsUnguarded(ctx, client, repo) {
+  async function readPullsUnguarded(ctx, client, repo, pages) {
     const source = { repo };
     const pulls = [];
-    for (let page = 1; page <= MAX_PULL_PAGES; page++) {
+    for (let page = 1; page <= Math.min(pages, MAX_PULL_PAGES); page++) {
       const res = await client.get(ctx, "/repos/" + repo + "/pulls?state=all&per_page=100&page=" + page);
       if (!res.ok) return result(client.stateFor(res), null, source, { error: "HTTP " + res.status });
       const body = await client.json(ctx, res);
@@ -300,12 +301,14 @@
         if (!isObject(pr) || !Number.isInteger(pr.number) || pr.number < 1 || typeof pr.title !== "string" ||
             !PULL_STATES.includes(pr.state) || !isObject(pr.head) || !isSha(pr.head.sha) ||
             !isTime(pr.merged_at === undefined ? null : pr.merged_at) ||
+            !isTime(pr.created_at === undefined ? null : pr.created_at) || !isTime(pr.closed_at === undefined ? null : pr.closed_at) ||
             !(pr.merge_commit_sha === null || pr.merge_commit_sha === undefined || isSha(pr.merge_commit_sha)) ||
             !(pr.body === null || pr.body === undefined || typeof pr.body === "string")) {
           return result("invalid", null, source, { error: "malformed pull request" });
         }
         pulls.push({ number: pr.number, title: pr.title.slice(0, 300), state: pr.state, head: pr.head.sha,
                      merged: pr.merged_at || null, mergeCommit: pr.merged_at ? pr.merge_commit_sha || null : null,
+                     created: pr.created_at || null, closed: pr.closed_at || null,
                      body: (pr.body || "").slice(0, 20000) });
       }
       // A full last page may hide more: the list is then marked partial.
@@ -338,6 +341,99 @@
     return result("partial", { comments }, source, { coverage: { shown: comments.length, total: null } });
   }
 
+  // ---- The repository overview: languages, and the recent evidence of an activity feed. Read live:
+  // GitHub counts languages on the default branch, and comments are GitHub's now. None of it is progress.
+
+  const COMMIT_LIMIT = 30;
+  const REPO_COMMENT_LIMIT = 50;
+
+  // Bytes of code per language, as GitHub counts them; largest first.
+  function readLanguages(ctx, client, repo) {
+    return SB.guard(readLanguagesUnguarded(ctx, client, repo), { repo });
+  }
+
+  async function readLanguagesUnguarded(ctx, client, repo) {
+    const source = { repo };
+    if (!SB.validRepo(repo)) return result("invalid", null, source, { error: "not a repository name" });
+    const res = await client.get(ctx, "/repos/" + repo + "/languages");
+    if (!res.ok) return result(client.stateFor(res), null, source, { error: "HTTP " + res.status });
+    const body = await client.json(ctx, res);
+    if (!isObject(body) || Object.keys(body).length > 200 ||
+        !Object.entries(body).every(([k, v]) => isText(k, 60) && Number.isSafeInteger(v) && v >= 0)) {
+      return result("invalid", null, source, { error: "unexpected languages reply" });
+    }
+    const languages = Object.entries(body).map(([name, bytes]) => ({ name, bytes })).sort((a, b) => b.bytes - a.bytes || (a.name < b.name ? -1 : 1));
+    return result(languages.length ? "current" : "empty", { languages }, source);
+  }
+
+  // The latest commits reachable from a pinned commit, newest first: at most 30, and partial when 30 came back.
+  function readCommits(ctx, client, repo, commit) {
+    return SB.guard(readCommitsUnguarded(ctx, client, repo, commit), { repo, commit });
+  }
+
+  async function readCommitsUnguarded(ctx, client, repo, commit) {
+    const source = { repo, commit };
+    if (!SB.validRepo(repo) || !isSha(commit)) return result("invalid", null, source, { error: "not a valid repository or commit" });
+    const res = await client.get(ctx, "/repos/" + repo + "/commits?sha=" + commit + "&per_page=" + COMMIT_LIMIT);
+    if (!res.ok) return result(client.stateFor(res), null, source, { error: "HTTP " + res.status });
+    const body = await client.json(ctx, res);
+    if (!Array.isArray(body) || body.length > COMMIT_LIMIT) return result("invalid", null, source, { error: "unexpected commit list" });
+    const commits = [];
+    for (const c of body) {
+      const at = isObject(c) && isObject(c.commit) && isObject(c.commit.committer) ? c.commit.committer.date : undefined;
+      if (!isObject(c) || !isSha(c.sha) || !isObject(c.commit) || typeof c.commit.message !== "string" || !isTime(at === undefined ? null : at)) {
+        return result("invalid", null, source, { error: "malformed commit" });
+      }
+      commits.push({ sha: c.sha, title: c.commit.message.split("\n")[0].slice(0, 200), at: at || null,
+                     parents: Array.isArray(c.parents) ? c.parents.length : null });
+    }
+    if (commits.length === COMMIT_LIMIT) return result("partial", { commits }, source, { coverage: { shown: commits.length, total: null } });
+    return result(commits.length ? "current" : "empty", { commits }, source);
+  }
+
+  // The latest comments on a repository's issues and pull requests, newest first, each with the number
+  // it was posted on. Needs the same permission as a pull request's comments; without it, unavailable.
+  function readRepoComments(ctx, client, repo) {
+    return SB.guard(readRepoCommentsUnguarded(ctx, client, repo), { repo });
+  }
+
+  async function readRepoCommentsUnguarded(ctx, client, repo) {
+    const source = { repo };
+    if (!SB.validRepo(repo)) return result("invalid", null, source, { error: "not a repository name" });
+    const res = await client.get(ctx, "/repos/" + repo + "/issues/comments?sort=created&direction=desc&per_page=" + REPO_COMMENT_LIMIT);
+    if (res.status === 403 || res.status === 404) {
+      const state = client.stateFor(res);
+      if (state === "rate-limited") return result(state, null, source, { error: "HTTP " + res.status });
+      return result("unavailable", null, source, { error: "comments not readable with this token (Pull requests: read)" });
+    }
+    if (!res.ok) return result(client.stateFor(res), null, source, { error: "HTTP " + res.status });
+    const body = await client.json(ctx, res);
+    if (!Array.isArray(body) || body.length > REPO_COMMENT_LIMIT) return result("invalid", null, source, { error: "unexpected comment list" });
+    const comments = [];
+    for (const c of body) {
+      const m = isObject(c) && typeof c.issue_url === "string" ? /[/]issues[/]([1-9][0-9]{0,8})$/.exec(c.issue_url) : null;
+      if (!m || typeof c.body !== "string" || !isTime(c.created_at || null)) return result("invalid", null, source, { error: "malformed comment" });
+      comments.push({ number: Number(m[1]), body: c.body.slice(0, 20000), at: c.created_at || null });
+    }
+    if (comments.length === REPO_COMMENT_LIMIT) return result("partial", { comments }, source, { coverage: { shown: comments.length, total: null } });
+    return result(comments.length ? "current" : "empty", { comments }, source);
+  }
+
+  // The signed-in account's login and type: who the token reads as. Nothing else about the account is read.
+  function readUser(ctx, client) {
+    return SB.guard(readUserUnguarded(ctx, client), {});
+  }
+
+  async function readUserUnguarded(ctx, client) {
+    const res = await client.get(ctx, "/user");
+    if (!res.ok) return result(client.stateFor(res), null, {}, { error: "HTTP " + res.status });
+    const body = await client.json(ctx, res);
+    if (!isObject(body) || typeof body.login !== "string" || !/^[A-Za-z0-9-]{1,39}$/.test(body.login)) {
+      return result("invalid", null, {}, { error: "unexpected account reply" });
+    }
+    return result("current", { login: body.login, type: ["User", "Organization", "Bot"].includes(body.type) ? body.type : null }, {});
+  }
+
   // ---- One workspace: every read it needs, in order, each with its own result.
   // A failure stops only the reads that depend on it, never other workspaces.
 
@@ -363,5 +459,6 @@
   }
 
   Object.assign(SB, { WORKSPACES_FILE, STATUSES, SCOPES, readWorkspace, readTaskFile, isPath, validateWorkspaces, readWorkspaces, splitRow, parsePlanTables, readPlan,
-                      validateProgress, readProgress, readCheckRuns, readPulls, readComments });
+                      validateProgress, readProgress, readCheckRuns, readPulls, readComments,
+                      COMMIT_LIMIT, REPO_COMMENT_LIMIT, readLanguages, readCommits, readRepoComments, readUser });
 })(typeof window !== "undefined" ? window : globalThis);

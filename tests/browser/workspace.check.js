@@ -567,6 +567,93 @@ function privateRepos() {
   cy.capped = await cyclePanel();
   await p.close();
 
+  // 8. Repository overview: only mapped repositories, GitHub counts kept apart from progress, the
+  // activity feed, a standalone repository, and a repository opened by name for this visit only.
+  const ro = out.repos = {};
+  p = await open();
+  await demo(p);
+  const wholePct = () => text(p, "#whole-cards .big");
+  ro.pctBefore = await wholePct();
+  ro.feed = await p.evaluate(() => { const f = document.querySelector("[data-part=feed]");
+    return f ? { kinds: [...f.querySelectorAll(".events li")].map(n => n.dataset.kind), coverage: (f.querySelector("[data-part=feed-coverage]") || {}).textContent || "",
+                 text: f.textContent } : null; });
+  await tree(p, "a:portfolio"); await p.waitForTimeout(300);
+  const rowsNow = () => p.$$eval(".grid-table tbody tr", n => n.map(r => [r.querySelector("[data-repo]") ? r.querySelector("[data-repo]").dataset.repo : "", r.dataset.state || "read"]));
+  ro.rows = await rowsNow();
+  ro.rowText = await p.$eval(".grid-table tbody", n => n.textContent);
+  await p.selectOption("#r-type", "fork"); await p.waitForTimeout(150); ro.forks = await rowsNow();
+  await p.selectOption("#r-type", ""); await p.selectOption("#r-lang", "Go"); await p.waitForTimeout(150); ro.go = await rowsNow();
+  await p.selectOption("#r-lang", ""); await p.fill("#rq", "locked"); await p.waitForTimeout(150); ro.locked = await rowsNow();
+  await p.fill("#rq", ""); await p.selectOption("#r-sort", "stars"); await p.waitForTimeout(150); ro.byStars = (await rowsNow()).map(r => r[0]);
+  await p.check("#r-group"); await p.waitForTimeout(150);
+  ro.groups = await p.$$eval("details.group", n => n.map(d => d.dataset.group));
+  await p.uncheck("#r-group");
+  await tree(p, "a:activity"); await p.waitForTimeout(600);
+  ro.activity = await p.evaluate(() => ({ account: document.querySelector("[data-part=account]").textContent,
+    cards: [...document.querySelectorAll(".counters .card")].map(c => c.textContent),
+    charts: [...document.querySelectorAll(".chart")].map(c => c.getAttribute("aria-label")),
+    missing: (document.querySelector("[data-part=bytes-missing]") || {}).textContent || "",
+    notice: (document.querySelector("[data-state=activity]") || {}).textContent || "",
+    bars: document.querySelectorAll(".bars li").length, dots: document.querySelectorAll(".plot .pt").length }));
+  await tree(p, "v:demo:overview"); await p.waitForTimeout(300);
+  ro.pctAfter = await wholePct();
+  // A repository page: hostile description and homepage stay text; the standalone one has no plan progress.
+  await tree(p, "repos:demo"); await p.waitForTimeout(150);
+  await tree(p, "r:demo:example-org/demo-app"); await p.waitForTimeout(500);
+  ro.app = await p.evaluate(() => { const m = document.querySelector("[data-part=repo-meta]");
+    return { text: m.textContent, links: [...m.querySelectorAll("a")].map(a => a.getAttribute("href")), imgs: document.querySelectorAll("main img").length }; });
+  await tree(p, "p:tools"); await p.waitForTimeout(500);
+  ro.tools = await p.evaluate(() => ({ noPlan: (document.querySelector("[data-state=no-plan]") || {}).textContent || "",
+    langs: [...document.querySelectorAll(".chart .bars li .bname")].map(n => n.textContent),
+    feed: [...document.querySelectorAll("[data-part=feed] .events li")].map(n => n.dataset.kind) }));
+  // Opened by name: shown and marked, kept by a refresh, gone after leaving.
+  await tree(p, "a:portfolio"); await p.waitForTimeout(200);
+  await p.fill("#open-repo", "example-org/unlisted"); await p.click(".open-form button"); await p.waitForTimeout(600);
+  ro.opened = { head: await text(p, "#view-h"), tree: await p.$$eval("#tree [role=treeitem]", n => n.filter(x => /opened by name/.test(x.getAttribute("aria-label"))).map(x => x.dataset.id)) };
+  await p.click("#refresh"); await p.waitForTimeout(1200);
+  await tree(p, "a:portfolio"); await p.waitForTimeout(300);
+  ro.opened.afterRefresh = (await rowsNow()).map(r => r[0]).includes("example-org/unlisted");
+  ro.opened.marked = await p.$eval(".grid-table tbody", n => /opened by name/.test(n.textContent));
+  await p.fill("#open-repo", "not a name"); await p.click(".open-form button"); await p.waitForTimeout(200);
+  ro.opened.badName = await text(p, ".open-form + .status-line");
+  await p.click("#forget"); await p.waitForTimeout(200);
+  await demo(p);
+  await tree(p, "a:portfolio"); await p.waitForTimeout(300);
+  ro.opened.afterLeave = (await rowsNow()).map(r => r[0]).includes("example-org/unlisted");
+  // Narrow screens: the page never scrolls sideways; the table scrolls in its own box.
+  await p.setViewportSize({ width: 320, height: 800 }); await p.waitForTimeout(200);
+  ro.narrow = { portfolio: await p.evaluate(() => document.documentElement.scrollWidth) };
+  await p.click("#menu"); await tree(p, "a:activity"); await p.waitForTimeout(400);
+  ro.narrow.activity = await p.evaluate(() => document.documentElement.scrollWidth);
+  await p.close();
+  // The private path: links at the repositories' own web addresses, an unmapped repository never read,
+  // comments that the token cannot read shown as such, and only GET reads.
+  const orepos = F.planRepos();
+  orepos["acme/garden"].commits = [{ sha: F.CODE_COMMIT, commit: { message: "Add the layout <b>now</b>", committer: { date: "2026-01-03T00:00:00Z" } }, parents: [{}] }];
+  orepos["acme/garden"].pulls = [{ number: 2, title: "Layout", state: "open", merged_at: null, merge_commit_sha: null, head: { sha: sha("code-head") }, body: "",
+                                   created_at: "2026-01-02T00:00:00Z", comments: [] }];
+  orepos["acme/garden"].comments = [{ issue_url: "https://api.github.com/repos/acme/garden/issues/2", body: "FROM: B\nSTATE: REVIEW PASSED\nHEAD: " + sha("code-head"), created_at: "2026-01-04T00:00:00Z" }];
+  orepos["acme/unmapped"] = { default_branch: "main", branches: { main: sha("u") }, files: { [sha("u")]: {} } };
+  const ogh = mockGitHub(orepos, [[/garden-plan\/issues\/comments/, () => json({ message: "no" }, 403)]]);
+  const ourls = [];
+  p = await open();
+  await p.route("https://api.github.com/**", async route => {
+    const req = route.request();
+    ourls.push(req.method() + " " + req.url());
+    const res = await ogh.fetch(req.url(), { method: req.method() });
+    await route.fulfill({ status: res.status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }, body: await res.text() });
+  });
+  await p.fill("#plan-repo", "acme/garden-plan"); await p.fill("#token", "synthetic-token"); await p.click("#connect button[type=submit]");
+  await finished(); await p.waitForTimeout(600);
+  ro.private = await p.evaluate(() => { const f = document.querySelector("[data-part=feed]");
+    return { links: [...f.querySelectorAll(".events a")].map(a => [a.getAttribute("href"), a.target, a.rel]),
+             kinds: [...f.querySelectorAll(".events li")].map(n => n.dataset.kind), coverage: (f.querySelector("[data-part=feed-coverage]") || {}).textContent || "",
+             bold: f.querySelectorAll("b").length };
+  });
+  await tree(p, "a:activity"); await p.waitForTimeout(600);
+  ro.private.urls = ourls;
+  await p.close();
+
   // 7. Framed: the page refuses to show.
   p = await open();
   await p.goto(BASE + "/frame.html"); await p.waitForTimeout(400);

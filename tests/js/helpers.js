@@ -31,6 +31,7 @@ function json(body, status = 200, headers = {}) {
 }
 
 // repos: {"owner/name": {private, default_branch, branches: {name: commit}, files: {commit: {path: text}},
+//          languages?, commits?, comments? (the repository overview's lists, as the API gives them),
 //          checks: {commit: [runs] | {status, headers}}, pulls: [{number, title, state, ..., comments}]}}
 // overrides: [[RegExp on the path, (path, init) => Response | Promise<Response> | null]], tried first.
 function mockGitHub(repos, overrides = []) {
@@ -75,6 +76,15 @@ function mockGitHub(repos, overrides = []) {
       if (!pr) return json({ message: "Not Found" }, 404);
       const page = Number(m[3]);
       return json((pr.comments || []).slice((page - 1) * 100, page * 100));
+    }
+    // The repository overview's reads: a synthetic repository gives its own lists, or none.
+    m = /^\/repos\/([^/]+\/[^/]+)\/(languages|commits\?sha=[0-9a-f]{40}&per_page=30|issues\/comments\?sort=created&direction=desc&per_page=50)$/.exec(p);
+    if (m) {
+      const r = repos[m[1]];
+      if (!r) return json({ message: "Not Found" }, 404);
+      if (m[2] === "languages") return json(r.languages || {});
+      if (m[2].startsWith("commits")) return json(r.commits || []);
+      return json(r.comments || []);
     }
     m = /^\/repos\/([^/]+\/[^/]+)\/commits\/([^/?]+)$/.exec(p);
     if (m) {

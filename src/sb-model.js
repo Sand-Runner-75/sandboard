@@ -185,7 +185,158 @@
     return { list, other };
   }
 
-  Object.assign(SB, { ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
+
+  // ---- The repository overview: the explicitly mapped repositories, their GitHub metadata and
+  // activity. These are GitHub's own counts about repositories; none of them is task progress.
+
+  // One row per mapped repository (each workspace's plan and code repositories, and any opened by
+  // name this visit), with every project and role it has. Only what the workspace list names appears.
+  function portfolio(entries) {
+    const rows = new Map();
+    const add = (entry, repo, role, pinned) => {
+      if (!rows.has(repo)) rows.set(repo, { repo, projects: [], pinned: null });
+      const row = rows.get(repo);
+      row.projects.push({ id: entry.w.id, label: entry.w.label, role, kind: entry.w.kind, opened: !!entry.w.opened });
+      // The first read that answered stands for the repository; a later project's read fills a gap only.
+      if (!row.pinned || (row.pinned.state !== "current" && pinned && pinned.state === "current")) row.pinned = pinned || row.pinned;
+    };
+    for (const e of entries) {
+      if (e.w.plan) add(e, e.w.plan.repo, "plan", e.plan);
+      e.w.code.forEach((c, i) => add(e, c.repo, c.role, e.code[i] ? e.code[i].pinned : null));
+    }
+    return [...rows.values()].map(r => Object.assign(r, { meta: r.pinned && r.pinned.state === "current" ? r.pinned.data.meta || null : null }));
+  }
+
+  const typeOf = m => !m || m.fork === null ? null : m.fork ? "fork" : "original";
+
+  // Rows matching every filter. A repository that could not be read shows only when nothing but the name is filtered.
+  function filterPortfolio(rows, f) {
+    const q = (f.q || "").trim().toLowerCase();
+    return rows.filter(r => {
+      const m = r.meta;
+      if (!m) return !f.visibility && !f.language && !f.type && (!q || r.repo.toLowerCase().includes(q));
+      if (f.visibility && m.visibility !== f.visibility) return false;
+      if (f.language && (m.language || "") !== (f.language === "-" ? "" : f.language)) return false;
+      if (f.type === "archived" ? m.archived !== true : f.type && typeOf(m) !== f.type) return false;
+      return !q || r.repo.toLowerCase().includes(q) || (m.description || "").toLowerCase().includes(q) ||
+        (m.topics || []).some(t => t.includes(q));
+    });
+  }
+
+  const SORTS = { name: "Name", stars: "Stars", forks: "Forks", issues: "Open issues", size: "Size", pushed: "Last push" };
+  // A copy sorted by one field, largest or newest first (name: A to Z). Unknown values go last, then by name.
+  function sortPortfolio(rows, key) {
+    const val = r => !r.meta ? null : key === "pushed" ? (r.meta.pushed ? Date.parse(r.meta.pushed) : null) : r.meta[key];
+    const byName = (a, b) => a.repo.toLowerCase() < b.repo.toLowerCase() ? -1 : a.repo.toLowerCase() > b.repo.toLowerCase() ? 1 : 0;
+    return rows.slice().sort((a, b) => {
+      if (key === "name" || !SORTS[key]) return byName(a, b);
+      const x = val(a), y = val(b);
+      if (x === null || x === undefined) return y === null || y === undefined ? byName(a, b) : 1;
+      if (y === null || y === undefined) return -1;
+      return y - x || byName(a, b);
+    });
+  }
+
+  // Values for the portfolio filter menus.
+  function portfolioOptions(rows) {
+    const read = rows.filter(r => r.meta);
+    return { visibilities: ["public", "private", "internal"].filter(v => read.some(r => r.meta.visibility === v)),
+             languages: [...new Set(read.map(r => r.meta.language).filter(Boolean))].sort(),
+             noLanguage: read.some(r => !r.meta.language) };
+  }
+
+  // Counted values of one field, largest first, with what the field did not give counted apart.
+  function tally(values) {
+    const map = new Map();
+    for (const v of values) map.set(v, (map.get(v) || 0) + 1);
+    return [...map.entries()].map(([value, n]) => ({ value, n })).sort((a, b) => b.n - a.n || String(a.value).localeCompare(String(b.value)));
+  }
+
+  // Everything the activity view draws, from the rows that could be read. Sums are GitHub's own counts
+  // added over the repositories that gave them, with how many did; they never feed progress.
+  function analytics(rows) {
+    const read = rows.filter(r => r.meta);
+    const sum = key => { const known = read.filter(r => r.meta[key] !== null);
+      return { total: known.reduce((n, r) => n + r.meta[key], 0), known: known.length }; };
+    const count = test => read.filter(r => test(r.meta)).length;
+    const year = t => t ? Number(t.slice(0, 4)) : null;
+    const years = new Map();
+    for (const r of read) {
+      const y = year(r.meta.created);
+      if (y === null) continue;
+      const slot = years.get(y) || { year: y, original: 0, fork: 0, unknown: 0 };
+      slot[typeOf(r.meta) || "unknown"] += 1;
+      years.set(y, slot);
+    }
+    return {
+      mapped: rows.length, read: read.length,
+      counters: { public: count(m => m.visibility === "public"), private: count(m => m.visibility === "private"),
+                  internal: count(m => m.visibility === "internal"), original: count(m => m.fork === false), fork: count(m => m.fork === true),
+                  archived: count(m => m.archived === true), stars: sum("stars"), forks: sum("forks"), issues: sum("issues") },
+      languages: tally(read.map(r => r.meta.language || null)),
+      years: [...years.values()].sort((a, b) => a.year - b.year),
+      noYear: read.filter(r => year(r.meta.created) === null).length,
+      lifespans: read.filter(r => r.meta.created && r.meta.pushed).map(r => ({ repo: r.repo, created: r.meta.created, pushed: r.meta.pushed }))
+        .sort((a, b) => Date.parse(a.created) - Date.parse(b.created)),
+      scatter: read.filter(r => r.meta.stars !== null && r.meta.pushed).map(r => ({ repo: r.repo, stars: r.meta.stars, pushed: r.meta.pushed })),
+      composition: { type: tally(read.map(r => r.meta.archived ? ["Archived", typeOf(r.meta)].filter(Boolean).join(" ") : typeOf(r.meta))),
+                     license: tally(read.map(r => r.meta.license)), branch: tally(read.map(r => r.meta.branch)) },
+    };
+  }
+
+  // Code bytes per language added over the repositories whose language counts were read, with coverage.
+  function languageBytes(results) {
+    const totals = new Map();
+    let read = 0;
+    for (const res of results) {
+      if (!res || !res.data) continue;
+      read += 1;
+      for (const l of res.data.languages) totals.set(l.name, (totals.get(l.name) || 0) + l.bytes);
+    }
+    const all = [...totals.entries()].map(([name, bytes]) => ({ name, bytes })).sort((a, b) => b.bytes - a.bytes || a.name.localeCompare(b.name));
+    return { languages: all, read, total: results.length, bytes: all.reduce((n, l) => n + l.bytes, 0) };
+  }
+
+  // A web address on the repository's own GitHub page, or null when GitHub gave no web address.
+  function repoHref(web, kind, id) {
+    if (!web) return null;
+    if (kind === "commit" && /^[0-9a-f]{40}$/.test(id)) return web + "/commit/" + id;
+    if ((kind === "pull" || kind === "issues") && Number.isInteger(id) && id > 0) return web + "/" + kind + "/" + id;
+    return null;
+  }
+
+  // A project's activity feed: commits, pull requests opened, merged or closed, and handoff comments,
+  // from each repository's own reads, newest first. Each event keeps its repository and links to its origin.
+  // sources: [{repo, web, commits, pulls, comments}] with reader results. Events with no time are counted, not placed.
+  function feedEvents(sources) {
+    const events = [];
+    let untimed = 0, other = 0;
+    const push = e => { if (e.at && !Number.isNaN(Date.parse(e.at))) events.push(e); else untimed += 1; };
+    for (const s of sources) {
+      const pulls = s.pulls && s.pulls.data ? s.pulls.data.pulls : [];
+      if (s.commits && s.commits.data) for (const c of s.commits.data.commits) {
+        push({ kind: "commit", repo: s.repo, at: c.at, title: c.title, id: SB.short(c.sha), merge: c.parents > 1, href: repoHref(s.web, "commit", c.sha) });
+      }
+      for (const pr of pulls) {
+        const href = repoHref(s.web, "pull", pr.number);
+        push({ kind: "opened", repo: s.repo, at: pr.created, title: pr.title, id: "#" + pr.number, href });
+        if (pr.merged) push({ kind: "merged", repo: s.repo, at: pr.merged, title: pr.title, id: "#" + pr.number, href });
+        else if (pr.state === "closed" && pr.closed) push({ kind: "closed", repo: s.repo, at: pr.closed, title: pr.title, id: "#" + pr.number, href });
+      }
+      if (s.comments && s.comments.data) for (const c of s.comments.data.comments) {
+        const h = handoff(c.body);
+        if (!h) { other += 1; continue; }
+        const isPull = pulls.some(p => p.number === c.number);
+        push({ kind: "handoff", repo: s.repo, at: c.at, title: h.from + ": " + h.state, id: "#" + c.number, handoff: h,
+               href: repoHref(s.web, isPull ? "pull" : "issues", c.number) });
+      }
+    }
+    events.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+    return { events, untimed, other };
+  }
+
+  Object.assign(SB, { SORTS, portfolio, filterPortfolio, sortPortfolio, portfolioOptions, tally, analytics, languageBytes, repoHref, feedEvents, typeOf,
+                      ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
                       approvals, resultHref, tabKey, stageOfPhase, short,
                       HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs });
 })(typeof window !== "undefined" ? window : globalThis);

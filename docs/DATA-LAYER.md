@@ -11,7 +11,7 @@ How the app reads private project data from GitHub, and what it refuses to do. T
 ## Requests
 
 - One client sends every request, always `GET` to `https://api.github.com`, with `credentials: "omit"`, `cache: "no-store"`, `referrerPolicy: "no-referrer"` and `redirect: "error"`. It has no way to send anything else.
-- Paths must match an allowlist (`/user`, a repository, a commit, a file at a full commit SHA, a commit's check runs, a repository's pull request list, and the comments on one pull request). Anything else is refused before any network call.
+- Paths must match an allowlist (`/user`, a repository, a commit, a file at a full commit SHA, a commit's check runs, a repository's pull request list, the comments on one pull request, a repository's languages, the latest 30 commits from a full commit SHA, and a repository's latest 50 issue and pull request comments). No account-wide path (the account's repositories, events or notifications) is allowed. Anything else is refused before any network call.
 - Each run has a context. The session checks it before each request and after each reply, body read and hash, so a reply from a forgotten session or an older run never appears. A new run aborts the old one.
 - Tests (`tests/test_app_rules.py`) fail if any browser code uses another network API, an HTTP method other than `GET`, a second network call site, browser storage, HTML parsing or code evaluation, or console logging.
 
@@ -80,9 +80,21 @@ A plan pull request belongs to a task when its title names the task's ID standin
 
 A comment counts as a review only in the handoff form: lines starting `FROM:`, `STATE:` and `HEAD:` (with `TO:`, `RESULT:`, `NEXT:` optional, and `FROM: A → TO: B` on one line accepted). Its state is shown as written, and recognised when it starts with READY FOR REVIEW, CHANGES REQUESTED, READY FOR RECHECK, REVIEW PASSED, BLOCKED or OWNER DECISION. Its head is the first full 40-character commit on the `HEAD:` line; it is labelled for the head, for an older commit, or as naming no full commit. A handoff is superseded when the same sender posts a later one. Other comments are only counted. Owner approval still comes only from `approved_results`; a review verdict, a passing check or a merge is never shown as one.
 
+## Repository overview
+
+Pinning also keeps what GitHub's repository reply says, field by field (`meta`): description, visibility, fork, archived, main language, topics, licence (`none` when GitHub says there is none), default branch, stars, forks, open issues, size, created, last push and homepage. A field that is missing or not in the expected form is `null`, shown as "Not given by GitHub", never as zero or a guess. These are read only for repositories the workspace list maps (or the owner opens by name for the visit).
+
+Three live reads, made when a view needs them and read again on refresh:
+
+- **Languages** (`/languages`): bytes per language, largest first; `empty` when GitHub counted none; any entry that is not a name with a whole non-negative number makes it **invalid**.
+- **Commits** (`/commits?sha=<pinned commit>&per_page=30`): the latest 30 reachable from the pinned commit, each with its SHA, first message line, committer time and parent count; 30 back is **partial**.
+- **Comments** (`/issues/comments?sort=created&direction=desc&per_page=50`): the latest 50 on the repository's issues and pull requests, each with the number it was posted on; 50 back is **partial**; a `403` or `404` is **unavailable** (the token lacks **Pull requests: read**), never "no comments".
+
+The activity feed also reads one page of the pull request list (100). Only handoff comments are shown, read as in the review cycle. Sums over repositories (stars, forks, issues, code bytes) are added only over the repositories that gave them, with that count shown. None of these reads or figures feeds progress.
+
 ## Repository web address
 
-Pinning keeps the repository's web address from GitHub's own reply (`html_url`) when it is a plain `https` address ending in that repository's name, with no user name, password, query or fragment; otherwise none. Result-file links are built from it: `<web address>/blob/<commit>/<path>`, each path segment encoded; pull request links are `<web address>/pull/<number>`. They open only when clicked, in a new tab with `rel="noopener noreferrer"`, and carry no token. No other web address is written in the code.
+Pinning keeps the repository's web address from GitHub's own reply (`html_url`) when it is a plain `https` address ending in that repository's name, with no user name, password, query or fragment; otherwise none. Result-file links are built from it: `<web address>/blob/<commit>/<path>`, each path segment encoded; pull request links are `<web address>/pull/<number>`, commit links `<web address>/commit/<sha>`, issue links `<web address>/issues/<number>`, and the clone address `<web address>.git`. They open only when clicked, in a new tab with `rel="noopener noreferrer"`, and carry no token. No other web address is written in the code.
 
 ## Rendering repository text
 

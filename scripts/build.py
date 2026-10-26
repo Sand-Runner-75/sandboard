@@ -88,7 +88,24 @@ def demo_repos(fixture_dir):
             repos[name]["checks"] = r["checks"]
         if "pulls" in r:
             repos[name]["pulls"] = demo_pulls(r["pulls"], repos[name]["commit"])
+        if "meta" in r:
+            repos[name]["meta"] = r["meta"]
+        if "languages" in r:
+            repos[name]["languages"] = r["languages"]
+        if "commits" in r:
+            repos[name]["commits"] = demo_commits(name, r["commits"], repos[name]["commit"])
     return {"sign_in": spec["sign_in"], "repos": repos}
+
+
+def demo_commits(name, commits, commit):
+    """Synthetic commit history, newest first, in the API's shape. The first is the repository's
+    demo commit; the others get made-up IDs from the repository's name and their place."""
+    out = []
+    for i, c in enumerate(commits):
+        sha = commit if i == 0 else hashlib.sha1(("%s#%d" % (name, i)).encode()).hexdigest()
+        out.append({"sha": sha, "commit": {"message": c["title"], "committer": {"date": c["at"]}},
+                    "parents": [{}] * c.get("parents", 1)})
+    return out
 
 
 def demo_pulls(pulls, commit):
@@ -103,6 +120,7 @@ def demo_pulls(pulls, commit):
         out.append({"number": p["number"], "title": p["title"], "state": p["state"], "merged_at": p["merged_at"],
                     "merge_commit_sha": fill(p["merge_commit_sha"]) if p["merge_commit_sha"] else None,
                     "head": {"sha": head}, "body": p["body"],
+                    "created_at": p.get("created"), "closed_at": p.get("closed", p["merged_at"]),
                     "comments": [{"body": fill(c["body"]), "created_at": c["at"]} for c in p["comments"]]})
     return out
 

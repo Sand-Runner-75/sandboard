@@ -35,7 +35,8 @@
        "at": "2026-01-09T12:05:00Z",
        "body": "Thanks, looks good to me."
       }
-     ]
+     ],
+     "created": "2026-01-07T09:00:00Z"
     },
     {
      "number": 4,
@@ -62,7 +63,8 @@
        "at": "2026-01-13T11:00:00Z",
        "body": "FROM: Agent B → TO: Agent A\nSTATE: OWNER DECISION\nHEAD: {sha:dt103-b}\nRESULT: We disagree on the upper bound.\nNEXT: The owner decides between the two readings."
       }
-     ]
+     ],
+     "created": "2026-01-11T09:00:00Z"
     },
     {
      "number": 5,
@@ -85,7 +87,8 @@
        "at": "2026-01-15T08:00:00Z",
        "body": "FROM: Agent A → TO: Agent B\nSTATE: READY FOR RECHECK\nHEAD: {sha:dt201-b}\nRESULT: Added two features after the review.\nNEXT: Agent B rechecks the new head."
       }
-     ]
+     ],
+     "created": "2026-01-13T09:00:00Z"
     },
     {
      "number": 6,
@@ -95,7 +98,9 @@
      "merge_commit_sha": null,
      "head": "tidy",
      "body": "",
-     "comments": []
+     "comments": [],
+     "created": "2026-01-05T09:00:00Z",
+     "closed": "2026-01-06T09:00:00Z"
     },
     {
      "number": 7,
@@ -105,7 +110,54 @@
      "merge_commit_sha": null,
      "head": "dt2011",
      "body": "",
-     "comments": []
+     "comments": [],
+     "created": "2026-01-14T10:00:00Z"
+    }
+   ],
+   "meta": {
+    "visibility": "private",
+    "fork": false,
+    "archived": false,
+    "topics": [
+     "plan",
+     "demo"
+    ],
+    "license": null,
+    "stargazers_count": 2,
+    "forks_count": 0,
+    "open_issues_count": 3,
+    "description": "Synthetic plan for the demo project.",
+    "language": "Python",
+    "size": 148,
+    "created_at": "2025-03-02T10:00:00Z",
+    "pushed_at": "2026-01-15T08:00:00Z",
+    "homepage": null
+   },
+   "languages": {
+    "Python": 4210,
+    "Markdown": 0
+   },
+   "commits": [
+    {
+     "title": "DT201: add two features after the review",
+     "at": "2026-01-15T08:00:00Z"
+    },
+    {
+     "title": "Merge pull request #3 from example-org/dt101",
+     "at": "2026-01-10T10:00:00Z",
+     "parents": 2
+    },
+    {
+     "title": "DT101: consent notes for two sessions",
+     "at": "2026-01-09T09:00:00Z"
+    },
+    {
+     "title": "DT103: audience size range",
+     "at": "2026-01-12T09:00:00Z"
+    },
+    {
+     "title": "First plan",
+     "at": "2025-03-02T10:00:00Z"
     }
    ]
   },
@@ -142,24 +194,132 @@
        "at": "2026-01-15T09:00:00Z",
        "body": "FROM: Agent B → TO: Agent A\nSTATE: REVIEW PASSED\nHEAD: {commit}\nRESULT: The screen matches the list. <script>alert('demo')</script> stays text."
       }
-     ]
+     ],
+     "created": "2026-01-14T16:00:00Z"
+    }
+   ],
+   "meta": {
+    "visibility": "private",
+    "fork": false,
+    "archived": false,
+    "topics": [
+     "app",
+     "demo"
+    ],
+    "license": {
+     "spdx_id": "MIT"
+    },
+    "stargazers_count": 14,
+    "forks_count": 3,
+    "open_issues_count": 5,
+    "description": "Synthetic app. <img src=x onerror=alert(1)> stays text.",
+    "language": "JavaScript",
+    "size": 2300,
+    "created_at": "2025-04-20T12:00:00Z",
+    "pushed_at": "2026-01-14T17:30:00Z",
+    "homepage": "javascript:alert(1)"
+   },
+   "languages": {
+    "JavaScript": 61234,
+    "CSS": 8120,
+    "HTML": 2410
+   },
+   "commits": [
+    {
+     "title": "Feature list screen",
+     "at": "2026-01-14T17:30:00Z"
+    },
+    {
+     "title": "Set up the app",
+     "at": "2025-04-20T12:00:00Z"
     }
    ]
   },
   "example-org/second-plan": {
-   "files": "second-plan"
+   "files": "second-plan",
+   "meta": {
+    "visibility": "private",
+    "fork": false,
+    "archived": false,
+    "topics": [],
+    "license": null,
+    "stargazers_count": 0,
+    "forks_count": 0,
+    "open_issues_count": 0,
+    "language": null,
+    "created_at": "2024-11-05T09:00:00Z",
+    "pushed_at": "2025-06-01T09:00:00Z",
+    "size": 40
+   }
   },
   "example-org/second-site": {
    "files": null,
    "checks": {
     "status": 403
+   },
+   "meta": {
+    "visibility": "private",
+    "fork": true,
+    "archived": false,
+    "topics": [],
+    "license": {
+     "spdx_id": "CC-BY-4.0"
+    },
+    "stargazers_count": 1,
+    "forks_count": 0,
+    "open_issues_count": 0,
+    "description": "Synthetic site, a fork.",
+    "language": "HTML",
+    "size": 512,
+    "created_at": "2024-11-06T09:00:00Z",
+    "pushed_at": "2025-05-30T09:00:00Z",
+    "homepage": "Ask the site team"
+   },
+   "languages": {
+    "status": 403
    }
   },
   "example-org/notes-plan": {
-   "files": "notes-plan"
+   "files": "notes-plan",
+   "meta": {
+    "visibility": "private",
+    "fork": false,
+    "archived": false,
+    "topics": null,
+    "license": null,
+    "stargazers_count": 0,
+    "forks_count": 0,
+    "open_issues_count": 0,
+    "language": null,
+    "created_at": "2025-09-01T09:00:00Z",
+    "pushed_at": "2025-12-01T09:00:00Z",
+    "size": 12
+   }
   },
   "example-org/starter-kit": {
-   "files": "starter-kit"
+   "files": "starter-kit",
+   "meta": {
+    "visibility": "public",
+    "fork": false,
+    "archived": true,
+    "topics": [
+     "template"
+    ],
+    "license": {
+     "spdx_id": "MIT"
+    },
+    "stargazers_count": 40,
+    "forks_count": 12,
+    "open_issues_count": 0,
+    "language": "Python",
+    "created_at": "2023-02-14T09:00:00Z",
+    "pushed_at": "2025-10-10T09:00:00Z",
+    "size": 88
+   },
+   "languages": {
+    "Python": 1200,
+    "Shell": 300
+   }
   },
   "example-org/locked-plan": {
    "status": 403
@@ -176,7 +336,61 @@
      "status": "completed",
      "conclusion": "success"
     }
+   ],
+   "meta": {
+    "visibility": "public",
+    "fork": false,
+    "archived": false,
+    "topics": [
+     "cli"
+    ],
+    "license": {
+     "spdx_id": "Apache-2.0"
+    },
+    "stargazers_count": 27,
+    "forks_count": 4,
+    "open_issues_count": 2,
+    "description": "Synthetic standalone library with no plan.",
+    "language": "Go",
+    "size": 640,
+    "created_at": "2024-06-01T09:00:00Z",
+    "pushed_at": "2026-01-12T11:00:00Z",
+    "homepage": null
+   },
+   "languages": {
+    "Go": 90210,
+    "Makefile": 512
+   },
+   "commits": [
+    {
+     "title": "Release 1.2",
+     "at": "2026-01-12T11:00:00Z"
+    },
+    {
+     "title": "First tool",
+     "at": "2024-06-01T09:00:00Z"
+    }
    ]
+  },
+  "example-org/unlisted": {
+   "files": null,
+   "meta": {
+    "visibility": "private",
+    "fork": false,
+    "archived": false,
+    "topics": [],
+    "license": null,
+    "stargazers_count": 0,
+    "forks_count": 0,
+    "open_issues_count": 0,
+    "description": "Synthetic repository that no workspace names.",
+    "language": "Rust",
+    "created_at": "2025-01-01T09:00:00Z",
+    "pushed_at": "2025-02-01T09:00:00Z"
+   },
+   "languages": {
+    "Rust": 5000
+   }
   }
  }
 }
