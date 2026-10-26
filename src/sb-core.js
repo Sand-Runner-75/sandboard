@@ -77,6 +77,9 @@
     new RegExp("^/repos/" + NAME + "/" + NAME + "/commits/[A-Za-z0-9_.%-]+$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/contents/" + FILE_PATH + "[?]ref=" + SHA + "$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/commits/" + SHA + "/check-runs[?]per_page=100&page=[1-9][0-9]?$"),
+    // A task's review cycle: the repository's pull requests, and the comments on one of them.
+    new RegExp("^/repos/" + NAME + "/" + NAME + "/pulls[?]state=all&per_page=100&page=[1-9]$"),
+    new RegExp("^/repos/" + NAME + "/" + NAME + "/issues/[1-9][0-9]{0,8}/comments[?]per_page=100&page=[1-9]$"),
   ];
 
   function allowed(path) {

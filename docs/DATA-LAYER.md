@@ -4,14 +4,14 @@ How the app reads private project data from GitHub, and what it refuses to do. T
 
 ## Access
 
-- The owner makes a fine-grained GitHub token limited to the mapped repositories, with read-only **Contents** and **Metadata** (and **Checks** for check runs). It is pasted into a password field and kept only inside one session object in memory, where nothing outside `src/sb-core.js` can read it (only the module's own client turns a live run into the request header): never in browser storage, cookies, the URL, history, logs or error text. The field is cleared at once.
+- The owner makes a fine-grained GitHub token limited to the mapped repositories, with read-only **Contents** and **Metadata** (and **Checks** for check runs, and **Pull requests** for a task's review cycle). It is pasted into a password field and kept only inside one session object in memory, where nothing outside `src/sb-core.js` can read it (only the module's own client turns a live run into the request header): never in browser storage, cookies, the URL, history, logs or error text. The field is cleared at once.
 - **Forget token**, leaving the page (`pagehide`, including into the back/forward cache), a page restored from that cache (`pageshow`) and a `401` reply all end the session: pending requests are aborted, the token is dropped and everything read with it is cleared. Reload or a new tab starts signed out.
 - The page refuses to run inside a frame.
 
 ## Requests
 
 - One client sends every request, always `GET` to `https://api.github.com`, with `credentials: "omit"`, `cache: "no-store"`, `referrerPolicy: "no-referrer"` and `redirect: "error"`. It has no way to send anything else.
-- Paths must match an allowlist (`/user`, a repository, a commit, a file at a full commit SHA, a commit's check runs). Anything else is refused before any network call.
+- Paths must match an allowlist (`/user`, a repository, a commit, a file at a full commit SHA, a commit's check runs, a repository's pull request list, and the comments on one pull request). Anything else is refused before any network call.
 - Each run has a context. The session checks it before each request and after each reply, body read and hash, so a reply from a forgotten session or an older run never appears. A new run aborts the old one.
 - Tests (`tests/test_app_rules.py`) fail if any browser code uses another network API, an HTTP method other than `GET`, a second network call site, browser storage, HTML parsing or code evaluation, or console logging.
 
@@ -70,9 +70,19 @@ Figures are shown exactly as stored, never recalculated. "Current" means "matche
 
 Read for a pinned commit, 100 per page, up to five pages. A `403` or `404` (the token has no **Checks: read**, or it is not proved) is **unavailable**, never "no checks". **Empty** only when GitHub reports none. Fewer runs read than GitHub reports, even none, is **partial**, with the coverage shown. A negative or changing total, or more runs than the total, is **invalid**.
 
+## Pull requests and comments
+
+Read live, not at a pinned commit, only when a task's review cycle is opened. The list is `pulls?state=all`, 100 per page, up to three pages; a third full page makes it **partial**. Each pull request must have a whole number, a title, `open` or `closed`, a full head commit, and, when given, a merge time, a full merge commit and a text body, or the list is **invalid**. Comments on one pull request are read 100 per page, up to five pages, kept as text with their time; more than that is **partial**.
+
+## Review cycle
+
+A plan pull request belongs to a task when its title names the task's ID standing alone: `XQ02` does not match `XQ026`, and a step `XQ026.1` does not match `XQ026`. A code pull request belongs when such a plan pull request's description links it by web address, `owner/name#12`, or the code repository's own name followed by `#12` or `PR #12`. At most ten pull requests are read per task. For each one, the comments and the check runs at its head are read.
+
+A comment counts as a review only in the handoff form: lines starting `FROM:`, `STATE:` and `HEAD:` (with `TO:`, `RESULT:`, `NEXT:` optional, and `FROM: A → TO: B` on one line accepted). Its state is shown as written, and recognised when it starts with READY FOR REVIEW, CHANGES REQUESTED, READY FOR RECHECK, REVIEW PASSED, BLOCKED or OWNER DECISION. Its head is the first full 40-character commit on the `HEAD:` line; it is labelled for the head, for an older commit, or as naming no full commit. A handoff is superseded when the same sender posts a later one. Other comments are only counted. Owner approval still comes only from `approved_results`; a review verdict, a passing check or a merge is never shown as one.
+
 ## Repository web address
 
-Pinning keeps the repository's web address from GitHub's own reply (`html_url`) when it is a plain `https` address ending in that repository's name, with no user name, password, query or fragment; otherwise none. Result-file links are built from it: `<web address>/blob/<commit>/<path>`, each path segment encoded. They open only when clicked, in a new tab with `rel="noopener noreferrer"`, and carry no token. No other web address is written in the code.
+Pinning keeps the repository's web address from GitHub's own reply (`html_url`) when it is a plain `https` address ending in that repository's name, with no user name, password, query or fragment; otherwise none. Result-file links are built from it: `<web address>/blob/<commit>/<path>`, each path segment encoded; pull request links are `<web address>/pull/<number>`. They open only when clicked, in a new tab with `rel="noopener noreferrer"`, and carry no token. No other web address is written in the code.
 
 ## Rendering repository text
 

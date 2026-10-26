@@ -28,7 +28,7 @@
     return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
   }
 
-  // demo: {repos: {"owner/name": {status?, private, default_branch, commit, date, files: {path: text}, checks?}}}
+  // demo: {repos: {"owner/name": {status?, private, default_branch, commit, date, files: {path: text}, checks?, pulls?}}}
   // Returns the request function SB.createClient takes, answering from memory.
   function demoServer(demo) {
     const repos = (demo && demo.repos) || {};
@@ -46,6 +46,19 @@
         if (r.checks.status) return reply({ message: "synthetic refusal" }, r.checks.status);
         const page = Number(m[2]);
         return reply({ total_count: r.checks.length, check_runs: r.checks.slice((page - 1) * 100, page * 100) });
+      }
+      if ((m = /^[/]pulls[?]state=all&per_page=100&page=(\d+)$/.exec(rest))) {
+        const page = Number(m[1]);
+        return reply((r.pulls || []).slice((page - 1) * 100, page * 100).map(p => {
+          const { comments, ...pr } = p;
+          return pr;
+        }));
+      }
+      if ((m = /^[/]issues[/](\d+)[/]comments[?]per_page=100&page=(\d+)$/.exec(rest))) {
+        const pr = (r.pulls || []).find(p => p.number === Number(m[1]));
+        if (!pr) return reply({ message: "Not Found" }, 404);
+        const page = Number(m[2]);
+        return reply(pr.comments.slice((page - 1) * 100, page * 100));
       }
       if ((m = /^[/]commits[/]([^/?]+)$/.exec(rest))) {
         const ref = decodeURIComponent(m[1]);

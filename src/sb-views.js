@@ -89,6 +89,12 @@
     "code": "A repository with this project's code.",
     "Read-only": "Sandboard only reads. Nothing here can change a plan, a task or a repository.",
     "Task tab": "A task opened on its own, as it was read at that commit. It stays as it was until you close it.",
+    "Review cycle": "The task's brief, its pull requests, the reviews posted on them, their checks and merges, and the owner's decision, each shown apart. Read live from GitHub.",
+    "Handoff": "A pull request comment in the agreed form (FROM, TO, STATE, HEAD, RESULT, NEXT) that one AI leaves for the other. Its verdict is the reviewer's, not the owner's approval.",
+    "Older commit": "The review was given for a commit that is no longer the pull request's head, so it may not cover the latest changes.",
+    "Superseded": "The same sender posted a later handoff on this pull request; the later one is their current word.",
+    "Pull requests and reviews": "Pull requests whose title names the task, and the code pull requests they link, with the handoffs posted on them, their checks and their merges.",
+    "Owner decision": "The owner's approval, as the plan's progress script records it. A review, a passing check or a merge never stands in for it.",
   };
   // Attaches an explanation to a node; returns the node.
   function tip(node, key) {
@@ -685,7 +691,8 @@
     // A finished task's brief and handover stay folded until opened.
     for (const kind of ["brief", "handover"]) box.append(taskFile(S, A, entry, task, kind, false, task.status === "Done"));
     box.append(el("div", { class: "actions" }, tip(el("button", { type: "button", class: "btn ghost", onclick: () => A.openTab(entry.w.id, task.id) }, "Open as tab"),
-      "Opens everything about this task in its own tab, with sections for details, brief, handover, results, cross-references and related tasks.")));
+      "Opens everything about this task in its own tab, with sections for details, brief, handover, results, review cycle, cross-references and related tasks."),
+      tip(el("button", { type: "button", class: "btn ghost", id: "open-cycle", onclick: () => A.openTab(entry.w.id, task.id, undefined, "cycle") }, "Review cycle"), "Review cycle")));
     return box;
   }
 
@@ -738,6 +745,94 @@
     return box;
   }
 
+  // ---- A task's review cycle (F008): evidence read live from GitHub, each kind shown apart.
+  // Nothing here sends, approves or merges; a review, a passing check or a merge is never owner approval.
+
+  const when = t => typeof t === "string" ? t.slice(0, 16).replace("T", " ") + " UTC" : "";
+
+  function cycleView(S, A, entry, task, tab, approved, fact) {
+    const box = el("div", { class: "stack tight cycle", "data-part": "cycle" });
+    box.append(tip(el("p", { class: "muted plain qual" }, "Read live from GitHub, not at the plan commit. A plan pull request belongs here when its title names ",
+      el("span", { class: "id" }, task.id), ", and a code pull request when such a plan pull request's description links it. Only comments in the handoff form count as reviews. Nothing here can send, approve or merge anything."), "Review cycle"));
+    // The brief, as read at the plan commit.
+    const template = entry.w.plan.files.brief;
+    const brief = template ? S.docs.get(A.docKey(entry.w.id, entry.w.plan.repo, entry.plan.data.commit, "brief", template, task.id)) : null;
+    box.append(el("div", { "data-part": "cycle-brief" }, lab("Brief"), el("p", { class: "plain" },
+      !template ? el("span", { class: "muted" }, "This project names no brief files.")
+        : !brief || brief.state === "loading" ? el("span", { class: "muted" }, "Loading")
+        : brief.state === "current" || brief.state === "empty" ? ["Written: ", fileLink(entry, template.replace("{id}", task.id), false)]
+        : brief.state === "missing" ? el("span", { class: "muted" }, "No brief at this commit.") : (STATE[brief.state] || STATE.failed)[2])));
+    // Pull requests, with their reviews, checks and merges.
+    const prs = el("div", { class: "stack tight", "data-part": "cycle-pulls" }, lab("Pull requests and reviews"));
+    const res = S.docs.get(A.cycleKey(entry, task.id));
+    if (!res || res.state === "loading") prs.append(el("p", { class: "muted plain" }, "Loading"));
+    else if (res.state === "no-match") {
+      prs.append(el("p", { class: "muted plain" }, "No pull request in " + entry.w.plan.repo + " names " + task.id + " in its title (" +
+        res.data.searched + " read" + (res.data.listState === "partial" ? "; the list was cut off" : "") + ")."));
+    } else if (res.state !== "current") prs.append(notice(res.state, res.error));
+    else {
+      if (res.data.listState === "partial") prs.append(notice("partial", "Only the first " + res.data.searched + " pull requests were read."));
+      const left = res.data.left;
+      if (left.named || left.linked) {
+        const parts = [];
+        if (left.named) parts.push(left.named + " more pull request" + (left.named === 1 ? "" : "s") + " naming " + task.id + " in " + entry.w.plan.repo);
+        if (left.linked) parts.push(left.linked + " linked code pull request" + (left.linked === 1 ? "" : "s"));
+        prs.append(notice("partial", "At most 10 pull requests are shown. Not shown or read: " + parts.join(", and ") + "."));
+      }
+      for (const it of res.data.items) prs.append(pullCard(it));
+      prs.append(el("p", { class: "muted plain qual" }, "Read at " + when(res.data.readAt) + "."));
+    }
+    if (tab) prs.append(el("div", { class: "actions" }, el("button", { type: "button", class: "btn ghost", id: "cycle-again", onclick: () => A.readCycleAgain(tab.key) }, "Read again")));
+    box.append(prs);
+    // The owner's decision: only the producer's approval fact.
+    box.append(el("div", { "data-part": "cycle-owner" }, lab("Owner decision"), el("p", { class: "plain" },
+      fact ? "Owner approval: recorded (" + fact.approval + ")" : !approved ? "Owner approval: not supplied by this plan's progress output"
+        : "Owner approval: not recorded. A review, passing checks or a merge are not owner approval.")));
+    return box;
+  }
+
+  function pullCard(it) {
+    const name = it.repo + " #" + it.number;
+    const card = el("section", { class: "card pull", "data-pull": name });
+    card.append(el("h4", {}, it.web ? el("a", { href: it.web + "/pull/" + it.number, target: "_blank", rel: "noopener noreferrer", class: "mono" }, name)
+      : el("span", { class: "mono" }, name), it.pr ? " " + it.pr.title : ""));
+    if (it.via) card.append(el("p", { class: "muted plain qual" }, "Linked from the description of plan pull request #" + it.via + "."));
+    if (!it.pr) {
+      card.append(el("p", { class: "muted plain" }, it.listState === "current" || it.listState === "empty" ? "Not among that repository's pull requests."
+        : "That repository's pull requests could not be read fully (" + (STATE[it.listState] || STATE.failed)[2] + ")."));
+      return card;
+    }
+    const pr = it.pr;
+    card.append(el("dl", { class: "props" },
+      el("dt", {}, "State"), el("dd", {}, pr.merged ? "Merged " + when(pr.merged) + (pr.mergeCommit ? " as " + SB.short(pr.mergeCommit) : "")
+        : pr.state === "open" ? "Open" : "Closed without merging"),
+      el("dt", {}, "Head"), el("dd", { class: "mono", title: pr.head }, SB.short(pr.head)),
+      tip(el("dt", {}, "Checks at the head"), "Check runs"), el("dd", {}, checksSummary(it.checks))));
+    const c = it.comments;
+    if (!c || !c.data) card.append(notice(c ? c.state : "failed", c && c.error, "Comments not read"));
+    else {
+      const h = SB.handoffs(pr, c.data.comments);
+      card.append(h.list.length ? el("ol", { class: "handoffs" }, h.list.map(handoffItem))
+        : el("p", { class: "muted plain" }, "No handoff comment on this pull request."));
+      if (h.other) card.append(el("p", { class: "muted plain qual" }, h.other + " other comment" + (h.other === 1 ? "" : "s") + " not in the handoff form, not shown."));
+      if (c.state === "partial") card.append(notice("partial", "Only the first " + c.data.comments.length + " comments were read."));
+    }
+    if (pr.merged) card.append(el("p", { class: "muted plain qual" }, "A merge shows only that the change reached the branch; it is not the owner's approval."));
+    return card;
+  }
+
+  function handoffItem(h) {
+    const target = h.target === "head" ? el("span", { class: "qual" }, "for the head")
+      : h.target === "older" ? tip(el("span", { class: "qual warn-text" }, "for an older commit, " + SB.short(h.head)), "Older commit")
+      : el("span", { class: "qual warn-text" }, "names no full commit");
+    return el("li", { class: "handoff" + (h.superseded ? " superseded" : ""), "data-kind": h.kind || "other", "data-target": h.target },
+      el("div", {}, el("b", {}, h.from), h.to ? " to " + h.to : "", ": ", tip(el("span", { class: "hstate" }, h.state), "Handoff"), " ", target,
+        h.superseded ? tip(el("span", { class: "qual muted" }, " · superseded"), "Superseded") : null,
+        h.at ? el("span", { class: "qual muted" }, " · " + when(h.at)) : null),
+      h.result ? el("div", { class: "plain" }, h.result) : null,
+      h.next ? el("div", { class: "muted plain qual" }, "Next: " + h.next) : null);
+  }
+
   // Every column of the task's row, in the table's order, as written.
   function fullRow(A, entry, task) {
     const dl = el("dl", { class: "props wide" });
@@ -753,7 +848,7 @@
   }
 
   const SECTIONS = [["details", "Details"], ["brief", "Brief"], ["handover", "Handover"], ["results", "Results"],
-                    ["crossref", "Cross-references"], ["related", "Related"]];
+                    ["cycle", "Review cycle"], ["crossref", "Cross-references"], ["related", "Related"]];
 
   // ---- Tabs
 
@@ -804,6 +899,7 @@
     else if (sub === "brief" || sub === "handover") panel.append(taskFile(S, A, snapshot, task, sub, true, false));
     else if (sub === "results") panel.append(resultLinks(snapshot, task, approved, false));
     else if (sub === "crossref") panel.append(crossref(S, A, snapshot, task, true));
+    else if (sub === "cycle") panel.append(cycleView(S, A, snapshot, task, tab, approved, fact));
     else panel.append(related(A, snapshot, task, true, tab.key));
     sec.append(bar, panel);
     return sec;

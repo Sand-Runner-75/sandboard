@@ -86,7 +86,25 @@ def demo_repos(fixture_dir):
                        "files": dict(sorted(files.items()))}
         if "checks" in r:
             repos[name]["checks"] = r["checks"]
+        if "pulls" in r:
+            repos[name]["pulls"] = demo_pulls(r["pulls"], repos[name]["commit"])
     return {"sign_in": spec["sign_in"], "repos": repos}
+
+
+def demo_pulls(pulls, commit):
+    """Synthetic pull requests in the API's shape. "{commit}" stands for the repository's
+    demo commit and "{sha:seed}" for a made-up commit ID; a bare head is a seed."""
+    def fill(text):
+        text = text.replace("{commit}", commit)
+        return re.sub(r"\{sha:([A-Za-z0-9_.-]+)\}", lambda m: hashlib.sha1(m.group(1).encode()).hexdigest(), text)
+    out = []
+    for p in pulls:
+        head = fill(p["head"]) if "{" in p["head"] else hashlib.sha1(p["head"].encode()).hexdigest()
+        out.append({"number": p["number"], "title": p["title"], "state": p["state"], "merged_at": p["merged_at"],
+                    "merge_commit_sha": fill(p["merge_commit_sha"]) if p["merge_commit_sha"] else None,
+                    "head": {"sha": head}, "body": p["body"],
+                    "comments": [{"body": fill(c["body"]), "created_at": c["at"]} for c in p["comments"]]})
+    return out
 
 
 def demo_js(data):
