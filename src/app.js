@@ -219,20 +219,29 @@
     const ctx = S.run;
     const now = entryOf(entry.w.id);
     const code = (now ? now.code : []).filter(c => c.pinned && c.pinned.state === "current").map(c => ({ repo: c.c.repo, web: c.pinned.data.web }));
-    S.docs.set(key, { state: "loading" });
+    // Only this read's own Loading entry may be replaced: Read again or a refresh puts a newer one
+    // in its place, and then this read's late answer, or its failure, changes nothing.
+    const pending = { state: "loading" };
+    const mine = () => S.docs.get(key) === pending;
+    S.docs.set(key, pending);
     render();
     try {
       const list = await SB.readPulls(ctx, client, entry.w.plan.repo);
       session.alive(ctx);
+      if (!mine()) return;
       let res;
       if (!list.data) res = SB.result(list.state, null, list.source, { error: list.error });
       else {
-        const mine = list.data.pulls.filter(p => SB.namesTask(p.title, id)).slice(0, MAX_CYCLE_PULLS);
-        const items = mine.map(pr => ({ repo: entry.w.plan.repo, web: entry.plan.data.web, number: pr.number, pr, via: null }));
+        // At most ten pull requests in all; what is left out is counted and shown, never dropped silently.
+        const named = list.data.pulls.filter(p => SB.namesTask(p.title, id));
+        const shown = named.slice(0, MAX_CYCLE_PULLS);
+        const items = shown.map(pr => ({ repo: entry.w.plan.repo, web: entry.plan.data.web, number: pr.number, pr, via: null }));
+        const left = new Set();
         const codeLists = new Map();
-        for (const pr of mine) for (const link of SB.linkedPulls(pr.body, code.map(c => c.repo))) {
-          if (items.length >= MAX_CYCLE_PULLS || items.some(x => x.repo === link.repo && x.number === link.number)) continue;
-          if (!codeLists.has(link.repo)) { codeLists.set(link.repo, await SB.readPulls(ctx, client, link.repo)); session.alive(ctx); }
+        for (const pr of shown) for (const link of SB.linkedPulls(pr.body, code.map(c => c.repo))) {
+          if (items.some(x => x.repo === link.repo && x.number === link.number)) continue;
+          if (items.length >= MAX_CYCLE_PULLS) { left.add(link.repo + "#" + link.number); continue; }
+          if (!codeLists.has(link.repo)) { codeLists.set(link.repo, await SB.readPulls(ctx, client, link.repo)); session.alive(ctx); if (!mine()) return; }
           const pulls = codeLists.get(link.repo);
           const found = pulls.data ? pulls.data.pulls.find(p => p.number === link.number) || null : null;
           items.push({ repo: link.repo, web: code.find(c => c.repo === link.repo).web, number: link.number, pr: found, via: pr.number,
@@ -242,17 +251,22 @@
           if (!it.pr) continue;
           it.comments = await SB.readComments(ctx, client, it.repo, it.number);
           session.alive(ctx);
+          if (!mine()) return;
           it.checks = await SB.readCheckRuns(ctx, client, it.repo, it.pr.head);
           session.alive(ctx);
+          if (!mine()) return;
         }
         res = SB.result(items.length ? "current" : "no-match", { items, searched: list.data.pulls.length, listState: list.state,
+                                                                  left: { named: named.length - shown.length, linked: left.size },
                                                                   readAt: new Date().toISOString() }, { repo: entry.w.plan.repo });
       }
+      if (!mine()) return;
       S.docs.set(key, res);
       render();
     } catch (err) {
       if (err instanceof SB.Revoked) { endSession("revoked"); return; }
-      try { session.alive(ctx); } catch (e) { if (S.docs.get(key) && S.docs.get(key).state === "loading") S.docs.delete(key); return; }
+      if (!mine()) return;
+      try { session.alive(ctx); } catch (e) { S.docs.delete(key); return; }
       S.docs.set(key, SB.result("failed", null, null, { error: "browser error (" + err.name + ")" }));
       render();
     }

@@ -4,7 +4,7 @@ How the app reads private project data from GitHub, and what it refuses to do. T
 
 ## Access
 
-- The owner makes a fine-grained GitHub token limited to the mapped repositories, with read-only **Contents** and **Metadata** (and **Checks** for check runs). It is pasted into a password field and kept only inside one session object in memory, where nothing outside `src/sb-core.js` can read it (only the module's own client turns a live run into the request header): never in browser storage, cookies, the URL, history, logs or error text. The field is cleared at once.
+- The owner makes a fine-grained GitHub token limited to the mapped repositories, with read-only **Contents** and **Metadata** (and **Checks** for check runs, and **Pull requests** for a task's review cycle). It is pasted into a password field and kept only inside one session object in memory, where nothing outside `src/sb-core.js` can read it (only the module's own client turns a live run into the request header): never in browser storage, cookies, the URL, history, logs or error text. The field is cleared at once.
 - **Forget token**, leaving the page (`pagehide`, including into the back/forward cache), a page restored from that cache (`pageshow`) and a `401` reply all end the session: pending requests are aborted, the token is dropped and everything read with it is cleared. Reload or a new tab starts signed out.
 - The page refuses to run inside a frame.
 

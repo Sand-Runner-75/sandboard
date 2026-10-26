@@ -293,6 +293,21 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(set(v["methods"]), {"GET"})
         self.assertGreater(v["readsAfterAgain"], len(v["reads"]), "Read again reads the cycle again")
 
+    def test_an_older_read_again_never_replaces_a_newer_cycle(self):
+        for kind in ("data", "failure"):
+            r = self.r["cycle"]["race"][kind]
+            self.assertIn("XQ101: new answer", r["held"]["text"], kind)
+            self.assertIn("XQ101: new answer", r["after"]["text"], kind)
+            self.assertNotIn("old answer", r["after"]["text"], kind)
+            self.assertEqual(r["after"]["notices"], [], kind)
+
+    def test_a_capped_review_cycle_says_what_it_left_out(self):
+        c = self.r["cycle"]["capped"]
+        self.assertEqual(c["pulls"], ["acme/garden-plan #" + str(n) for n in range(20, 30)])
+        self.assertEqual([n[0] for n in c["notices"]], ["partial"])
+        self.assertIn("At most 10 pull requests are shown. Not shown or read: "
+                      "1 more pull request naming XQ102 in acme/garden-plan, and 1 linked code pull request.", c["notices"][0][1])
+
     def test_disputed_moved_and_missing_review_cycles(self):
         c = self.r["cycle"]
         self.assertEqual(c["disputed"]["handoffs"][-1], ["OWNER DECISION", "head", False])

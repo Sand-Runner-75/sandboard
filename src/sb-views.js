@@ -772,6 +772,13 @@
     } else if (res.state !== "current") prs.append(notice(res.state, res.error));
     else {
       if (res.data.listState === "partial") prs.append(notice("partial", "Only the first " + res.data.searched + " pull requests were read."));
+      const left = res.data.left;
+      if (left.named || left.linked) {
+        const parts = [];
+        if (left.named) parts.push(left.named + " more pull request" + (left.named === 1 ? "" : "s") + " naming " + task.id + " in " + entry.w.plan.repo);
+        if (left.linked) parts.push(left.linked + " linked code pull request" + (left.linked === 1 ? "" : "s"));
+        prs.append(notice("partial", "At most 10 pull requests are shown. Not shown or read: " + parts.join(", and ") + "."));
+      }
       for (const it of res.data.items) prs.append(pullCard(it));
       prs.append(el("p", { class: "muted plain qual" }, "Read at " + when(res.data.readAt) + "."));
     }
