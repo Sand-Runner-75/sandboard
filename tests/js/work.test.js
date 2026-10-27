@@ -179,3 +179,57 @@ test("the inbox lists the account's own work in the given repositories and says 
   assert.equal(box.loading, 3);
   assert.deepEqual(box.wanted, [{ repo: "acme/c", kind: "pulls" }, { repo: "acme/c", kind: "issues" }]);
 });
+
+test("runs are reconciled with GitHub's total: a short page is never the end, and more runs than counted is not a list", async () => {
+  const at = async (page, body) => { const s = setup({ work: { ["/actions/runs?per_page=100&page=" + page]: body } }); return SB.readRunPage(s.ctx, s.client, REPO, page); };
+  let r = await at(1, { total_count: 0, workflow_runs: [] });
+  assert.deepEqual([r.state, r.data.end], ["empty", true], "zero counted and none listed is empty");
+  r = await at(1, { total_count: 5, workflow_runs: [] });
+  assert.deepEqual([r.state, r.data.end, r.data.short, r.data.total], ["partial", false, true, 5], "counted but not listed is not empty");
+  r = await at(1, { total_count: 150, workflow_runs: [run(1, "completed", "success")] });
+  assert.deepEqual([r.state, r.data.end, r.data.short], ["partial", false, true], "a page short of the total is not the end");
+  r = await at(1, { total_count: 100, workflow_runs: Array.from({ length: 100 }, (_, i) => run(i + 1, "completed", "success")) });
+  assert.deepEqual([r.state, r.data.end], ["current", true], "a full page that covers the total is the end");
+  r = await at(1, { total_count: 101, workflow_runs: Array.from({ length: 100 }, (_, i) => run(i + 1, "completed", "success")) });
+  assert.deepEqual([r.state, r.data.end, r.data.short], ["partial", false, false], "a full page short of the total may have more");
+  r = await at(2, { total_count: 120, workflow_runs: Array.from({ length: 20 }, (_, i) => run(i + 1, "completed", "success")) });
+  assert.deepEqual([r.state, r.data.end], ["current", true]);
+  r = await at(2, { total_count: 110, workflow_runs: Array.from({ length: 20 }, (_, i) => run(i + 1, "completed", "success")) });
+  assert.deepEqual([r.state, r.data.end], ["current", true], "a total that shrank while paging ends the list; the change is shown from the totals");
+  r = await at(1, { total_count: 1, workflow_runs: [run(1, "queued", null), run(2, "queued", null)] });
+  assert.equal(r.state, "invalid", "one reply listing more runs than it counts is not GitHub's list");
+});
+
+test("a list stops at a short page, says a changed total, and an issue page of pull requests only still pages", () => {
+  const live = new Map();
+  const at = key => live.get(key);
+  const K = (kind, p, state) => SB.workKey.list(kind, REPO, state, p);
+  live.set(K("runs", 1, null), SB.result("partial", { runs: [], total: 5, end: false, short: true }, {}));
+  let w = SB.workList(at, "runs", REPO, null, 3);
+  assert.deepEqual([w.state, w.end, w.short, w.more, w.wanted, w.pages], ["current", false, true, false, [], 1], "nothing is read after a short page");
+  live.set(K("runs", 1, null), SB.result("partial", { runs: [{ id: 1 }], total: 150, end: false }, {}));
+  live.set(K("runs", 2, null), SB.result("current", { runs: [{ id: 2 }], total: 101, end: true }, {}));
+  w = SB.workList(at, "runs", REPO, null, 2);
+  assert.deepEqual([w.total, w.changed, w.end], [150, 101, true]);
+  live.set(K("issues", 1, "open"), SB.result("partial", { issues: [], pulls: 100, end: false }, {}));
+  w = SB.workList(at, "issues", REPO, "open", 1);
+  assert.deepEqual([w.state, w.items.length, w.pulls, w.more], ["current", 0, 100, true], "an issue page of pull requests only is not an empty list");
+  live.set(K("issues", 2, "open"), SB.result("current", { issues: [{ number: 3 }], pulls: 0, end: true }, {}));
+  w = SB.workList(at, "issues", REPO, "open", 2);
+  assert.deepEqual([w.items.map(i => i.number), w.end], [[3], true]);
+});
+
+test("the inbox's scope keeps every mapped repository and names the ones that could not be read", () => {
+  const rows = [{ repo: "acme/a", pinned: SB.result("current", { meta: null }, {}) }, { repo: "acme/b", pinned: SB.result("denied", null, {}, { error: "HTTP 403" }) },
+                { repo: "acme/c", pinned: null }, { repo: "acme/d", pinned: { state: "loading" } }];
+  const scope = SB.inboxScope(rows);
+  assert.deepEqual(scope.readable.map(r => r.repo), ["acme/a"], "a repository read without metadata is still in scope");
+  assert.deepEqual(scope.unread.map(u => [u.repo, u.state, u.error]), [["acme/b", "denied", "HTTP 403"], ["acme/c", "loading", null], ["acme/d", "loading", null]]);
+});
+
+test("a pull request list the token cannot read says which permission it needs", async () => {
+  const s = setup({ work: { "/pulls?state=open&per_page=100&page=1": 403 } });
+  const r = await SB.readPullPage(s.ctx, s.client, REPO, "open", 1);
+  assert.equal(r.state, "unavailable");
+  assert.match(r.error, /Pull requests: read/);
+});

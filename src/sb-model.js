@@ -497,9 +497,11 @@
   };
 
   // The pages read so far of one list, in order, stopping at the first one not read, failed or last.
+  // A page that GitHub returned short of the total it reported (runs) ends what can be read: the
+  // list is then not complete, and says so. A total that changed between pages is kept as changed.
   function workList(live, kind, repo, state, depth) {
     const items = [], wanted = [];
-    let status = "current", end = false, error = null, pages = 0, pulls = 0, total = null;
+    let status = "current", end = false, error = null, pages = 0, pulls = 0, total = null, lastTotal = null, short = false;
     for (let p = 1; p <= depth; p++) {
       const res = live(workKey.list(kind, repo, state, p));
       if (!res || res.state === "loading") { wanted.push(p); if (p === 1) status = "loading"; break; }
@@ -507,12 +509,14 @@
       pages = p;
       items.push(...res.data[WORK_LISTS[kind]]);
       pulls += res.data.pulls && typeof res.data.pulls === "number" ? res.data.pulls : 0;
-      if (p === 1 && Number.isInteger(res.data.total)) total = res.data.total;
+      if (Number.isInteger(res.data.total)) { if (p === 1) total = res.data.total; lastTotal = res.data.total; }
       if (res.data.end) { end = true; break; }
+      if (res.data.short) { short = true; break; }
     }
     if (status === "current" && !items.length && end) status = "empty";
-    return { state: status, error, end, pages, items, wanted, pulls, total,
-             more: !end && !error && pages === depth && depth < SB.MAX_WORK_PAGES };
+    return { state: status, error, end, pages, items, wanted, pulls, total, short,
+             changed: total !== null && lastTotal !== total ? lastTotal : null,
+             more: !end && !error && !short && pages === depth && depth < SB.MAX_WORK_PAGES };
   }
 
   // A pull request as one word: draft, open, merged or closed without merging.
@@ -534,6 +538,17 @@
     const ms = done && run.started && run.updated ? Date.parse(run.updated) - Date.parse(run.started) : null;
     return { done, pending: !done, outcome: done ? run.conclusion || (run.rawConclusion ? "other" : "none") : run.status || "unknown",
              ms: ms !== null && ms >= 0 ? ms : null };
+  }
+
+  // The inbox's scope: every mapped repository, split into those whose read answered (their lists can
+  // be read) and those still reading or not readable, which are named and never read further.
+  function inboxScope(rows) {
+    const readable = [], unread = [];
+    for (const r of rows) {
+      if (r.pinned && r.pinned.state === "current") readable.push(r);
+      else unread.push({ repo: r.repo, state: r.pinned ? r.pinned.state : "loading", error: r.pinned ? r.pinned.error || null : null });
+    }
+    return { readable, unread };
   }
 
   // The signed-in account's own work in the given repositories only: its open pull requests, open pull
@@ -561,7 +576,7 @@
 
   Object.assign(SB, { SORTS, portfolio, filterPortfolio, sortPortfolio, portfolioOptions, tally, analytics, languageBytes, repoHref, feedEvents, feedKey, typeOf,
                       historyOrder, historyGraph, commitTimes, WEEKS_SHOWN, DAYS_SHOWN, contributors,
-                      workKey, workList, pullState, reviewEvidence, runOutcome, inbox, historyKey, COMPARE_FIRST, comparedBranches, historyView,
+                      workKey, workList, pullState, reviewEvidence, runOutcome, inboxScope, inbox, historyKey, COMPARE_FIRST, comparedBranches, historyView,
                       ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
                       approvals, resultHref, tabKey, stageOfPhase, short,
                       HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs });

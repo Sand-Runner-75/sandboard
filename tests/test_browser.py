@@ -592,14 +592,19 @@ class BrowserTest(unittest.TestCase):
     def test_the_inbox_lists_your_own_open_work_in_the_mapped_repositories_only(self):
         i = self.r["work"]["inbox"]
         self.assertEqual((i["mine"], i["review"], i["assigned"]), (["example-org/demo-app#6"], ["example-org/demo-app#2"], ["example-org/demo-app#9"]))
-        self.assertIn("in 7 mapped repositories", i["notice"])
+        self.assertIn("in 9 mapped repositories", i["notice"], "the two that could not be read stay in the count")
         self.assertIn("GitHub notifications and repositories outside your projects are not read", i["notice"])
-        self.assertIn("a review asked of a team is not counted as asked of you", i["coverage"][0])
+        self.assertEqual([c.split(":")[0] for c in i["coverage"] if "so its lists are not read" in c], ["example-org/locked-plan", "example-org/locked-app"])
+        self.assertTrue(any("a review asked of a team is not counted as asked of you" in c for c in i["coverage"]))
         self.assertLessEqual(self.r["work"]["narrowInbox"], 320)
         pr = self.r["work"]["private"]["inbox"]
         self.assertEqual((pr["mine"], pr["review"], pr["assigned"]), (["acme/garden#200"], ["acme/garden#7"], ["acme/garden#300"]))
-        self.assertIn("acme/garden-plan: open pull requests no access (HTTP 403), not read", pr["coverage"])
+        self.assertIn("acme/garden-plan: open pull requests not available (not readable with this token (Pull requests: read)), not read", pr["coverage"])
         self.assertIn("acme/garden: only the latest 100 open pull requests were read", pr["coverage"])
+        self.assertIn("in 3 mapped repositories", pr["notice"], "a mapped repository that could not be read stays in the count")
+        self.assertTrue(any(c.startswith("acme/recipes: the repository could not be read (") and c.endswith("so its lists are not read") for c in pr["coverage"]), pr["coverage"])
+        self.assertFalse(any("/acme/recipes/pulls" in u or "/acme/recipes/issues" in u for u in self.r["work"]["private"]["urls"]),
+                         "an unreadable repository's lists are never read")
 
     def test_work_evidence_on_a_private_run_links_out_says_what_it_could_not_read_and_only_reads(self):
         pr = self.r["work"]["private"]
@@ -621,6 +626,21 @@ class BrowserTest(unittest.TestCase):
         self.assertIn("not readable with this token (Actions: read)", pr["runs"]["text"])
         self.assertEqual(pr["releases"]["links"], [["https://github.example.invalid/acme/garden/releases/tag/v1.0", "_blank", "noopener noreferrer"]],
                          "a release links to its page; no asset links")
+        po = pr["prOnly"]
+        self.assertEqual(po["issues"], [])
+        self.assertEqual(po["empty"], None, "a page of pull requests only is not an empty list")
+        self.assertIn("No issues in the 1 page read. That is not the whole list", po["noneRead"])
+        self.assertEqual(po["issuePulls"], "100 pull requests in GitHub's issue list are left to Pull requests.")
+        self.assertIn("Older ones are read only when you ask", po["coverage"])
+        self.assertTrue(po["older"])
+        self.assertEqual([r[0] for r in pr["prOnlyNext"]["issues"]], ["#12"], "the issue on page 2 is reachable")
+        self.assertIn("to the end of GitHub's list", pr["prOnlyNext"]["coverage"])
+        cr = pr["countedRuns"]
+        self.assertEqual(cr["empty"], None, "runs GitHub counts are never shown as none")
+        self.assertIn("No runs in the 1 page read. That is not the whole list", cr["noneRead"])
+        self.assertIn("GitHub counts 5 runs but its last page read was short of that", cr["coverage"])
+        self.assertEqual(cr["runTotal"], "0 runs read of the 5 GitHub counts.")
+        self.assertFalse(cr["older"])
         urls = pr["urls"]
         self.assertTrue(all(u.startswith("GET ") for u in urls))
         self.assertFalse(any(x in u for u in urls for x in ("/merge", "/rerun", "/cancel", "/assets/", "/notifications", "/user/issues", "/search/", "/statuses/")))

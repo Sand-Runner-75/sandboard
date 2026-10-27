@@ -566,7 +566,7 @@
   const pageResult = (items, extra, source) => items.length === WORK_PAGE
     ? result("partial", Object.assign({ end: false }, extra), source, { coverage: { shown: items.length, total: null } })
     : result(items.length ? "current" : "empty", Object.assign({ end: true }, extra), source);
-  // Lists that need a permission the token may lack (Actions, issues, and a pull request's reviews) say so as unavailable.
+  // Lists that need a permission the token may lack (pull requests and their reviews, issues, Actions) say so as unavailable.
   async function getList(ctx, client, path, source, permission) {
     const res = await client.get(ctx, path);
     if (permission && (res.status === 403 || res.status === 404)) {
@@ -596,7 +596,7 @@
   async function readPullPageUnguarded(ctx, client, repo, state, page) {
     const source = { repo, state, page };
     if (!workPage(repo, state, page) || state === null) return result("invalid", null, source, { error: "not a valid repository, list or page" });
-    const { out, body } = await getList(ctx, client, "/repos/" + repo + "/pulls?state=" + state + "&per_page=" + WORK_PAGE + "&page=" + page, source);
+    const { out, body } = await getList(ctx, client, "/repos/" + repo + "/pulls?state=" + state + "&per_page=" + WORK_PAGE + "&page=" + page, source, "Pull requests: read");
     if (out) return out;
     if (!Array.isArray(body) || body.length > WORK_PAGE) return result("invalid", null, source, { error: "unexpected pull request list" });
     const pulls = body.map(pullOf);
@@ -683,7 +683,16 @@
                   branch: r.head_branch || null, head: r.head_sha, actor: loginOf(r.actor),
                   created: time(r.created_at), started: time(r.run_started_at), updated: time(r.updated_at) });
     }
-    return pageResult(runs, { runs, total: body.total_count }, source);
+    // GitHub's total says how many runs there are: a single reply listing more than it counts is not
+    // GitHub's list. The end is reached when the runs up to this page cover the total; a page short of
+    // it is kept as short (not complete), never as the end, and nothing further is read after it.
+    const before = (page - 1) * WORK_PAGE;
+    if (runs.length > body.total_count) return result("invalid", null, source, { error: "run list longer than its total" });
+    const extra = { runs, total: body.total_count };
+    if (before + runs.length >= body.total_count) return result(runs.length ? "current" : "empty", Object.assign({ end: true }, extra), source);
+    const short = runs.length < WORK_PAGE;
+    return result("partial", Object.assign({ end: false, short }, extra), source,
+                  { coverage: { shown: before + runs.length, total: body.total_count } });
   }
 
   // Releases, newest first, with their assets' names and sizes only: no asset is fetched.

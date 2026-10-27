@@ -852,7 +852,14 @@ function privateRepos() {
       published_at: "2026-01-01T00:00:00Z", author: { login: "agent-1" }, assets: [{ name: "a.zip", size: 10, download_count: 1, browser_download_url: "https://example.invalid/a.zip" }] }],
   };
   wrepos["acme/garden"].checks[HEAD2] = [{ name: "pending", status: "in_progress", conclusion: null }];
-  wrepos["acme/garden-plan"].work = { "/pulls?state=open&per_page=100&page=1": 403 };
+  // GitHub's issue list can fill a page with pull requests only; the issue is on page 2.
+  wrepos["acme/garden"].work["/issues?state=all&per_page=100&page=1"] = Array.from({ length: 100 }, (_, i) => ({ number: 400 - i, title: "Pull " + i, state: "open",
+    user: { login: "agent-1" }, labels: [], assignees: [], comments: 0, created_at: "2026-01-01T00:00:00Z", closed_at: null, pull_request: {} }));
+  wrepos["acme/garden"].work["/issues?state=all&per_page=100&page=2"] = [{ number: 12, title: "On page two", state: "closed", state_reason: "completed",
+    user: { login: "agent-1" }, labels: [], assignees: [], comments: 1, created_at: "2025-12-01T00:00:00Z", closed_at: "2025-12-02T00:00:00Z" }];
+  // GitHub counts runs it does not list; and a mapped repository that cannot be read at all.
+  wrepos["acme/garden-plan"].work = { "/pulls?state=open&per_page=100&page=1": 403, "/actions/runs?per_page=100&page=1": { total_count: 5, workflow_runs: [] } };
+  delete wrepos["acme/recipes"];
   const wgh = mockGitHub(wrepos);
   const wurls = [];
   p = await open();
@@ -877,6 +884,14 @@ function privateRepos() {
   wo.private.runs = await workNow();
   await p.click("#rs-releases"); await p.waitForTimeout(800);
   wo.private.releases = await workNow();
+  await p.click("#rs-issues"); await p.waitForTimeout(600);
+  await p.click("#wf-all"); await p.waitForTimeout(800);
+  wo.private.prOnly = Object.assign(await workNow(), { noneRead: await text(p, "[data-part=work-none-read]"), empty: await text(p, "[data-part=work-empty]") });
+  await p.click("#w-older"); await p.waitForTimeout(800);
+  wo.private.prOnlyNext = await workNow();
+  await tree(p, "r:garden:acme/garden-plan"); await p.waitForTimeout(400);
+  await p.click("#rs-runs"); await p.waitForTimeout(800);
+  wo.private.countedRuns = Object.assign(await workNow(), { noneRead: await text(p, "[data-part=work-none-read]"), empty: await text(p, "[data-part=work-empty]") });
   await tree(p, "a:inbox"); await p.waitForTimeout(1500);
   wo.private.inbox = await inboxNow();
   wo.private.urls = wurls;

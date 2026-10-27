@@ -59,6 +59,7 @@
     const what = plural(w.items.length, KINDS[kind][1]) + (label ? " (" + label + ")" : "");
     const read = plural(w.pages, "page") + " of 100 read";
     const text = w.end ? (w.items.length === 1 ? "Showing the only " : "Showing all ") + what + ": " + read + ", to the end of GitHub's list."
+      : w.short ? "Showing " + what + ": " + read + ". GitHub counts " + plural(w.total, KINDS[kind][1]) + " but its last page read was short of that, so the list is not complete and nothing more can be read now."
       : w.error ? "Showing " + what + ". The next page could not be read (" + stateName(w.error) + "); older ones are not shown."
       : w.wanted.length ? "Showing " + what + ". Reading older ones."
       : w.more ? "Showing the latest " + what + ", " + read + ". Older ones are read only when you ask; nothing is guessed for them."
@@ -78,20 +79,26 @@
     if (state) card.append(el("div", { class: "chips", role: "group", "aria-label": "Show " + KINDS[kind][0].toLowerCase() }, STATES.map(([k, l]) =>
       el("button", { type: "button", id: "wf-" + k, "aria-pressed": String(state === k), onclick: () => A.setWorkState(name, kind, k) }, l))));
     const label = state ? STATES.find(x => x[0] === state)[1].toLowerCase() : "";
+    const none = (label && state !== "all" ? label + " " : "") + KINDS[kind][1] + "s";
     if (w.state === "loading") card.append(notice("loading"));
-    else if (!w.items.length && w.error) card.append(notice(w.error.state, w.error.error));
-    else if (!w.items.length) card.append(el("p", { class: "muted plain", "data-part": "work-empty" }, "GitHub lists no " + (label ? label + " " : "") + KINDS[kind][0].toLowerCase() + " here."));
+    else if (!w.pages) card.append(notice(w.error.state, w.error.error));
     else {
-      card.append(kind === "pulls" ? pullTable(S, A, entry, name, web, w.items) : kind === "issues" ? issueTable(web, w.items)
+      // Pages were read: what they held, and always what was and was not read, even when they held
+      // nothing to show here (an issue page of pull requests only, or runs GitHub counts but did not list).
+      if (w.items.length) card.append(kind === "pulls" ? pullTable(S, A, entry, name, web, w.items) : kind === "issues" ? issueTable(web, w.items)
         : kind === "runs" ? runTable(web, w.items) : releaseList(web, w.items));
-      card.append(coverage(kind, w, label));
+      else if (w.end) card.append(el("p", { class: "muted plain", "data-part": "work-empty" }, "GitHub lists no " + none + " here."));
+      else card.append(el("p", { class: "muted plain", "data-part": "work-none-read" }, "No " + none + " in the " + plural(w.pages, "page") +
+        " read. That is not the whole list: " + (w.more ? "older ones may be on the next page." : "the rest is not shown.")));
+      if (w.items.length || !w.end) card.append(coverage(kind, w, label));
       if (w.more) card.append(el("div", { class: "actions" }, el("button", { type: "button", class: "btn ghost", id: "w-older",
         onclick: () => A.olderWork(name, kind, state) }, "Load older " + KINDS[kind][0].toLowerCase())));
     }
     if (kind === "issues" && w.pulls) card.append(el("p", { class: "qual muted plain", "data-part": "issue-pulls" },
       plural(w.pulls, "pull request") + " in GitHub's issue list " + (w.pulls === 1 ? "is" : "are") + " left to Pull requests."));
-    if (kind === "runs" && w.total !== null && w.items.length) card.append(el("p", { class: "qual muted plain", "data-part": "run-total" },
-      plural(w.items.length, "run") + " read of the " + w.total.toLocaleString("en") + " GitHub counts."));
+    if (kind === "runs" && w.total !== null && w.pages) card.append(el("p", { class: "qual muted plain", "data-part": "run-total" },
+      plural(w.items.length, "run") + " read of the " + w.total.toLocaleString("en") + " GitHub counts" +
+      (w.changed !== null ? "; its count changed to " + w.changed.toLocaleString("en") + " while the pages were read, so the list may have shifted between them." : ".")));
     if (!web) card.append(el("p", { class: "qual muted plain" }, "GitHub gave no web address for this repository, so nothing here links to it."));
     card.append(el("p", { class: "qual muted plain" }, kind === "pulls" ? "A review, passing checks or a merge are GitHub evidence, not the owner's approval."
       : kind === "runs" ? "A run that has not finished has no result yet; it is never shown as a success. No run is started, rerun or cancelled from here."
@@ -207,11 +214,12 @@
   function inbox(S, A) {
     const sec = el("section", { class: "stack", "aria-labelledby": "view-h" },
       el("header", { class: "head" }, el("div", { class: "row1" }, el("h1", { id: "view-h" }, "Inbox"), el("span", { class: "stage-tag" }, "Account"))));
-    const rows = SB.portfolio(S.entries).filter(r => r.meta);
+    const all = SB.portfolio(S.entries);
+    const { readable: rows, unread } = SB.inboxScope(all);
     const user = A.live("user");
     const login = user && user.data ? user.data.login : null;
     sec.append(tip(el("div", { class: "notice info", role: "status", "data-state": "inbox" }, el("span", { class: "glyph", "aria-hidden": "true" }, "i"),
-      el("div", {}, el("b", {}, "Your open work in " + plural(rows.length, "mapped repository", "mapped repositories")),
+      el("div", {}, el("b", {}, "Your open work in " + plural(all.length, "mapped repository", "mapped repositories")),
         el("div", {}, "Read from each repository's latest 100 open pull requests and 100 open issues, live. GitHub notifications and repositories outside your projects are not read, and nothing is marked as read."))), "Inbox"));
     if (!user || user.state === "loading") { sec.append(notice("loading")); return sec; }
     if (!login) { sec.append(notice(user.state, user.error, "Signed-in account not read")); return sec; }
@@ -224,12 +232,16 @@
       el("span", { class: "ev-title" }, x.issue.title), x.issue.created ? el("span", { class: "qual muted" }, "Opened " + when(x.issue.created)) : null);
     const group = (id, title, list, item, none) => el("section", { class: "card", "aria-labelledby": id + "-h", "data-part": id },
       el("h2", { id: id + "-h", class: "label" }, title + " (" + list.length + ")"),
-      list.length ? el("ul", { class: "feed" }, list.map(item)) : el("p", { class: "muted plain" }, box.loading ? "Still reading." : none));
+      list.length ? el("ul", { class: "feed" }, list.map(item)) : el("p", { class: "muted plain" }, box.loading ? "Still reading."
+        : none + (unread.length ? " " + plural(unread.length, "mapped repository", "mapped repositories") + " not read; see below." : "")));
     sec.append(el("p", { class: "qual muted plain" }, "Signed in as ", el("span", { class: "mono" }, login), "."));
     sec.append(group("inbox-mine", "Your open pull requests", box.mine, pullItem, "None in the open pull requests read."),
       group("inbox-review", "Reviews asked of you", box.review, pullItem, "None asked of you by name in the open pull requests read."),
       group("inbox-assigned", "Issues assigned to you", box.assigned, issueItem, "None assigned to you in the open issues read."));
     const notes = [];
+    // A mapped repository that could not be read is named; none of its lists is read.
+    for (const u of unread) notes.push(u.repo + ": " + (u.state === "loading" ? "the repository is still being read, so its lists are not read yet"
+      : "the repository could not be read (" + stateName(u).toLowerCase() + (u.error ? ", " + u.error : "") + "), so its lists are not read"));
     if (box.loading) notes.push("Still reading " + plural(box.loading, "list") + ".");
     for (const p of box.problems) notes.push(p.repo + ": open " + (p.kind === "pulls" ? "pull requests" : "issues") + " " + stateName(p.res).toLowerCase() + (p.res.error ? " (" + p.res.error + ")" : "") + ", not read");
     for (const p of box.partial) notes.push(p.repo + ": only the latest 100 open " + (p.kind === "pulls" ? "pull requests" : "issues") + " were read");

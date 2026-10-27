@@ -208,7 +208,7 @@
     // The inbox reads the account and the first page of each mapped repository's open lists.
     if (S.view.kind === "inbox") {
       loadLive("user", ctx => SB.readUser(ctx, client));
-      for (const r of SB.portfolio(S.entries)) if (r.meta) for (const kind of ["pulls", "issues"]) workRead(r.repo, kind, "open", 1);
+      for (const r of SB.inboxScope(SB.portfolio(S.entries)).readable) for (const kind of ["pulls", "issues"]) workRead(r.repo, kind, "open", 1);
       return;
     }
     // A project's own views read its repositories at its own pins, as the feed card shows them.
