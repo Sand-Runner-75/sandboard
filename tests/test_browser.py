@@ -118,6 +118,13 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(len(al["ids"]), 15)
         self.assertEqual(st["title"], "Tasks in stage 1: Prepare")
         self.assertTrue(st["ids"] and all(i.startswith(("DT1", "DT2")) for i in st["ids"]), "a stage lists only the tasks of its phases")
+        ph = p["lowerPhase"]
+        self.assertEqual(ph["columns"], ["overview-tasks", "feed"], "a phase picked shows the same two columns")
+        self.assertTrue(ph["sideBySide"])
+        self.assertTrue(ph["title"].startswith("Tasks in phase P2: "))
+        self.assertTrue(ph["ids"] and all(i.startswith("DT2") for i in ph["ids"]), "a phase lists only its own tasks")
+        self.assertIn(": P2 ", p["phaseHead"], "the heading names the phase")
+        self.assertEqual(p["phasePressed"], "true")
 
     def test_unavailable_stale_denied_and_kit_states(self):
         p = self.r["progress"]
@@ -260,6 +267,9 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(f["stagePhases"], ["ph:demo:P1", "ph:demo:P2"])
         self.assertEqual(f["phaseRows"], ["DT201", "DT201.1", "DT202", "DT203"])
         self.assertTrue(f["phaseCurrent"])
+        self.assertTrue(f["phaseView"], "a phase in the tree opens the two-column overview")
+        self.assertTrue(f["phaseCurrentOnOverview"])
+        self.assertTrue(f["stageNotCurrent"], "its stage is not marked current while the phase is")
         self.assertEqual(v["phaseGroup"], ["ph:garden:P1", "ph:garden:P2"], "without stages, phases sit under the project")
 
     def test_clearing_a_navigated_phase_keeps_its_stage(self):

@@ -657,6 +657,7 @@
       S.activeTab = null;
       // A phase picked from the tree or a phase card brings its stage with it, as the filters show it.
       if (opts && opts.phase !== undefined) S.filters = Object.assign(noFilters(), { stage: V.stageIdOf(entryOf(project), opts.phase), phase: opts.phase });
+      if (opts && opts.filters) S.filters = Object.assign(noFilters(), opts.filters);
       if (opts && opts.select !== undefined) S.selected = opts.select;
       render();
       if (S.selected) loadDocs(entryOf(project), S.selected);
@@ -664,7 +665,12 @@
       $("main").focus();
     },
     showStage(project, stage) { A.go(project, { kind: "overview", stage: stage || null }); },
-    showPhase(project, phase) { A.go(project, { kind: "tasks" }, { phase, focus: "tasks-h" }); },
+    // A phase shows like a stage: the overview, with its stage chosen and its tasks beside the activity.
+    showPhase(project, phase) { A.go(project, { kind: "overview", stage: V.stageIdOf(entryOf(project), phase) || null, phase }, { phase }); },
+    // The tasks an overview lists, opened in Tasks with the same stage or phase chosen.
+    showTasks(project, stage, phase) {
+      A.go(project, { kind: "tasks" }, { focus: "tasks-h", filters: { stage: phase ? V.stageIdOf(entryOf(project), phase) || "" : stage || "", phase: phase || "" } });
+    },
     setFilter(key, value, focusId) {
       S.filters[key] = value;
       if (key === "stage") S.filters.phase = "";  // a new stage starts from all of its phases

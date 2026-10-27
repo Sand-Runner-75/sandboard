@@ -119,7 +119,13 @@ function privateRepos() {
   prog.stageCards = await text(p, "#stage-cards");
   prog.wholeWithStage = await whole();
   prog.stageInTree = await p.$eval("#tree [data-id='st:demo:S1'] > .ti", n => n.classList.contains("current")).catch(() => "no stage item");
+  // A phase picked shows like a stage: the overview, with the phase's tasks beside the activity.
   await p.click(".phase[data-phase='P2']"); await p.waitForTimeout(100);
+  prog.lowerPhase = await lower();
+  prog.phaseHead = await text(p, "#view-h");
+  prog.phasePressed = await p.$eval(".phase[data-phase='P2']", n => n.getAttribute("aria-pressed"));
+  // Open in Tasks keeps the phase as the filter.
+  await p.click("#open-in-tasks"); await p.waitForTimeout(100);
   prog.phaseRows = await p.$$eval("#task-list .row", r => r.map(x => x.dataset.id || "invalid"));
   prog.wholeAfterPhase = await whole();
   await p.fill("#q", "zzz-no-such-task"); await p.waitForTimeout(100);
@@ -374,6 +380,10 @@ function privateRepos() {
   await p.click('#tree [data-id="st:demo:S1"] > .ti > .tw'); await p.waitForTimeout(100);
   fu.stagePhases = await kids("st:demo:S1");
   await tree(p, "ph:demo:P2"); await p.waitForTimeout(150);
+  fu.phaseView = await p.$eval("[data-part=overview-lower]", n => !!n).catch(() => false);
+  fu.phaseCurrentOnOverview = await p.$eval('#tree [data-id="ph:demo:P2"] > .ti', n => n.classList.contains("current"));
+  fu.stageNotCurrent = await p.$eval('#tree [data-id="st:demo:S1"] > .ti', n => !n.classList.contains("current"));
+  await p.click("#open-in-tasks"); await p.waitForTimeout(150);
   fu.phaseRows = await p.$$eval("#task-list .row", r => r.map(x => x.dataset.id));
   fu.phaseCurrent = await p.$eval('#tree [data-id="ph:demo:P2"] > .ti', n => n.classList.contains("current"));
   // Back to all of the phase's stage: the stage it was shown under stays chosen.
@@ -381,6 +391,7 @@ function privateRepos() {
   await p.selectOption("#f-phase", ""); await p.waitForTimeout(100);
   fu.allInStage = { stage: await p.$eval("#f-stage", n => n.value), rows: await p.$$eval("#task-list .row", r => r.map(x => x.dataset.id)) };
   await p.click(".phase[data-phase='P1']"); await p.waitForTimeout(150);
+  await p.click("#open-in-tasks"); await p.waitForTimeout(150);
   await p.selectOption("#f-phase", ""); await p.waitForTimeout(100);
   fu.allInCardStage = { stage: await p.$eval("#f-stage", n => n.value), phases: await p.$$eval("#f-phase option", o => o.map(x => x.value)) };
   // Expand all and Collapse all.
