@@ -507,7 +507,7 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(d["tags"], ["v0.1.035b718ein the history shown", "v0.2.094a4057in the history shown"])
         self.assertGreater(d["canvas"][0], 0)
 
-    def test_history_zooms_fits_and_reads_older_commits_only_when_asked(self):
+    def test_history_zooms_fits_and_reads_older_commits_as_the_list_scrolls(self):
         h = self.r["history"]
         self.assertTrue(h["demo"]["zoomOut"])
         self.assertGreater(h["zoomed"]["rowHeight"], h["demo"]["rowHeight"])
@@ -515,9 +515,10 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(h["fit"]["rowHeight"], h["demo"]["rowHeight"])
         first, second = h["paged"]["first"], h["paged"]["second"]
         self.assertEqual(len(first["rows"]), 100)
-        self.assertIn("Older history is read only when you ask", first["coverage"])
-        self.assertTrue(first["older"])
-        self.assertEqual(len(second["rows"]), 140)
+        self.assertIn("Older commits are read as you scroll down the list", first["coverage"])
+        self.assertTrue(first["older"], "a button reads the next page too, for the keyboard")
+        self.assertEqual(len(second["rows"]), 140, "scrolling to the end read the next page")
+        self.assertGreater(second["scrollTop"], 0, "the list keeps its place when more is read")
         self.assertIn("this is the start of the history", second["coverage"])
         self.assertFalse(second["older"])
         self.assertLessEqual(h["narrow"], 320)

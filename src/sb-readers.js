@@ -460,11 +460,10 @@
   }
 
   // ---- History (branches, tags, the commits behind a pinned commit, and how a branch compares).
-  // Every list is bounded and says when it may hold more. A login is kept from a commit, never a
-  // name or email address.
+  // Every reply says when it may hold more; the commits behind a commit are read page by page with no
+  // last page. A login is kept from a commit, never a name or email address.
 
   const HISTORY_PAGE = 100;
-  const MAX_HISTORY_PAGES = 10;
   const MAX_REF_PAGES = 3;
   const isLogin = v => typeof v === "string" && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?$/.test(v);
 
@@ -484,7 +483,7 @@
 
   async function readHistoryPageUnguarded(ctx, client, repo, commit, page) {
     const source = { repo, commit, page };
-    if (!SB.validRepo(repo) || !isSha(commit) || !Number.isInteger(page) || page < 1 || page > MAX_HISTORY_PAGES) {
+    if (!SB.validRepo(repo) || !isSha(commit) || !Number.isSafeInteger(page) || page < 1) {
       return result("invalid", null, source, { error: "not a valid repository, commit or page" });
     }
     const res = await client.get(ctx, "/repos/" + repo + "/commits?sha=" + commit + "&per_page=" + HISTORY_PAGE + "&page=" + page);
@@ -858,7 +857,7 @@
   Object.assign(SB, { WORKSPACES_FILE, STATUSES, SCOPES, readWorkspace, readTaskFile, isPath, validateWorkspaces, readWorkspaces, splitRow, parsePlanTables, readPlan,
                       validateProgress, readProgress, readCheckRuns, readPulls, readComments,
                       COMMIT_LIMIT, REPO_COMMENT_LIMIT, readLanguages, readCommits, readRepoComments, readUser,
-                      HISTORY_PAGE, MAX_HISTORY_PAGES, historyCommit, readHistoryPage, readRefs, readCompare,
+                      HISTORY_PAGE, historyCommit, readHistoryPage, readRefs, readCompare,
                       WORK_PAGE, MAX_WORK_PAGES, readPullPage, readReviews, readIssuePage, readRunPage, readReleasePage, assetLink,
                       MAX_DIFF_FILES, readTree, readCodeFile, readCommitChanges, readCompareChanges });
 })(typeof window !== "undefined" ? window : globalThis);

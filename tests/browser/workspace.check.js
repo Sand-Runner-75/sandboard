@@ -711,6 +711,7 @@ function privateRepos() {
     canvas: (() => { const c = document.querySelector(".hist-canvas"); return c ? [c.width, c.height] : null; })(),
     rowHeight: (() => { const li = document.querySelector(".hist-rows li"); return li ? li.getBoundingClientRect().height : 0; })(),
     older: !!document.getElementById("g-older"), zoomOut: (document.getElementById("g-out") || {}).disabled,
+    scrollTop: (document.querySelector(".hist-graph") || {}).scrollTop || 0,
     focus: document.activeElement.id, notice: (document.querySelector("[data-state=history]") || {}).textContent || "",
     weeks: document.querySelectorAll("[aria-label='Commits per week'] li").length,
     contributors: [...document.querySelectorAll("[data-part=contributors] li")].map(n => n.textContent),
@@ -726,7 +727,8 @@ function privateRepos() {
   await tree(p, "r:second:example-org/second-site"); await p.waitForTimeout(400);
   await p.click("#rs-history"); await p.waitForTimeout(1500);
   hi.paged = { first: await histNow() };
-  await p.click("#g-older"); await p.waitForTimeout(1500);
+  // Scrolling to the end of the list reads the next page by itself, and the list stays where it was.
+  await p.$eval(".hist-graph", b => { b.scrollTop = b.scrollHeight; }); await p.waitForTimeout(1500);
   hi.paged.second = await histNow();
   await p.setViewportSize({ width: 320, height: 800 }); await p.waitForTimeout(300);
   hi.narrow = await p.evaluate(() => document.documentElement.scrollWidth);
@@ -751,7 +753,7 @@ function privateRepos() {
   await garden();
   await p.click("#rs-history"); await p.waitForTimeout(1200);
   hi.private = { first: await histNow() };
-  await p.click("#g-older"); await p.waitForTimeout(1200);
+  await p.focus("#g-older"); await p.keyboard.press("Enter"); await p.waitForTimeout(1200);
   hi.private.second = await histNow();
   hi.private.urls = hurls;
   await p.close();

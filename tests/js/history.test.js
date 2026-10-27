@@ -27,7 +27,8 @@ test("only the history's exact read paths are allowed, all of them reads", () =>
                     "/repos/a/b/branches?per_page=100&page=3", "/repos/a/b/tags?per_page=100&page=1", "/repos/a/b/compare/" + A + "..." + B + "?per_page=1"]) {
     assert.equal(SB.allowed(ok), true, ok);
   }
-  for (const bad of ["/repos/a/b/commits?sha=" + A + "&per_page=100&page=11", "/repos/a/b/commits?sha=main&per_page=100&page=1",
+  assert.ok(SB.allowed("/repos/a/b/commits?sha=" + A + "&per_page=100&page=11") && SB.allowed("/repos/a/b/commits?sha=" + A + "&per_page=100&page=250"), "history has no last page");
+  for (const bad of ["/repos/a/b/commits?sha=" + A + "&per_page=100&page=0", "/repos/a/b/commits?sha=" + A + "&per_page=100&page=01", "/repos/a/b/commits?sha=main&per_page=100&page=1",
                      "/repos/a/b/branches?per_page=100&page=4", "/repos/a/b/branches/main", "/repos/a/b/git/refs/heads/x",
                      "/repos/a/b/compare/main...dev?per_page=1", "/repos/a/b/compare/" + A + "..." + B, "/repos/a/b/merges", "/repos/a/b/stats/contributors",
                      "/repos/a/b/contributors", "/users/a/events"]) {
@@ -55,8 +56,12 @@ test("a history page keeps parents and the login, never a name or email; a full 
   assert.equal((await SB.readHistoryPage(s.ctx, s.client, REPO, HEAD, 1)).data.commits[1].author, null, "a login not in GitHub's form is not kept");
   s = setup({ history: { [HEAD]: [500] } });
   assert.equal((await SB.readHistoryPage(s.ctx, s.client, REPO, HEAD, 1)).state, "failed");
-  for (const page of [0, 11, 1.5]) assert.equal((await SB.readHistoryPage(s.ctx, s.client, REPO, HEAD, page)).state, "invalid");
-  assert.equal(s.gh.calls.length, 1, "a page out of bounds is never requested");
+  for (const page of [0, -1, 1.5, "2"]) assert.equal((await SB.readHistoryPage(s.ctx, s.client, REPO, HEAD, page)).state, "invalid");
+  assert.equal(s.gh.calls.length, 1, "a page that is not a whole number from 1 is never requested");
+  s = setup({ history: { [HEAD]: Array.from({ length: 12 }, (_, p) => Array.from({ length: p < 11 ? 100 : 3 }, (_, i) => api("c" + p + "-" + i, ["x"]))) } });
+  r = await SB.readHistoryPage(s.ctx, s.client, REPO, HEAD, 12);
+  assert.deepEqual([r.state, r.data.commits.length, r.data.end], ["current", 3, true], "pages past the tenth are read like any other");
+  assert.equal(s.gh.calls[0].url, SB.API + "/repos/" + REPO + "/commits?sha=" + HEAD + "&per_page=100&page=12");
 });
 
 test("branches and tags are read with their commits; a full third page is partial; a bad one is invalid", async () => {
@@ -132,11 +137,12 @@ test("the history view asks for what it still needs and says where history stops
   assert.deepEqual(h.wanted, [{ kind: "compare", head: sha("dev2") }]);
   live.set(K.compare(REPO, HEAD, sha("dev2")), SB.result("current", { status: "diverged", ahead: 5, behind: 1, base: sha("p1") }, {}));
   h = SB.historyView(get, REPO, HEAD, 1, new Set());
-  assert.deepEqual(h.wanted, [{ kind: "lane", head: sha("dev2") }]);
+  assert.deepEqual(h.wanted, [{ kind: "lane", head: sha("dev2"), page: 1 }]);
   live.set(K.lane(REPO, sha("dev2")), SB.result("current", { commits: [row("dev2", ["dev1"]), row("dev1", ["p1"]), row("p1", ["p2"])], end: false }, {}));
   h = SB.historyView(get, REPO, HEAD, 1, new Set());
   assert.deepEqual(h.compared[1].commits.map(c => c.sha), [sha("dev2"), sha("dev1")], "a branch's own commits stop at the history already read");
   assert.equal(h.compared[1].unread, 3, "GitHub counts 5 ahead; 2 were read");
+  assert.deepEqual(h.wanted, [], "a branch whose own commits all reach the history read asks for no more of them");
   assert.equal(h.graph.rows.length, 102);
   // Two pages asked for: the second is wanted, then a failure stops the history there and says so.
   h = SB.historyView(get, REPO, HEAD, 2, new Set());
@@ -150,6 +156,31 @@ test("the history view asks for what it still needs and says where history stops
   h = SB.historyView(get, REPO, HEAD, 2, new Set());
   assert.equal(h.end, true);
   assert.equal(h.main.length, 107);
+  // Pages go on as far as they are asked for: there is no last page.
+  for (let p = 2; p <= 14; p++) live.set(K.page(REPO, HEAD, p), page("d" + p + "-", p < 14 ? 100 : 5, p === 14));
+  h = SB.historyView(get, REPO, HEAD, 13, new Set());
+  assert.deepEqual([h.main.length, h.more, h.end], [1300, true, false], "thirteen pages read and more offered");
+  h = SB.historyView(get, REPO, HEAD, 14, new Set());
+  assert.deepEqual([h.main.length, h.more, h.end], [1305, false, true]);
+});
+
+test("a branch's own commits are read page after page until they reach the history read", () => {
+  const K = SB.historyKey, live = new Map(), get = k => live.get(k);
+  live.set(K.page(REPO, HEAD, 1), SB.result("current", { commits: [Object.assign(row("head", [sha("base")]), { sha: HEAD }), row("base", [])], end: true }, {}));
+  live.set(K.refs(REPO, "branches"), SB.result("current", { refs: [{ name: "long", sha: sha("b0"), protected: false }] }, {}));
+  live.set(K.refs(REPO, "tags"), SB.result("empty", null, {}));
+  live.set(K.compare(REPO, HEAD, sha("b0")), SB.result("current", { status: "diverged", ahead: 150, behind: 1, base: sha("base") }, {}));
+  const lanePage = (from, n, end) => SB.result(end ? "current" : "partial", { commits: Array.from({ length: n }, (_, i) =>
+    row("b" + (from + i), [from + i === 149 ? "base" : "b" + (from + i + 1)])), end }, {});
+  live.set(K.lane(REPO, sha("b0"), 1), lanePage(0, 100, false));
+  let h = SB.historyView(get, REPO, HEAD, 1, new Set());
+  assert.deepEqual(h.wanted, [{ kind: "lane", head: sha("b0"), page: 2 }], "its commits go on past the first page");
+  assert.deepEqual([h.compared[0].commits.length, h.compared[0].unread], [100, 50]);
+  live.set(K.lane(REPO, sha("b0"), 2), lanePage(100, 100, false));
+  h = SB.historyView(get, REPO, HEAD, 1, new Set());
+  assert.deepEqual(h.wanted, [], "once all 150 are read, no more is asked for");
+  assert.deepEqual([h.compared[0].commits.length, h.compared[0].unread], [150, 0]);
+  assert.equal(h.graph.rows.length, 152);
 });
 
 test("a branch ahead whose own commits fail, are refused or come back empty keeps its counts and says why it has no lane", () => {

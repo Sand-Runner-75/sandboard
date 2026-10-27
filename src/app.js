@@ -45,7 +45,7 @@
       live: new Map(), repoFilters: noRepoFilters(), opened: [],
       // History: how many pages each read commit's history goes back, the branches the owner asked
       // to compare beyond the first ones, and the graph's zoom.
-      histDepth: new Map(), histAsk: new Set(), histZoom: 1,
+      histDepth: new Map(), histScroll: new Map(), histAsk: new Set(), histZoom: 1,
       // Work evidence: each list's state filter (open, closed or all) and how many pages it goes back,
       // and the pull requests whose reviews and checks are shown.
       workState: new Map(), workDepth: new Map(), workOpen: new Set(),
@@ -240,7 +240,7 @@
       if (w.kind === "page") loadLive(K.page(repo, commit, w.page), ctx => SB.readHistoryPage(ctx, client, repo, commit, w.page));
       else if (w.kind === "refs") loadLive(K.refs(repo, w.list), ctx => SB.readRefs(ctx, client, repo, w.list));
       else if (w.kind === "compare") loadLive(K.compare(repo, commit, w.head), ctx => SB.readCompare(ctx, client, repo, commit, w.head));
-      else if (w.kind === "lane") loadLive(K.lane(repo, w.head), ctx => SB.readHistoryPage(ctx, client, repo, w.head, 1));
+      else if (w.kind === "lane") loadLive(K.lane(repo, w.head, w.page), ctx => SB.readHistoryPage(ctx, client, repo, w.head, w.page));
     }
   }
 
@@ -482,13 +482,17 @@
     docKey,
     live: key => S.live.get(key),
     historyDepth: (repo, commit) => S.histDepth.get(depthKey(repo, commit)) || 1,
-    olderHistory(repo, commit) {
+    // The next page of commits: asked for by scrolling to the end of the list (keepFocus) or by the button.
+    olderHistory(repo, commit, keepFocus) {
       const k = depthKey(repo, commit);
-      S.histDepth.set(k, Math.min(SB.MAX_HISTORY_PAGES, (S.histDepth.get(k) || 1) + 1));
+      S.histDepth.set(k, (S.histDepth.get(k) || 1) + 1);
       render();
+      if (keepFocus) return;
       const n = $("g-older") || $("g-end");
       if (n) n.focus();
     },
+    // Where the history list was scrolled to, kept across renders so reading more does not jump to the top.
+    historyScroll: (repo, commit, at) => at ? S.histScroll.set(depthKey(repo, commit), at) : S.histScroll.get(depthKey(repo, commit)),
     compareBranch(repo, branch) {
       S.histAsk.add(repo + "|" + branch);
       render();
@@ -733,6 +737,7 @@
     for (const [key, res] of [...S.docs]) if (!["current", "empty", "missing", "invalid"].includes(res.state) || key.includes("|live|")) S.docs.delete(key);
     S.live = new Map();  // languages, feeds, history and the account are read again
     S.histDepth = new Map();
+    S.histScroll = new Map();
     S.workDepth = new Map();
     const ctx = session.start();  // same token, new run: replies to the old run are dropped
     announce("Refreshing.");

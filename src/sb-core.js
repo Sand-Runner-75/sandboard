@@ -86,7 +86,7 @@
     new RegExp("^/repos/" + NAME + "/" + NAME + "/commits[?]sha=" + SHA + "&per_page=30$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/issues/comments[?]sort=created&direction=desc&per_page=50$"),
     // History: pages of commits behind a pinned commit, branches and tags, and how two commits compare.
-    new RegExp("^/repos/" + NAME + "/" + NAME + "/commits[?]sha=" + SHA + "&per_page=100&page=(?:[1-9]|10)$"),
+    new RegExp("^/repos/" + NAME + "/" + NAME + "/commits[?]sha=" + SHA + "&per_page=100&page=[1-9][0-9]{0,8}$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/(?:branches|tags)[?]per_page=100&page=[1-3]$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/compare/" + SHA + "[.]{3}" + SHA + "[?]per_page=1$"),
     // Work evidence: pull requests by state with each one's reviews, issues by state, Actions runs and releases.
