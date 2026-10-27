@@ -116,8 +116,8 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(al["count"], "15 tasks, 3 Done.")
         self.assertEqual(al["ids"][:3], ["DT101", "DT102", "DT103"])
         self.assertEqual(len(al["ids"]), 15)
-        self.assertEqual(st["title"], "Tasks in stage 1: Prepare")
-        self.assertTrue(st["ids"] and all(i.startswith(("DT1", "DT2")) for i in st["ids"]), "a stage lists only the tasks of its phases")
+        self.assertEqual(st["columns"], [], "a stage chip leaves the two-column overview")
+        self.assertEqual(p["stageView"], {"tasks": 1, "stage": "S1"}, "a stage opens Tasks filtered to it")
 
     def test_unavailable_stale_denied_and_kit_states(self):
         p = self.r["progress"]
