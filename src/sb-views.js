@@ -322,7 +322,8 @@
       const plan = planState(entry);
       const sub = entry.loading ? "loading" : plan !== "current" && plan !== "none" ? (STATE[plan] || STATE.failed)[2].toLowerCase()
         : w.kind === "kit" ? "kit" : w.kind === "standalone" ? "code only" : "";
-      projects.kids.push({ id: "p:" + w.id, label: w.label, sub: w.opened ? "opened by name" : sub, kids,
+      projects.kids.push({ id: "p:" + w.id, label: w.label, sub: w.opened ? "opened by name" : w.found ? [sub, "found"].filter(Boolean).join(", ") : sub, kids,
+        tip: w.found ? TIPS.Found : undefined,
         act: () => A.go(w.id, w.plan ? { kind: "overview" } : { kind: "repo", repo: w.code[0].repo }) });
     }
     // The account views cover every mapped repository, so they sit apart from the projects.

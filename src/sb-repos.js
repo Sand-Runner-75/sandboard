@@ -2,7 +2,8 @@
 // The repository overview views: all mapped repositories (the portfolio), their activity and
 // languages, a fuller repository header, and a project's activity feed. Every figure here is
 // GitHub's own count about repositories, never task progress. Only repositories the workspace list
-// names (or the owner opened by name for this visit) appear; nothing else from the account is read.
+// names, the token's own list of repositories, and any the owner opened by name for this visit appear;
+// nothing else from the account is read.
 // Text from GitHub only goes into text nodes (or through SB.renderText).
 
 (function (root) {
@@ -12,10 +13,11 @@
   const doc = root.document;
 
   const TIPS = {
-    "All repositories": "Every repository the workspace list names, with what GitHub says about it. Nothing else in the account is listed.",
+    "All repositories": "Every repository the token can read, with what GitHub says about it: the ones the workspace list names, then the rest, marked found.",
     "Activity": "GitHub's counts about the mapped repositories: languages, ages, stars and kinds. They describe repositories, not how far a plan has got.",
     "Not progress": "GitHub activity: commits, pull requests, stars and languages say what happened in a repository, not how much of a plan is done. No figure here changes a progress figure.",
     "Opened by name": "A repository you typed in for this visit. It is not in the workspace list, has no plan, and goes when you forget access.",
+    "Found": "A repository the token can read that the workspace list does not name. It is read as a plan when it has a task table where the workspace list says plans keep it, else as code only. Name it in the workspace list to give it a label, a kind or its code repositories.",
     "Original": "A repository of its own, not a fork of another one.",
     "Fork": "A copy of another repository, made on GitHub.",
     "Archived": "Read-only on GitHub: its owner archived it.",
@@ -37,6 +39,18 @@
   const typeText = m => m.fork === null ? notGiven() : [m.fork ? "Fork" : "Original", m.archived ? "archived" : null].filter(Boolean).join(", ");
   const sizeText = kb => kb >= 1024 ? (kb / 1024).toFixed(1) + " MB" : kb + " KB";
   const stateName = res => (STATE[res.state] || STATE.failed)[2];
+
+  // What the token's own list of repositories added, or why it added nothing.
+  function foundNote(found) {
+    if (!found) return el("p", { class: "muted plain", "data-part": "found" }, "The token's list of repositories is read with the workspace list.");
+    if (found.state === "current" || found.state === "empty") {
+      return el("p", { class: "muted plain", "data-part": "found" }, "Every repository the token can read is here: the ones the workspace list names, and the rest marked “found”.");
+    }
+    if (found.state === "partial") {
+      return notice("partial", "GitHub lists more than " + found.data.repos.length + " repositories for this token; the first " + found.data.repos.length + " are here.", "Not every repository");
+    }
+    return notice(found.state, "The token's list of repositories could not be read (" + (found.error || stateName(found)) + "), so only the repositories the workspace list names are here.");
+  }
 
   // ---- Bars: one series, so no legend; every bar carries its value as text and a bubble.
 
@@ -72,6 +86,7 @@
     const sec = el("section", { class: "stack", "aria-labelledby": "view-h" },
       el("header", { class: "head" }, el("div", { class: "row1" }, el("h1", { id: "view-h" }, "All repositories"), el("span", { class: "stage-tag" }, "Account")),
         sourceNote(rows)));
+    sec.append(foundNote(S.found));
     sec.append(openForm(A));
     const opts = SB.portfolioOptions(rows);
     const select = (id, key, values, all) => {
@@ -118,7 +133,8 @@
     const body = el("tbody", {}, rows.map(r => {
       const first = r.projects[0];
       const name = el("button", { type: "button", class: "linkbtn mono", "data-repo": r.repo, onclick: () => A.go(first.id, { kind: "repo", repo: r.repo }) }, r.repo);
-      const roles = r.projects.map((p, i) => [i ? "; " : "", p.label, " (", p.opened ? tip(el("span", {}, "opened by name"), "Opened by name") : p.role, ")"]);
+      const roles = r.projects.map((p, i) => [i ? "; " : "", p.label, " (", p.opened ? tip(el("span", {}, "opened by name"), "Opened by name")
+        : p.found ? tip(el("span", {}, "found, " + p.role), "Found") : p.role, ")"]);
       if (!r.meta) {
         const res = r.pinned || { state: "loading" };
         return el("tr", { "data-state": res.state }, el("th", { scope: "row" }, name), el("td", {}, roles),
@@ -149,7 +165,7 @@
     sec.append(el("p", { class: "plain", "data-part": "account" }, "Read as ",
       !user || user.state === "loading" ? el("span", { class: "muted" }, "Loading")
         : user.state === "current" ? [el("b", { class: "mono" }, user.data.login), user.data.type ? " (" + user.data.type + ")" : ""]
-        : el("span", { class: "muted" }, stateName(user)), ". Only the repositories above are read; no account-wide list, feed or contribution count is."));
+        : el("span", { class: "muted" }, stateName(user)), ". Only the repositories above and the token's own list of repositories are read; no feed or contribution count is."));
     sec.append(tip(el("div", { class: "notice info", role: "status", "data-state": "activity" }, el("span", { class: "glyph", "aria-hidden": "true" }, "i"),
       el("div", {}, el("b", {}, "GitHub activity, not progress"), el("div", {}, "These figures describe the repositories. Only a plan's progress output says how far its work has got."))), "Not progress"));
     if (!a.read) { sec.append(rows.some(r => !r.pinned) ? notice("loading") : notice("unavailable", "No mapped repository could be read, so there is nothing to count.")); return sec; }
@@ -284,6 +300,7 @@
     if (!entry.w.plan) {
       parts.push(tip(el("div", { class: "notice info", role: "status", "data-state": "no-plan" }, el("span", { class: "glyph", "aria-hidden": "true" }, "○"),
         el("div", {}, el("b", {}, "Plan progress: not available"), el("div", {}, entry.w.opened ? "Opened by name for this visit: it has no plan, so there are no tasks and no progress. It is not 0%."
+          : entry.w.found ? "Found through the token: it has no task table where the workspace list says plans keep it, so there are no tasks and no progress. It is not 0%."
           : "This project has no plan repository, so there are no tasks and no progress. It is not 0%."))), "Plan progress"));
     }
     const lang = A.live("lang|" + name);

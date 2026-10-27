@@ -73,6 +73,8 @@
   // The only reads the client makes. Later slices add their own entries here.
   const ALLOWED = [
     new RegExp("^/user$"),
+    // The repositories the token can read, by name, so every one of them is listed.
+    new RegExp("^/user/repos[?]per_page=100&page=[1-9]$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/commits/[A-Za-z0-9_.%-]+$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/contents/" + FILE_PATH + "[?]ref=" + SHA + "$"),

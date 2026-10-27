@@ -432,7 +432,9 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(pr["bold"], 0, "a commit title stays text")
         self.assertTrue(all(u.startswith("GET ") for u in pr["urls"]))
         self.assertFalse(any("unmapped" in u for u in pr["urls"]), "an unmapped repository is never read")
-        self.assertFalse(any("/users/" in u or "/events" in u or "/user/repos" in u for u in pr["urls"]), "no account-wide read")
+        self.assertFalse(any("/users/" in u or "/events" in u for u in pr["urls"]), "no account-wide read")
+        self.assertEqual(set(u for u in pr["urls"] if "/user/repos" in u), {"GET https://api.github.com/user/repos?per_page=100&page=1"},
+                         "the token's own list of repositories is read once a reading, a page at a time")
 
     def test_the_feed_follows_the_ref_the_project_reads_through_switches_and_refresh(self):
         refs = self.r["repos"]["refs"]
@@ -492,6 +494,27 @@ class BrowserTest(unittest.TestCase):
         self.assertTrue(o["marked"])
         self.assertIn("owner/name", o["badName"])
         self.assertFalse(o["afterLeave"])
+
+    def test_every_repository_the_token_reads_is_listed_and_marked_found(self):
+        f = self.r["found"]
+        ids = [x[0] for x in f["projects"]]
+        self.assertEqual(ids, ["p:garden", "p:recipes", "p:~found-acme/found-code", "p:~found-acme/found-plan"],
+                         "a listed repository is not repeated, whatever its case")
+        labels = dict(f["projects"])
+        self.assertIn("found", labels["p:~found-acme/found-plan"])
+        self.assertNotIn("code only", labels["p:~found-acme/found-plan"])
+        self.assertIn("code only, found", labels["p:~found-acme/found-code"])
+        self.assertEqual(f["planTasks"], ["XQ101", "XQ102", "XQ201"], "a found plan's tasks are read from its task table")
+        self.assertIn("Found through the token", f["codeNoPlan"])
+        self.assertIn("It is not 0%", f["codeNoPlan"])
+        self.assertIn("Every repository the token can read is here", f["note"])
+        rows = {r[0]: r[1] for r in f["rows"]}
+        self.assertIn("found", rows["acme/found-code"])
+        self.assertIn("found", rows["acme/found-plan"])
+        self.assertEqual(f["deniedProjects"], ["p:garden", "p:recipes"], "a list that cannot be read adds nothing")
+        self.assertIn("could not be read", f["denied"])
+        self.assertTrue(all(u.startswith("GET ") for u in f["urls"]))
+        self.assertFalse(any("/users/" in u or "/events" in u or "/notifications" in u for u in f["urls"]))
 
     def test_repository_views_never_scroll_the_page_sideways(self):
         n = self.r["repos"]["narrow"]

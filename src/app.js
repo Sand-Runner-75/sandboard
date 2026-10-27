@@ -43,6 +43,8 @@
       // Repository overview: live reads by repository (languages, activity feed, the account), the
       // portfolio filters, and repositories opened by name for this visit only.
       live: new Map(), repoFilters: noRepoFilters(), opened: [],
+      // The repositories the token can read, as GitHub listed them at the last reading.
+      found: null,
       // History: how many pages each read commit's history goes back, the branches the owner asked
       // to compare beyond the first ones, and the graph's zoom.
       histDepth: new Map(), histScroll: new Map(), histAsk: new Set(), histZoom: 1,
@@ -132,7 +134,13 @@
       session.alive(ctx);
       S.list = list;
       if (list.state !== "current") { S.tabs = []; S.activeTab = null; S.selected = null; S.docs = new Map(); S.mapped = new Map(); render(); return; }
-      S.entries = list.data.workspaces.concat(S.opened.map(openedWorkspace)).map(w => ({ w, loading: true, plan: null, table: null, progress: null,
+      // Every repository the token can read that the list does not name is shown too, marked as found.
+      const found = await SB.readAccountRepos(ctx, client);
+      session.alive(ctx);
+      S.found = found;
+      const named = new Set(list.data.workspaces.flatMap(w => [w.plan && w.plan.repo, ...w.code.map(c => c.repo)]).filter(Boolean).map(r => r.toLowerCase()));
+      const extra = found.data ? found.data.repos.filter(r => !named.has(r.toLowerCase())).map(r => foundWorkspace(r, list.data.found)) : [];
+      S.entries = list.data.workspaces.concat(extra, S.opened.map(openedWorkspace)).map(w => ({ w, loading: true, plan: null, table: null, progress: null,
                                                    code: w.code.map(c => ({ c, pinned: null, checks: null })), tasks: [] }));
       if (!S.entries.some(e => e.w.id === S.current)) { S.current = S.entries[0].w.id; S.view = { kind: "overview" }; }
       // A project seen for the first time opens with its stages or phases showing; a refresh keeps what was opened or closed.
@@ -141,9 +149,14 @@
       for (const e of S.entries) if (!known.has(e.w.id)) for (const g of ["p:", "stages:", "phases:"]) S.expanded.add(g + e.w.id);
       render();
       for (let i = 0; i < S.entries.length; i++) {
-        const w = S.entries[i].w;
-        const read = await SB.readWorkspace(ctx, client, w);
+        let w = S.entries[i].w;
+        let read = await SB.readWorkspace(ctx, client, w);
         session.alive(ctx);
+        if (w.found && w.plan && noTable(read)) {
+          w = codeOnly(w);
+          read = await SB.readWorkspace(ctx, client, w);
+          session.alive(ctx);
+        }
         S.entries[i] = entryFrom(w, read);
         dropUnreadableTabs(S.entries[i]);
         render();
@@ -160,6 +173,16 @@
   }
 
   const planRepo = w => (w.plan ? w.plan.repo : null);
+
+  // A repository the token can read that the workspace list does not name: read as a plan with the
+  // list's found plan files, and as code only when it has no task table there (or the list gives none).
+  // Its ID cannot clash with a listed one (listed IDs have no "~").
+  const foundWorkspace = (repo, files) => {
+    const w = { id: "~found-" + repo.toLowerCase(), label: repo, kind: "project", plan: { repo, ref: null, files }, code: [], found: true };
+    return files ? w : codeOnly(w);
+  };
+  const codeOnly = w => Object.assign({}, w, { kind: "standalone", plan: null, code: [{ repo: w.plan.repo, ref: null, role: "found" }] });
+  const noTable = read => read.some(x => x.kind === "table" && x.result.state === "missing");
 
   // A repository opened by name for this visit: a code-only workspace that is not in the workspace
   // list, marked as such. Its ID cannot clash with a listed one (listed IDs have no "~").

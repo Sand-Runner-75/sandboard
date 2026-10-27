@@ -189,14 +189,14 @@
   // ---- The repository overview: the explicitly mapped repositories, their GitHub metadata and
   // activity. These are GitHub's own counts about repositories; none of them is task progress.
 
-  // One row per mapped repository (each workspace's plan and code repositories, and any opened by
-  // name this visit), with every project and role it has. Only what the workspace list names appears.
+  // One row per mapped repository (each workspace's plan and code repositories, those found through the
+  // token, and any opened by name this visit), with every project and role it has.
   function portfolio(entries) {
     const rows = new Map();
     const add = (entry, repo, role, pinned) => {
       if (!rows.has(repo)) rows.set(repo, { repo, projects: [], pinned: null });
       const row = rows.get(repo);
-      row.projects.push({ id: entry.w.id, label: entry.w.label, role, kind: entry.w.kind, opened: !!entry.w.opened });
+      row.projects.push({ id: entry.w.id, label: entry.w.label, role, kind: entry.w.kind, opened: !!entry.w.opened, found: !!entry.w.found });
       // The first read that answered stands for the repository; a later project's read fills a gap only.
       if (!row.pinned || (row.pinned.state !== "current" && pinned && pinned.state === "current")) row.pinned = pinned || row.pinned;
     };

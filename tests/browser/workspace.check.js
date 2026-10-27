@@ -1032,6 +1032,42 @@ function privateRepos() {
   co.private.urls = furls;
   await p.close();
 
+  // Found through the token: every repository it can read and the list does not name is shown, as a
+  // plan when it has a task table at the usual place, else as code only; a list that cannot be read is said.
+  const found = out.found = {};
+  const nrepos = F.planRepos({ workspaces: F.workspacesDoc({ found: { files: F.FILES } }) });
+  const NP = sha("found-plan"), NC = sha("found-code");
+  nrepos["acme/found-plan"] = { default_branch: "main", branches: { main: NP }, files: { [NP]: { [F.FILES.table]: F.TABLE } } };
+  nrepos["acme/found-code"] = { default_branch: "main", branches: { main: NC }, files: { [NC]: {} } };
+  let tokenRepos = () => json(["acme/garden-plan", "ACME/Garden", "acme/found-plan", "acme/found-code"].map(full_name => ({ full_name })));
+  const ngh = mockGitHub(nrepos, [[/^[/]user[/]repos[?]/, () => tokenRepos()]]);
+  const nurls = [];
+  p = await open();
+  await p.route("https://api.github.com/**", async route => {
+    const req = route.request();
+    nurls.push(req.method() + " " + req.url());
+    const res = await ngh.fetch(req.url(), { method: req.method() });
+    await route.fulfill({ status: res.status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }, body: await res.text() });
+  });
+  await p.fill("#plan-repo", "acme/garden-plan"); await p.fill("#token", "synthetic-token"); await p.click("#connect button[type=submit]");
+  await finished(); await p.waitForTimeout(400);
+  const projectsNow = () => p.$$eval("#tree [role=treeitem][data-id^='p:']", n => n.map(x => [x.dataset.id, x.getAttribute("aria-label")]));
+  found.projects = await projectsNow();
+  await tree(p, "p:~found-acme/found-plan"); await p.waitForTimeout(400);
+  found.planTasks = await p.$$eval("[data-part=overview-lower] li[data-task]", n => n.map(x => x.dataset.task));
+  await tree(p, "p:~found-acme/found-code"); await p.waitForTimeout(500);
+  found.codeNoPlan = (await p.$eval("[data-state=no-plan]", n => n.textContent).catch(() => ""));
+  await tree(p, "a:portfolio"); await p.waitForTimeout(300);
+  found.note = await p.$eval("[data-part=found]", n => n.textContent).catch(() => "");
+  found.rows = await p.$$eval(".grid-table tbody tr", n => n.map(r => [...r.querySelectorAll("th, td")].slice(0, 2).map(c => c.textContent)));
+  tokenRepos = () => json({ message: "denied" }, 403);
+  await p.click("#refresh"); await finished(); await p.waitForTimeout(400);
+  found.deniedProjects = (await projectsNow()).map(x => x[0]);
+  await tree(p, "a:portfolio"); await p.waitForTimeout(300);
+  found.denied = await p.$eval("#workspace .notice[data-state=denied]", n => n.textContent).catch(() => "");
+  found.urls = nurls;
+  await p.close();
+
   // 7. Framed: the page refuses to show.
   p = await open();
   await p.goto(BASE + "/frame.html"); await p.waitForTimeout(400);
