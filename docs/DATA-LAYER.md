@@ -11,7 +11,7 @@ How the app reads private project data from GitHub, and what it refuses to do. T
 ## Requests
 
 - One client sends every request, always `GET` to `https://api.github.com`, with `credentials: "omit"`, `cache: "no-store"`, `referrerPolicy: "no-referrer"` and `redirect: "error"`. It has no way to send anything else.
-- Paths must match an allowlist (`/user`, a repository, a commit, a file at a full commit SHA, a commit's check runs, a repository's pull request list, the comments on one pull request, a repository's languages, the latest 30 commits from a full commit SHA, a repository's latest 50 issue and pull request comments, a page of 100 commits behind a full commit SHA (pages 1 to 10), a repository's branches and tags (pages 1 to 3), how one full commit SHA compares with another, a repository's pull requests or issues by state (open, closed or all; pages 1 to 9), one pull request's reviews (pages 1 to 3), a repository's workflow runs and releases (pages 1 to 9), and the whole file tree at a full commit SHA). No account-wide path (the account's repositories, events or notifications) is allowed. Anything else is refused before any network call.
+- Paths must match an allowlist (`/user`, the token's own list of repositories (pages 1 to 9), a repository, a commit, a file at a full commit SHA, a commit's check runs, a repository's pull request list, the comments on one pull request, a repository's languages, the latest 30 commits from a full commit SHA, a repository's latest 50 issue and pull request comments, a page of 100 commits behind a full commit SHA (any page from 1 up), a repository's branches and tags (pages 1 to 3), how one full commit SHA compares with another, a repository's pull requests or issues by state (open, closed or all; pages 1 to 9), one pull request's reviews (pages 1 to 3), a repository's workflow runs and releases (pages 1 to 9), and the whole file tree at a full commit SHA). No other account-wide path (events, notifications, searches) is allowed. Anything else is refused before any network call.
 - Each run has a context. The session checks it before each request and after each reply, body read and hash, so a reply from a forgotten session or an older run never appears. A new run aborts the old one.
 - Tests (`tests/test_app_rules.py`) fail if any browser code uses another network API, an HTTP method other than `GET`, a second network call site, browser storage, HTML parsing or code evaluation, or console logging.
 
@@ -27,6 +27,7 @@ Every reader returns `{state, data, source: {repo, ref, commit, path}, schema, e
 
 Read from the private plan repository named at sign-in, file `sandboard.workspaces.json`, at the pinned commit. Missing or invalid: no workspaces are shown, with the reason. Nothing is guessed from repository names.
 
+
 ```json
 {
   "schema": "sandboard.workspaces/1",
@@ -38,13 +39,19 @@ Read from the private plan repository named at sign-in, file `sandboard.workspac
                            "table": "plan/tasks.md", "record": "plan/record.md" } },
       "code": [ { "repo": "owner/code-repo", "ref": null, "role": "app" } ]
     }
-  ]
+  ],
+  "found": { "files": { "progress": "plan/progress.json", "producer": "tools/progress.py",
+                        "table": "plan/tasks.md", "record": "plan/record.md" } }
 }
 ```
 
 `kind` is `project`, `kit` (a reusable template, not a live project) or `standalone` (code only); `plan` may be `null` when `code` is not empty; `ref` `null` means the default branch. The four plan file paths come from this private file, so the public code names no private file.
 
 `files` may also name `brief`, `handover` and `crossref` (the task's cross-reference index): path templates with exactly one `{id}`, such as `"notes/{id}-brief.md"`. A task's brief, handover or cross-reference file is the template with the task's ID (letters, digits, `.`, `_`, `-`), read at the pinned plan commit (`SB.readTaskFile`): `current` with its text, `empty`, `missing` when the task has none, `invalid` when it is not UTF-8 or the ID or template is not valid (no request is made then), or the read's own failure state. Without a template the view says the workspace names no such file.
+
+### Repositories found through the token
+
+After the list, the token's own list of repositories is read (`/user/repos`, 100 a page, up to 9 pages; only each `full_name` is kept, `SB.readAccountRepos`). Every repository on it that the workspace list does not name as a plan or code repository (compared without case) is shown too, marked **found**, after the listed ones and in name order. The optional `found.files` (the same fields and rules as a plan's `files`) is the layout a found repository is read with as a plan; when its task table is missing at the pinned commit, or the list gives no `found`, it is read as code only. A found plan with no progress file shows its tasks without progress figures (**unavailable**, never 0%). Naming a repository in the list still gives it a label, a kind and its code repositories. A list GitHub does not give (refused, failed or malformed) adds nothing and is said on All repositories; nine full pages are shown as **partial**.
 
 ## Plan table
 
@@ -94,7 +101,7 @@ The activity feed also reads one page of the pull request list (100). Only hando
 
 ## History
 
-A repository's history is read from the commit its project pinned, 100 commits a page, up to 10 pages, each only when asked. A full page says older commits may exist; a shorter one is the start of the history. Each commit keeps its ID, title (first line), commit time, parents' IDs and the GitHub login of its author when GitHub links one; the author's name and email address in the commit are never kept. Branches and tags are read as GitHub lists them now (up to 300 each, partial when full), each with the commit it points at and, for a branch, whether it is protected (not given when GitHub does not say). A comparison reads only GitHub's ahead and behind counts, its state and the merge base (`compare/<read commit>...<branch head>?per_page=1`); a compared branch's own commits are read as one page behind its head and stop at the history already read or the merge base. Commits per week and by day, and contributors, are counted over the commits read only, and only the weeks and days shown (12 and 182) are built, however far apart the commit dates are; they are GitHub activity and never feed progress. No checkout, branch, reset, merge or statistics endpoint is used.
+A repository's history is read from the commit its project pinned, 100 commits a page, with no last page: the first page, then each next one when the list is scrolled to its end or the owner asks. A full page says older commits may exist; a shorter one is the start of the history. Each commit keeps its ID, title (first line), commit time, parents' IDs and the GitHub login of its author when GitHub links one; the author's name and email address in the commit are never kept. Branches and tags are read as GitHub lists them now (up to 300 each, partial when full), each with the commit it points at and, for a branch, whether it is protected (not given when GitHub does not say). A comparison reads only GitHub's ahead and behind counts, its state and the merge base (`compare/<read commit>...<branch head>?per_page=1`); a compared branch's own commits are read page by page behind its head, each next page only while a commit they reach is not read yet, and stop at the history already read or the merge base. Commits per week and by day, and contributors, are counted over the commits read only, and only the weeks and days shown (12 and 182) are built, however far apart the commit dates are; they are GitHub activity and never feed progress. No checkout, branch, reset, merge or statistics endpoint is used.
 
 ## Work evidence
 

@@ -189,14 +189,14 @@
   // ---- The repository overview: the explicitly mapped repositories, their GitHub metadata and
   // activity. These are GitHub's own counts about repositories; none of them is task progress.
 
-  // One row per mapped repository (each workspace's plan and code repositories, and any opened by
-  // name this visit), with every project and role it has. Only what the workspace list names appears.
+  // One row per mapped repository (each workspace's plan and code repositories, those found through the
+  // token, and any opened by name this visit), with every project and role it has.
   function portfolio(entries) {
     const rows = new Map();
     const add = (entry, repo, role, pinned) => {
       if (!rows.has(repo)) rows.set(repo, { repo, projects: [], pinned: null });
       const row = rows.get(repo);
-      row.projects.push({ id: entry.w.id, label: entry.w.label, role, kind: entry.w.kind, opened: !!entry.w.opened });
+      row.projects.push({ id: entry.w.id, label: entry.w.label, role, kind: entry.w.kind, opened: !!entry.w.opened, found: !!entry.w.found });
       // The first read that answered stands for the repository; a later project's read fills a gap only.
       if (!row.pinned || (row.pinned.state !== "current" && pinned && pinned.state === "current")) row.pinned = pinned || row.pinned;
     };
@@ -409,14 +409,15 @@
     page: (repo, commit, page) => "hist|" + repo + "@" + commit + "|" + page,
     refs: (repo, kind) => kind + "|" + repo,
     compare: (repo, base, head) => "cmp|" + repo + "|" + base + "..." + head,
-    lane: (repo, head) => "lane|" + repo + "@" + head,
+    lane: (repo, head, page = 1) => "lane|" + repo + "@" + head + (page > 1 ? "|" + page : ""),
   };
   const COMPARE_FIRST = 10;
   // The branches compared with the read commit: the first ten GitHub lists, then any the owner asks for.
   const comparedBranches = (repo, branches, asked) => branches.filter((b, i) => i < COMPARE_FIRST || asked.has(repo + "|" + b.name));
 
   // Everything a repository's history view shows, from the reads made so far (live: key => result).
-  // It also says which reads are still wanted: the next page asked for, and each comparison and branch.
+  // It also says which reads are still wanted: the next page asked for (depth pages, with no last page),
+  // each comparison, and each compared branch's own commits, page by page until they are all read.
   function historyView(live, repo, commit, depth, asked) {
     const K = historyKey;
     const main = [], wanted = [];
@@ -441,22 +442,34 @@
       const cmp = live(K.compare(repo, commit, b.sha));
       if (!cmp) { wanted.push({ kind: "compare", head: b.sha }); return { branch: b, cmp: { state: "loading" }, asked: true }; }
       if (!cmp.data || !cmp.data.ahead) return { branch: b, cmp, asked: true, commits: [], unread: 0 };
-      const lane = live(K.lane(repo, b.sha));
-      if (!lane) wanted.push({ kind: "lane", head: b.sha });
-      const read = lane && lane.data ? lane.data.commits : [];
       // The branch's own commits: those reached from its head before the read history or the merge base.
-      const by = new Map(read.map(c => [c.sha, c])), mine = new Set(), todo = [b.sha];
-      while (todo.length) {
-        const sha = todo.pop();
-        if (mine.has(sha) || inMain.has(sha) || sha === cmp.data.base || !by.has(sha)) continue;
-        mine.add(sha);
-        todo.push(...by.get(sha).parents);
+      // Its pages are read one after another while a commit it reaches is still not read.
+      const read = [], by = new Map();
+      // stop: a later page still being read, or the failure that ended the reading after the first page.
+      let first = null, mine = new Set(), stop = null;
+      for (let p = 1; ; p++) {
+        const page = live(K.lane(repo, b.sha, p));
+        if (!page) { wanted.push({ kind: "lane", head: b.sha, page: p }); if (p > 1) stop = { state: "loading" }; break; }
+        if (p === 1) first = page;
+        if (!page.data) { if (p > 1) stop = page; break; }
+        for (const c of page.data.commits) { read.push(c); by.set(c.sha, c); }
+        mine = new Set();
+        let missing = false;
+        const todo = [b.sha];
+        while (todo.length) {
+          const sha = todo.pop();
+          if (mine.has(sha) || inMain.has(sha) || sha === cmp.data.base) continue;
+          if (!by.has(sha)) { missing = true; continue; }
+          mine.add(sha);
+          todo.push(...by.get(sha).parents);
+        }
+        if (page.data.end || !missing || mine.size >= cmp.data.ahead) break;
       }
       const own = read.filter(c => mine.has(c.sha));
-      return { branch: b, cmp, asked: true, lane: lane || { state: "loading" }, commits: own, unread: Math.max(0, cmp.data.ahead - own.length) };
+      return { branch: b, cmp, asked: true, lane: first || { state: "loading" }, stop, commits: own, unread: Math.max(0, cmp.data.ahead - own.length) };
     });
     const graph = historyGraph(main, compared.filter(x => x.commits && x.commits.length));
-    return { state, error, end, pages, main, branches, tags, compared, graph, wanted, more: !end && !error && pages === depth && depth < SB.MAX_HISTORY_PAGES };
+    return { state, error, end, pages, main, branches, tags, compared, graph, wanted, more: !end && !error && pages === depth };
   }
 
   // Commits read per week (Monday, UTC) and per day, for the latest weeks and days of the window from the

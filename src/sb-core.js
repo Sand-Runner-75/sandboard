@@ -73,6 +73,8 @@
   // The only reads the client makes. Later slices add their own entries here.
   const ALLOWED = [
     new RegExp("^/user$"),
+    // The repositories the token can read, by name, so every one of them is listed.
+    new RegExp("^/user/repos[?]per_page=100&page=[1-9]$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/commits/[A-Za-z0-9_.%-]+$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/contents/" + FILE_PATH + "[?]ref=" + SHA + "$"),
@@ -86,7 +88,7 @@
     new RegExp("^/repos/" + NAME + "/" + NAME + "/commits[?]sha=" + SHA + "&per_page=30$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/issues/comments[?]sort=created&direction=desc&per_page=50$"),
     // History: pages of commits behind a pinned commit, branches and tags, and how two commits compare.
-    new RegExp("^/repos/" + NAME + "/" + NAME + "/commits[?]sha=" + SHA + "&per_page=100&page=(?:[1-9]|10)$"),
+    new RegExp("^/repos/" + NAME + "/" + NAME + "/commits[?]sha=" + SHA + "&per_page=100&page=[1-9][0-9]{0,8}$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/(?:branches|tags)[?]per_page=100&page=[1-3]$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/compare/" + SHA + "[.]{3}" + SHA + "[?]per_page=1$"),
     // Work evidence: pull requests by state with each one's reviews, issues by state, Actions runs and releases.

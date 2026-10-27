@@ -72,20 +72,32 @@
       return li;
     }));
     const canvas = el("canvas", { class: "hist-canvas", "aria-hidden": "true" });
-    const box = el("div", { class: "hist-graph", tabindex: "0", role: "group", "aria-label": "Branch graph; scroll sideways to pan when zoomed in" }, canvas, list);
+    const reading = h.wanted.some(w => w.kind === "page");
+    // The end of the list: older commits are read when it scrolls into view, or when its button is pressed.
+    const tail = h.more ? el("div", { class: "hist-tail" }, el("button", { type: "button", class: "btn ghost", id: "g-older", onclick: () => A.olderHistory(name, d.commit) }, "Load older commits"))
+      : reading ? el("p", { class: "hist-tail qual muted plain", role: "status" }, "Reading older commits…") : null;
+    const box = el("div", { class: "hist-graph", tabindex: "0", role: "group", "aria-label": "Branch graph; scroll down for older commits, sideways to pan when zoomed in" }, canvas, list, tail);
+    box.addEventListener("scroll", () => A.historyScroll(name, d.commit, [box.scrollTop, box.scrollLeft]), { passive: true });
+    const at = A.historyScroll(name, d.commit);
+    if (tail && h.more && root.IntersectionObserver) {
+      const seen = new root.IntersectionObserver(found => {
+        if (!found.some(f => f.isIntersecting) || !tail.isConnected) return;
+        seen.disconnect();
+        A.olderHistory(name, d.commit, true);
+      }, { root: box, rootMargin: "0px 0px 200px 0px" });
+      root.requestAnimationFrame(() => { if (tail.isConnected) seen.observe(tail); });
+    }
     box.style.setProperty("--row", rowH + "px");
     const i = ZOOMS.indexOf(zoom);
     const btn = (id, text, disabled, act) => el("button", { type: "button", class: "btn ghost", id, disabled: disabled ? "" : null, onclick: act }, text);
     const tools = el("div", { class: "actions", role: "group", "aria-label": "Graph view" },
       btn("g-in", "Zoom in", i === ZOOMS.length - 1, () => A.zoomHistory(ZOOMS[i + 1], "g-in")),
       btn("g-out", "Zoom out", i === 0, () => A.zoomHistory(ZOOMS[i - 1], "g-out")),
-      btn("g-fit", "Fit", false, () => A.zoomHistory(1, "g-fit")),
-      h.more ? btn("g-older", "Load older commits", false, () => A.olderHistory(name, d.commit)) : null);
+      btn("g-fit", "Fit", false, () => A.zoomHistory(1, "g-fit")));
     const pageNote = h.end ? "Showing all " + plural(h.main.length, "commit") + " behind " + short(d.commit) + ": this is the start of the history."
       : h.error ? "Showing the latest " + plural(h.main.length, "commit") + ". The next page could not be read (" + stateName(h.error) + "); older history is not shown."
-      : h.wanted.some(w => w.kind === "page") ? "Showing the latest " + plural(h.main.length, "commit") + ". Reading older commits."
-      : h.more ? "Showing the latest " + plural(h.main.length, "commit") + ". Older history is read only when you ask; nothing is guessed for it."
-      : "Showing the latest " + plural(h.main.length, "commit") + ", as many as this view reads. Older history is not read.";
+      : reading ? "Showing the latest " + plural(h.main.length, "commit") + ". Reading older commits."
+      : "Showing the latest " + plural(h.main.length, "commit") + ". Older commits are read as you scroll down the list; nothing is guessed for them.";
     const extra = g.rows.length - h.main.length;
     const notes = [el("p", { class: "qual muted plain", id: "g-end", tabindex: "-1", "data-part": "history-coverage" }, pageNote +
       (extra ? " The other " + plural(extra, "row is a compared branch's own commit", "rows are compared branches' own commits") + "." : ""))];
@@ -97,13 +109,16 @@
       const ahead = plural(x.cmp.data.ahead, "commit") + " ahead";
       if (x.lane.state === "loading") notes.push(el("p", at, x.branch.name + ": reading this branch's own commits."));
       else if (!x.lane.data) notes.push(el("p", at, x.branch.name + ": this branch's commits could not be read (" + stateName(x.lane) + "), so it has no lane for its " + ahead + "."));
+      else if (x.stop && x.stop.state === "loading") notes.push(el("p", Object.assign(at, { "data-stop": "loading" }), x.branch.name + ": reading more of this branch's own commits."));
+      else if (x.stop) notes.push(el("p", Object.assign(at, { "data-stop": x.stop.state }), x.branch.name + ": " + plural(x.unread, "more commit") +
+        " on this branch not read: a later page of its commits could not be read (" + stateName(x.stop) + (x.stop.error ? ", " + x.stop.error : "") + ")."));
       else if (!x.commits.length) notes.push(el("p", at, x.branch.name + ": " + ahead + ", none of them in the commits read, so it has no lane."));
       else if (x.unread) notes.push(el("p", at, x.branch.name + ": " + plural(x.unread, "more commit") + " on this branch not read."));
     }
     const card = el("section", { class: "card", "aria-labelledby": "graph-h", "data-part": "history-graph" },
       tip(el("h2", { id: "graph-h", class: "label" }, "Branches, merges and tags"), "History"), tools, box, ...notes);
     // Drawn once the rows are laid out, so each node sits beside its own row.
-    root.requestAnimationFrame(() => draw(canvas, list, g, laneW));
+    root.requestAnimationFrame(() => { if (at && box.isConnected) [box.scrollTop, box.scrollLeft] = at; draw(canvas, list, g, laneW); });
     return card;
   }
 

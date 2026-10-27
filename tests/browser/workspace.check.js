@@ -65,7 +65,17 @@ function privateRepos() {
     return page;
   }
   const demo = async page => { await page.click("#show-demo"); await page.waitForFunction(() => /Reading finished/.test(document.getElementById("live").textContent) || document.querySelectorAll("#tree [role=treeitem]").length > 20); await page.waitForTimeout(300); };
-  const tree = (page, id) => page.click(`#tree [data-id="${id}"] > .ti`);
+  // Projects start collapsed, so a place deeper in the tree is reached by opening its groups' arrows first.
+  const expand = async (page, id) => { const n = await page.$(`#tree [data-id="${id}"][aria-expanded="false"] > .ti > .tw`); if (n) { await n.click(); await page.waitForTimeout(50); } };
+  const tree = async (page, id) => {
+    const sel = `#tree [data-id="${id}"] > .ti`, [kind, ws] = id.split(":");
+    if (!(await page.$(sel))) {
+      for (const g of ["p:", ...({ st: ["stages:"], ph: ["stages:", "phases:"], r: ["repos:"] }[kind] || [])]) await expand(page, g + ws);
+      if (kind === "ph" && !(await page.$(sel)))
+        for (const st of await page.$$eval(`#tree [data-id^="st:${ws}:"][aria-expanded="false"]`, n => n.map(x => x.dataset.id))) { await expand(page, st); if (await page.$(sel)) break; }
+    }
+    return page.click(sel);
+  };
   const text = (page, sel) => page.$eval(sel, n => n.textContent).catch(() => null);
   const active = page => page.evaluate(() => { const a = document.activeElement;
     return { id: a.id, key: a.dataset.key || a.dataset.id || "", tag: a.tagName, role: a.getAttribute("role"), outline: getComputedStyle(a).outlineWidth }; });
@@ -107,7 +117,14 @@ function privateRepos() {
   const whole = () => text(p, "#whole-cards");
   prog.whole = await whole();
   prog.phases = await p.$$eval(".phase", n => n.map(x => [x.dataset.phase, x.textContent]));
+  // The overview's lower part: every task beside the recent activity, or the picked stage's tasks.
+  const lower = () => p.evaluate(() => ({ columns: [...document.querySelectorAll("[data-part=overview-lower] > section")].map(n => n.dataset.part || ""),
+    title: (document.getElementById("all-tasks-h") || {}).textContent || "", count: (document.querySelector("[data-part=overview-tasks-count]") || {}).textContent || "",
+    ids: [...document.querySelectorAll("[data-part=overview-tasks] li")].map(n => n.dataset.task),
+    sideBySide: (() => { const s = [...document.querySelectorAll("[data-part=overview-lower] > section")].map(n => n.getBoundingClientRect()); return s.length === 2 && Math.abs(s[0].top - s[1].top) < 2 && s[0].right <= s[1].left; })() }));
+  prog.lowerAll = await lower();
   await p.click(".chips [data-stage='S1']"); await p.waitForTimeout(100);
+  prog.lowerStage = await lower();
   prog.stagePhases = await p.$$eval(".phase", n => n.map(x => x.dataset.phase));
   prog.stageCards = await text(p, "#stage-cards");
   prog.wholeWithStage = await whole();
@@ -290,6 +307,7 @@ function privateRepos() {
   priv.panelOrder = await p.$$eval("#inspector > *", n => n.map(x => x.className || x.tagName.toLowerCase()));
   priv.briefFolded = await p.$eval("#inspector [data-file='brief']", n => n.tagName === "DETAILS" && !n.open);
   priv.xrefLink = await p.$$eval("#inspector [data-file='crossref-link'] a", a => a.map(x => [x.getAttribute("href"), x.target, x.rel]));
+  await expand(p, "p:garden"); await expand(p, "phases:garden");
   priv.phaseGroup = await p.$$eval("#tree [data-id^='ph:garden:']", n => n.map(x => x.dataset.id));
   priv.stageFilter = await p.$$eval("#f-stage", n => n.length);
   priv.commit = F.PLAN_COMMIT;
@@ -355,7 +373,9 @@ function privateRepos() {
   const fu = out.firstUse = {};
   p = await open(); await demo(p);
   const kids = id => p.$$eval(`#tree [data-id="${id}"] > ul > li`, n => n.map(x => x.dataset.id));
-  // The arrow closes and opens a project; the name never closes it.
+  // Every project starts closed; the arrow opens and closes it; the name never closes it.
+  fu.startsClosed = await p.$$eval('#tree [data-id^="p:"]', n => n.map(x => x.getAttribute("aria-expanded")));
+  await p.click('#tree [data-id="p:demo"] > .ti > .tw'); await p.waitForTimeout(100);
   fu.openKids = await kids("p:demo");
   await p.click('#tree [data-id="p:demo"] > .ti > .tw'); await p.waitForTimeout(100);
   fu.closed = { expanded: await p.$eval('#tree [data-id="p:demo"]', n => n.getAttribute("aria-expanded")), kids: await kids("p:demo") };
@@ -364,6 +384,7 @@ function privateRepos() {
   await p.click('#tree [data-id="p:demo"] > .ti > .tw'); await p.waitForTimeout(100);
   fu.reopened = await kids("p:demo");
   // Phases sit under their stage.
+  await expand(p, "stages:demo");
   await p.click('#tree [data-id="st:demo:S1"] > .ti > .tw'); await p.waitForTimeout(100);
   fu.stagePhases = await kids("st:demo:S1");
   await tree(p, "ph:demo:P2"); await p.waitForTimeout(150);
@@ -416,10 +437,20 @@ function privateRepos() {
   // Bubbles: on hover of a status, Esc hides it; on keyboard focus, described by it.
   await p.click("#tab-view"); await p.waitForTimeout(100);
   await p.hover("#task-list .row[data-id='DT203'] .pill"); await p.waitForTimeout(600);
+  fu.hoverSoon = await p.$eval("#tip", n => n.hidden);
+  await p.waitForTimeout(900);
   fu.hoverTip = await p.$eval("#tip", n => [n.hidden, n.textContent]);
   await p.keyboard.press("Escape"); await p.waitForTimeout(50);
   fu.escHides = await p.$eval("#tip", n => n.hidden);
   fu.detailsStillOpen = await p.$$eval("#inspector", n => n.length);
+  // The tree shows no bubble on hover or click; the keyboard still gets one.
+  await p.hover("#tree .ti[data-tip]"); await p.waitForTimeout(1500);
+  fu.treeHover = await p.$eval("#tip", n => n.hidden);
+  await p.click("#tree [role='treeitem'] > .ti[data-tip]"); await p.waitForTimeout(1500);
+  fu.treeClick = await p.$eval("#tip", n => n.hidden);
+  await p.focus("#tree [role='treeitem']:has(> .ti[data-tip])");
+  await p.keyboard.press("ArrowDown"); await p.keyboard.press("ArrowUp"); await p.waitForTimeout(100);
+  fu.treeKey = await p.evaluate(() => [document.getElementById("tip").hidden, document.activeElement.getAttribute("role")]);
   await p.focus(".phase[data-phase='P1']"); await p.waitForTimeout(100);
   fu.focusTip = await p.evaluate(() => [document.getElementById("tip").hidden, document.activeElement.getAttribute("aria-describedby")]);
   await p.keyboard.press("?"); await p.waitForTimeout(100);
@@ -711,6 +742,7 @@ function privateRepos() {
     canvas: (() => { const c = document.querySelector(".hist-canvas"); return c ? [c.width, c.height] : null; })(),
     rowHeight: (() => { const li = document.querySelector(".hist-rows li"); return li ? li.getBoundingClientRect().height : 0; })(),
     older: !!document.getElementById("g-older"), zoomOut: (document.getElementById("g-out") || {}).disabled,
+    scrollTop: (document.querySelector(".hist-graph") || {}).scrollTop || 0,
     focus: document.activeElement.id, notice: (document.querySelector("[data-state=history]") || {}).textContent || "",
     weeks: document.querySelectorAll("[aria-label='Commits per week'] li").length,
     contributors: [...document.querySelectorAll("[data-part=contributors] li")].map(n => n.textContent),
@@ -726,7 +758,8 @@ function privateRepos() {
   await tree(p, "r:second:example-org/second-site"); await p.waitForTimeout(400);
   await p.click("#rs-history"); await p.waitForTimeout(1500);
   hi.paged = { first: await histNow() };
-  await p.click("#g-older"); await p.waitForTimeout(1500);
+  // Scrolling to the end of the list reads the next page by itself, and the list stays where it was.
+  await p.$eval(".hist-graph", b => { b.scrollTop = b.scrollHeight; }); await p.waitForTimeout(1500);
   hi.paged.second = await histNow();
   await p.setViewportSize({ width: 320, height: 800 }); await p.waitForTimeout(300);
   hi.narrow = await p.evaluate(() => document.documentElement.scrollWidth);
@@ -751,7 +784,7 @@ function privateRepos() {
   await garden();
   await p.click("#rs-history"); await p.waitForTimeout(1200);
   hi.private = { first: await histNow() };
-  await p.click("#g-older"); await p.waitForTimeout(1200);
+  await p.focus("#g-older"); await p.keyboard.press("Enter"); await p.waitForTimeout(1200);
   hi.private.second = await histNow();
   hi.private.urls = hurls;
   await p.close();
@@ -1021,6 +1054,59 @@ function privateRepos() {
   await p.click("#rs-files"); await p.waitForTimeout(800);
   co.private.denied = await codeNow();
   co.private.urls = furls;
+  await p.close();
+
+  // Found through the token: every repository it can read and the list does not name is shown, as a
+  // plan when it has a task table at the usual place, else as code only; a list that cannot be read is said.
+  const found = out.found = {};
+  const nrepos = F.planRepos({ workspaces: F.workspacesDoc({ found: { files: F.FILES } }) });
+  const NP = sha("found-plan"), NC = sha("found-code");
+  nrepos["acme/found-plan"] = { default_branch: "main", branches: { main: NP }, files: { [NP]: { [F.FILES.table]: F.TABLE } } };
+  nrepos["acme/found-code"] = { default_branch: "main", branches: { main: NC }, files: { [NC]: {} } };
+  nrepos["beta/found-plan"] = { default_branch: "main", branches: { main: NC }, files: { [NC]: {} } };
+  let tokenRepos = () => json(["acme/garden-plan", "ACME/Garden", "acme/found-plan", "acme/found-code", "beta/found-plan"].map(full_name => ({ full_name })));
+  const ngh = mockGitHub(nrepos, [[/^[/]user[/]repos[?]/, () => tokenRepos()]]);
+  const nurls = [];
+  p = await open();
+  await p.route("https://api.github.com/**", async route => {
+    const req = route.request();
+    nurls.push(req.method() + " " + req.url());
+    const res = await ngh.fetch(req.url(), { method: req.method() });
+    await route.fulfill({ status: res.status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }, body: await res.text() });
+  });
+  await p.fill("#plan-repo", "acme/garden-plan"); await p.fill("#token", "synthetic-token"); await p.click("#connect button[type=submit]");
+  await finished(); await p.waitForTimeout(400);
+  const projectsNow = () => p.$$eval("#tree [role=treeitem][data-id^='p:']", n => n.map(x => [x.dataset.id, x.getAttribute("aria-label")]));
+  found.projects = await projectsNow();
+  await tree(p, "p:~found-acme/found-plan"); await p.waitForTimeout(400);
+  found.planTasks = await p.$$eval("[data-part=overview-lower] li[data-task]", n => n.map(x => x.dataset.task));
+  await tree(p, "p:~found-acme/found-code"); await p.waitForTimeout(500);
+  found.codeNoPlan = (await p.$eval("[data-state=no-plan]", n => n.textContent).catch(() => ""));
+  await tree(p, "a:portfolio"); await p.waitForTimeout(300);
+  found.note = await p.$eval("[data-part=found]", n => n.textContent).catch(() => "");
+  found.rows = await p.$$eval(".grid-table tbody tr", n => n.map(r => [...r.querySelectorAll("th, td")].slice(0, 2).map(c => c.textContent)));
+  tokenRepos = () => json({ message: "denied" }, 403);
+  await p.click("#refresh"); await finished(); await p.waitForTimeout(400);
+  found.deniedProjects = (await projectsNow()).map(x => x[0]);
+  await tree(p, "a:portfolio"); await p.waitForTimeout(300);
+  found.denied = await p.$eval("#workspace .notice[data-state=denied]", n => n.textContent).catch(() => "");
+  // A valid list that names no project: the found repositories fill it; with none found it says so.
+  nrepos["acme/garden-plan"].files[F.PLAN_COMMIT]["sandboard.workspaces.json"] = JSON.stringify(F.workspacesDoc({ workspaces: [], found: { files: F.FILES } }));
+  tokenRepos = () => json(["acme/found-plan", "acme/found-code"].map(full_name => ({ full_name })));
+  await p.click("#refresh"); await finished(); await p.waitForTimeout(400);
+  found.emptyList = (await projectsNow()).map(x => x[0]);
+  found.emptyHead = await text(p, "#view-h");
+  tokenRepos = () => json([]);
+  await p.click("#refresh"); await finished(); await p.waitForTimeout(400);
+  found.nothing = await p.$eval("#workspace .notice[data-state=empty]", n => n.textContent).catch(() => "");
+  // An empty list with a token list that cannot be read says why, never that nothing was found.
+  found.unread = {};
+  for (const [status, headers] of [[403, {}], [500, {}], [429, { "retry-after": "60" }]]) {
+    tokenRepos = () => json({ message: "no" }, status, headers);
+    await p.click("#refresh"); await finished(); await p.waitForTimeout(300);
+    found.unread[status] = await p.$eval("#workspace .notice", n => [n.dataset.state, n.textContent]).catch(() => null);
+  }
+  found.urls = nurls;
   await p.close();
 
   // 7. Framed: the page refuses to show.

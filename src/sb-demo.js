@@ -38,6 +38,8 @@
       if (!String(url).startsWith(SB.API + "/")) throw new TypeError("the demo answers only the GitHub API paths");
       const path = String(url).slice(SB.API.length);
       if (path === "/user") return reply({ login: "demo-user", type: "User" });
+      // The demo token reads no repository beyond the demo's own workspace list.
+      if (/^[/]user[/]repos[?]/.test(path)) return reply([]);
       let m = /^[/]repos[/]([^/]+[/][^/?]+)(.*)$/.exec(path);
       const r = m && Object.prototype.hasOwnProperty.call(repos, m[1]) ? repos[m[1]] : null;
       if (!r) return reply({ message: "Not Found" }, 404);

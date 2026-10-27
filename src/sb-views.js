@@ -322,7 +322,8 @@
       const plan = planState(entry);
       const sub = entry.loading ? "loading" : plan !== "current" && plan !== "none" ? (STATE[plan] || STATE.failed)[2].toLowerCase()
         : w.kind === "kit" ? "kit" : w.kind === "standalone" ? "code only" : "";
-      projects.kids.push({ id: "p:" + w.id, label: w.label, sub: w.opened ? "opened by name" : sub, kids,
+      projects.kids.push({ id: "p:" + w.id, label: w.label, sub: w.opened ? "opened by name" : w.found ? [sub, "found"].filter(Boolean).join(", ") : sub, kids,
+        tip: w.found ? TIPS.Found : undefined,
         act: () => A.go(w.id, w.plan ? { kind: "overview" } : { kind: "repo", repo: w.code[0].repo }) });
     }
     // The account views cover every mapped repository, so they sit apart from the projects.
@@ -426,8 +427,27 @@
     }
     sec.append(...[wholeCards(entry), scopeRow(entry), progressBlock(S, A, entry, S.view.stage)].filter(Boolean));
     sec.append(el("div", { class: "grid2" }, waitingCard(S, A, entry), repoCard(entry)));
-    sec.append(V.feedCard(S, A, entry, [w.plan.repo, ...w.code.map(c => c.repo)]));
+    sec.append(el("div", { class: "grid2 pair", "data-part": "overview-lower" }, taskListCard(S, A, entry, stages, st), V.feedCard(S, A, entry, [w.plan.repo, ...w.code.map(c => c.repo)])));
     return sec;
+  }
+
+  // Every task of the project (All stages), or of the stage picked, beside the recent activity; each opens in Tasks.
+  function taskListCard(S, A, entry, stages, st) {
+    const title = st ? "Tasks in stage " + (stages.indexOf(st) + 1) + ": " + st.name : "All tasks";
+    const card = el("section", { class: "card", "aria-labelledby": "all-tasks-h", "data-part": "overview-tasks" },
+      tip(el("h2", { id: "all-tasks-h", class: "label" }, title), "Every task in the plan's table" + (st ? " whose phase is in this stage" : "") + ", in table order, with its status as the table says. Pick one to open it in Tasks."));
+    const ts = tableState(entry);
+    if (ts !== "current") { card.append(ts === "none" ? el("p", { class: "muted plain" }, "No plan, so no tasks.") : notice(ts, entry.table && entry.table.error)); return card; }
+    const rows = SB.filterTasks(entry.tasks, st ? { stagePhases: st.phases } : {});
+    const list = rows.filter(t => !t.invalid), bad = rows.length - list.length;
+    const done = list.filter(t => t.status === "Done").length;
+    card.append(el("p", { class: "qual muted plain", "data-part": "overview-tasks-count" },
+      list.length + (list.length === 1 ? " task" : " tasks") + ", " + done + " Done" + (bad ? "; " + bad + (bad === 1 ? " row" : " rows") + " that could not be read, shown in Tasks" : "") + "."));
+    if (!list.length) { card.append(el("p", { class: "muted plain" }, st ? "No task in this stage." : "No task in the table.")); return card; }
+    card.append(el("ul", { class: "feed task-list", tabindex: "0", "aria-label": title + ", in table order" }, list.map(t => el("li", { "data-task": t.id }, pill(t.status),
+      el("button", { type: "button", class: "linkbtn", onclick: () => A.go(entry.w.id, { kind: "tasks" }, { phase: "", select: t.id }) }, t.id + " " + (t.title || "")),
+      t.phase ? el("span", { class: "qual muted" }, t.phase.id) : null))));
+    return card;
   }
 
   function waitingCard(S, A, entry) {
@@ -967,9 +987,11 @@
   function main(S, A) {
     const box = doc.getElementById("workspace");
     if (!S.signedIn) { box.replaceChildren(); return; }
-    if (S.list.state !== "current") {
+    if (S.list.state !== "current" && !(S.list.state === "empty" && S.entries.length)) {
       box.replaceChildren(S.list.state === "loading" ? notice("loading", "Reading the workspace list from " + S.planRepo + ".")
-        : S.list.state === "empty" ? notice("empty", "The workspace list names no projects.", "No projects yet")
+        : S.list.state === "empty" && S.found && !["current", "empty", "partial"].includes(S.found.state)
+          ? notice(S.found.state, "The workspace list names no projects, and the token's list of repositories could not be read (" + (S.found.error || (STATE[S.found.state] || STATE.failed)[2]) + "), so no other repository can be shown.")
+        : S.list.state === "empty" ? notice("empty", "The workspace list names no projects, and the token finds no other repository.", "No projects yet")
         : notice(S.list.state, "Workspace list (" + SB.WORKSPACES_FILE + ") in " + S.planRepo + ": " + (S.list.error || (STATE[S.list.state] || STATE.failed)[3])));
       return;
     }

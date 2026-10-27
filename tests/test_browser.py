@@ -107,6 +107,18 @@ class BrowserTest(unittest.TestCase):
         self.assertIn("Scope gate Approval not supplied", p["stageCards"])
         self.assertTrue(p["stageInTree"])
 
+    def test_the_overview_lists_every_task_beside_the_recent_activity(self):
+        p = self.r["progress"]
+        al, st = p["lowerAll"], p["lowerStage"]
+        self.assertEqual(al["columns"], ["overview-tasks", "feed"])
+        self.assertTrue(al["sideBySide"], "two columns: the tasks beside the recent activity")
+        self.assertEqual(al["title"], "All tasks")
+        self.assertEqual(al["count"], "15 tasks, 3 Done.")
+        self.assertEqual(al["ids"][:3], ["DT101", "DT102", "DT103"])
+        self.assertEqual(len(al["ids"]), 15)
+        self.assertEqual(st["title"], "Tasks in stage 1: Prepare")
+        self.assertTrue(st["ids"] and all(i.startswith(("DT1", "DT2")) for i in st["ids"]), "a stage lists only the tasks of its phases")
+
     def test_unavailable_stale_denied_and_kit_states(self):
         p = self.r["progress"]
         self.assertEqual((p["second"]["states"], p["second"]["phases"], p["second"]["ring"]), (["stale"], 0, 1))
@@ -238,6 +250,7 @@ class BrowserTest(unittest.TestCase):
 
     def test_the_tree_arrow_closes_a_project_and_a_refresh_keeps_it_closed(self):
         f = self.r["firstUse"]
+        self.assertTrue(f["startsClosed"] and set(f["startsClosed"]) == {"false"}, "every project starts collapsed")
         self.assertEqual(f["openKids"], ["v:demo:overview", "v:demo:tasks", "stages:demo", "repos:demo"])
         self.assertEqual(f["closed"], {"expanded": "false", "kids": []})
         self.assertEqual(f["closedAfterRefresh"], "false")
@@ -374,11 +387,15 @@ class BrowserTest(unittest.TestCase):
 
     def test_explanation_bubbles_on_hover_and_focus_and_in_help(self):
         f = self.r["firstUse"]
+        self.assertTrue(f["hoverSoon"], "a bubble waits a moment before it shows on hover")
         self.assertFalse(f["hoverTip"][0])
         self.assertIn("Dropped from the plan", f["hoverTip"][1])
         self.assertTrue(f["escHides"])
         self.assertEqual(f["detailsStillOpen"], 1, "the first Esc only hides the bubble")
         self.assertEqual(f["focusTip"], [False, "tip"])
+        self.assertTrue(f["treeHover"], "the tree shows no bubble on hover")
+        self.assertTrue(f["treeClick"], "the tree shows no bubble on click")
+        self.assertEqual(f["treeKey"], [False, "treeitem"], "the keyboard still gets the tree's bubble")
         for word in ("Removed", "Verified", "To be estimated", "Original plan notes", "Cross-references"):
             self.assertIn(word, f["glossary"])
 
@@ -420,7 +437,9 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(pr["bold"], 0, "a commit title stays text")
         self.assertTrue(all(u.startswith("GET ") for u in pr["urls"]))
         self.assertFalse(any("unmapped" in u for u in pr["urls"]), "an unmapped repository is never read")
-        self.assertFalse(any("/users/" in u or "/events" in u or "/user/repos" in u for u in pr["urls"]), "no account-wide read")
+        self.assertFalse(any("/users/" in u or "/events" in u for u in pr["urls"]), "no account-wide read")
+        self.assertEqual(set(u for u in pr["urls"] if "/user/repos" in u), {"GET https://api.github.com/user/repos?per_page=100&page=1"},
+                         "the token's own list of repositories is read once a reading, a page at a time")
 
     def test_the_feed_follows_the_ref_the_project_reads_through_switches_and_refresh(self):
         refs = self.r["repos"]["refs"]
@@ -481,6 +500,35 @@ class BrowserTest(unittest.TestCase):
         self.assertIn("owner/name", o["badName"])
         self.assertFalse(o["afterLeave"])
 
+    def test_every_repository_the_token_reads_is_listed_and_marked_found(self):
+        f = self.r["found"]
+        ids = [x[0] for x in f["projects"]]
+        self.assertEqual(ids, ["p:garden", "p:recipes", "p:~found-acme/found-code", "p:~found-acme/found-plan", "p:~found-beta/found-plan"],
+                         "a listed repository is not repeated, whatever its case")
+        labels = dict(f["projects"])
+        self.assertEqual(labels["p:~found-acme/found-plan"], "acme/found-plan, found", "names that two owners share keep the owner")
+        self.assertEqual(labels["p:~found-beta/found-plan"], "beta/found-plan, code only, found")
+        self.assertEqual(labels["p:~found-acme/found-code"], "found-code, code only, found", "a found repository is named without its owner")
+        self.assertEqual(f["planTasks"], ["XQ101", "XQ102", "XQ201"], "a found plan's tasks are read from its task table")
+        self.assertIn("Found through the token", f["codeNoPlan"])
+        self.assertIn("It is not 0%", f["codeNoPlan"])
+        self.assertIn("Every repository the token can read is here", f["note"])
+        rows = {r[0]: r[1] for r in f["rows"]}
+        self.assertIn("found", rows["acme/found-code"])
+        self.assertIn("found", rows["acme/found-plan"])
+        self.assertEqual(f["deniedProjects"], ["p:garden", "p:recipes"], "a list that cannot be read adds nothing")
+        self.assertIn("could not be read", f["denied"])
+        self.assertEqual(f["emptyList"], ["p:~found-acme/found-code", "p:~found-acme/found-plan"], "an empty list is filled by what the token finds")
+        self.assertTrue(f["emptyHead"])
+        self.assertIn("the token finds no other repository", f["nothing"])
+        for status, state in (("403", "denied"), ("500", "failed"), ("429", "rate-limited")):
+            got = f["unread"][status]
+            self.assertEqual(got[0], state, status)
+            self.assertIn("could not be read (HTTP " + status + ")", got[1])
+            self.assertNotIn("finds no other repository", got[1])
+        self.assertTrue(all(u.startswith("GET ") for u in f["urls"]))
+        self.assertFalse(any("/users/" in u or "/events" in u or "/notifications" in u for u in f["urls"]))
+
     def test_repository_views_never_scroll_the_page_sideways(self):
         n = self.r["repos"]["narrow"]
         self.assertLessEqual(n["portfolio"], 320)
@@ -507,7 +555,7 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(d["tags"], ["v0.1.035b718ein the history shown", "v0.2.094a4057in the history shown"])
         self.assertGreater(d["canvas"][0], 0)
 
-    def test_history_zooms_fits_and_reads_older_commits_only_when_asked(self):
+    def test_history_zooms_fits_and_reads_older_commits_as_the_list_scrolls(self):
         h = self.r["history"]
         self.assertTrue(h["demo"]["zoomOut"])
         self.assertGreater(h["zoomed"]["rowHeight"], h["demo"]["rowHeight"])
@@ -515,9 +563,10 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(h["fit"]["rowHeight"], h["demo"]["rowHeight"])
         first, second = h["paged"]["first"], h["paged"]["second"]
         self.assertEqual(len(first["rows"]), 100)
-        self.assertIn("Older history is read only when you ask", first["coverage"])
-        self.assertTrue(first["older"])
-        self.assertEqual(len(second["rows"]), 140)
+        self.assertIn("Older commits are read as you scroll down the list", first["coverage"])
+        self.assertTrue(first["older"], "a button reads the next page too, for the keyboard")
+        self.assertEqual(len(second["rows"]), 140, "scrolling to the end read the next page")
+        self.assertGreater(second["scrollTop"], 0, "the list keeps its place when more is read")
         self.assertIn("this is the start of the history", second["coverage"])
         self.assertFalse(second["older"])
         self.assertLessEqual(h["narrow"], 320)

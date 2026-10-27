@@ -158,6 +158,8 @@ main:focus { outline: none; }
 .feed { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .feed li { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); font-size: 0.86rem; }
 .feed li:first-child { border-top: 0; }
+.task-list, .pair .feed.events { max-height: 32rem; overflow-y: auto; padding-right: 4px; }
+.pair { align-items: start; }
 .linkbtn { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; text-align: left; text-decoration: underline; text-underline-offset: 2px; }
 .needs .linkbtn { min-height: 24px; min-width: 24px; }
 .needs li { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
@@ -273,6 +275,7 @@ details.group > .table-wrap { margin-top: 4px; }
 .hist-graph { position: relative; overflow: auto; max-height: 34rem; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
 .hist-canvas { position: absolute; left: 0; top: 0; pointer-events: none; }
 .hist-rows { list-style: none; margin: 0; padding: 0; min-width: max-content; }
+.hist-tail { padding: 8px 12px; position: sticky; left: 0; width: max-content; }
 .hist-rows li { display: flex; flex-wrap: nowrap; gap: 4px 10px; align-items: center; padding-right: 12px; font-size: 0.84rem; white-space: nowrap; box-sizing: border-box; }
 .hist-rows li .ev-title { max-width: 32rem; overflow: hidden; text-overflow: ellipsis; }
 .ref { border: 1px solid var(--control); border-radius: 999px; padding: 0 8px; font-size: 0.74rem; font-family: var(--font-data); }

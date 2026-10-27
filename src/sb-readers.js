@@ -39,9 +39,16 @@
 
   // ---- Workspaces: an explicit list from the private plan repo, never guessed from names.
 
+  // A plan's files: every required path, optional per-task templates, nothing else.
+  const isPlanFiles = files => isObject(files) && PLAN_FILES.every(f => isPath(files[f])) &&
+    TASK_FILES.every(f => files[f] === undefined || isTemplate(files[f])) &&
+    !Object.keys(files).some(f => !PLAN_FILES.includes(f) && !TASK_FILES.includes(f));
+
   function validateWorkspaces(doc) {
     if (!isObject(doc) || doc.schema !== WORKSPACES_SCHEMA) return "not a " + WORKSPACES_SCHEMA + " document";
     if (!Array.isArray(doc.workspaces)) return "workspaces is not a list";
+    // Optional: the plan files a repository found through the token is read with.
+    if (doc.found !== undefined && !(isObject(doc.found) && isPlanFiles(doc.found.files) && Object.keys(doc.found).length === 1)) return "bad found plan files";
     const ids = new Set();
     for (const [i, w] of doc.workspaces.entries()) {
       const where = "workspace " + (i + 1) + ": ";
@@ -53,9 +60,7 @@
       if (w.plan !== null) {
         const p = w.plan;
         if (!isObject(p) || !SB.validRepo(p.repo) || !isRef(p.ref)) return where + "bad plan repository";
-        if (!isObject(p.files) || !PLAN_FILES.every(f => isPath(p.files[f])) ||
-            !TASK_FILES.every(f => p.files[f] === undefined || isTemplate(p.files[f])) ||
-            Object.keys(p.files).some(f => !PLAN_FILES.includes(f) && !TASK_FILES.includes(f))) return where + "bad plan files";
+        if (!isPlanFiles(p.files)) return where + "bad plan files";
       }
       if (!Array.isArray(w.code) || !w.code.every(c => isObject(c) && SB.validRepo(c.repo) && isRef(c.ref) &&
                                                         isText(c.role, 40))) return where + "bad code repositories";
@@ -80,7 +85,7 @@
     const problem = validateWorkspaces(doc);
     if (problem) return result("invalid", null, source, { error: problem });
     const state = doc.workspaces.length ? "current" : "empty";
-    return result(state, { workspaces: doc.workspaces, commit, date: pinned.data.date }, source,
+    return result(state, { workspaces: doc.workspaces, found: doc.found ? doc.found.files : null, commit, date: pinned.data.date }, source,
                   { schema: WORKSPACES_SCHEMA });
   }
 
@@ -435,6 +440,31 @@
     return result("current", { login: body.login, type: ["User", "Organization", "Bot"].includes(body.type) ? body.type : null }, {});
   }
 
+  // ---- The repositories the token can read, as GitHub lists them: names only, 100 a page, up to 9
+  // pages. A list that still goes on after the last page is partial.
+
+  const ACCOUNT_PAGE = 100;
+  const MAX_ACCOUNT_PAGES = 9;
+
+  function readAccountRepos(ctx, client) {
+    return SB.guard(readAccountReposUnguarded(ctx, client), {});
+  }
+
+  async function readAccountReposUnguarded(ctx, client) {
+    const repos = [];
+    for (let page = 1; page <= MAX_ACCOUNT_PAGES; page++) {
+      const res = await client.get(ctx, "/user/repos?per_page=" + ACCOUNT_PAGE + "&page=" + page);
+      if (!res.ok) return result(client.stateFor(res), null, {}, { error: "HTTP " + res.status });
+      const body = await client.json(ctx, res);
+      if (!Array.isArray(body) || body.length > ACCOUNT_PAGE || !body.every(r => isObject(r) && SB.validRepo(r.full_name))) {
+        return result("invalid", null, {}, { error: "unexpected repository list" });
+      }
+      for (const r of body) if (!repos.includes(r.full_name)) repos.push(r.full_name);
+      if (body.length < ACCOUNT_PAGE) return result(repos.length ? "current" : "empty", { repos: repos.sort() }, {});
+    }
+    return result("partial", { repos: repos.sort() }, {}, { coverage: { shown: repos.length, total: null } });
+  }
+
   // ---- One workspace: every read it needs, in order, each with its own result.
   // A failure stops only the reads that depend on it, never other workspaces.
 
@@ -460,11 +490,10 @@
   }
 
   // ---- History (branches, tags, the commits behind a pinned commit, and how a branch compares).
-  // Every list is bounded and says when it may hold more. A login is kept from a commit, never a
-  // name or email address.
+  // Every reply says when it may hold more; the commits behind a commit are read page by page with no
+  // last page. A login is kept from a commit, never a name or email address.
 
   const HISTORY_PAGE = 100;
-  const MAX_HISTORY_PAGES = 10;
   const MAX_REF_PAGES = 3;
   const isLogin = v => typeof v === "string" && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?$/.test(v);
 
@@ -484,7 +513,8 @@
 
   async function readHistoryPageUnguarded(ctx, client, repo, commit, page) {
     const source = { repo, commit, page };
-    if (!SB.validRepo(repo) || !isSha(commit) || !Number.isInteger(page) || page < 1 || page > MAX_HISTORY_PAGES) {
+    // The same pages the allowlist lets through: 1 to 999,999,999.
+    if (!SB.validRepo(repo) || !isSha(commit) || !Number.isSafeInteger(page) || page < 1 || page > 999999999) {
       return result("invalid", null, source, { error: "not a valid repository, commit or page" });
     }
     const res = await client.get(ctx, "/repos/" + repo + "/commits?sha=" + commit + "&per_page=" + HISTORY_PAGE + "&page=" + page);
@@ -857,8 +887,8 @@
 
   Object.assign(SB, { WORKSPACES_FILE, STATUSES, SCOPES, readWorkspace, readTaskFile, isPath, validateWorkspaces, readWorkspaces, splitRow, parsePlanTables, readPlan,
                       validateProgress, readProgress, readCheckRuns, readPulls, readComments,
-                      COMMIT_LIMIT, REPO_COMMENT_LIMIT, readLanguages, readCommits, readRepoComments, readUser,
-                      HISTORY_PAGE, MAX_HISTORY_PAGES, historyCommit, readHistoryPage, readRefs, readCompare,
+                      COMMIT_LIMIT, REPO_COMMENT_LIMIT, readLanguages, readCommits, readRepoComments, readUser, readAccountRepos,
+                      HISTORY_PAGE, historyCommit, readHistoryPage, readRefs, readCompare,
                       WORK_PAGE, MAX_WORK_PAGES, readPullPage, readReviews, readIssuePage, readRunPage, readReleasePage, assetLink,
                       MAX_DIFF_FILES, readTree, readCodeFile, readCommitChanges, readCompareChanges });
 })(typeof window !== "undefined" ? window : globalThis);

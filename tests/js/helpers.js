@@ -48,6 +48,8 @@ function mockGitHub(repos, overrides = []) {
       if (res) return res;
     }
     if (p === "/user") return json({ login: "synthetic-user" });
+    // The token's own list of repositories: none beyond the workspace list unless a test says so.
+    if (/^\/user\/repos\?per_page=100&page=\d+$/.test(p)) return json([]);
     let m = /^\/repos\/([^/]+\/[^/]+)$/.exec(p);
     if (m) {
       const r = repos[m[1]];

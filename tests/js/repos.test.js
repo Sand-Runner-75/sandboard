@@ -99,6 +99,48 @@ test("the account read gives only a login and its type", async () => {
   assert.equal((await SB.readUser(s.ctx, s.client)).state, "invalid");
 });
 
+test("the token's list of repositories is read by name, page by page, up to nine pages", async () => {
+  for (const ok of ["/user/repos?per_page=100&page=1", "/user/repos?per_page=100&page=9"]) assert.ok(SB.allowed(ok), ok);
+  for (const bad of ["/user/repos?per_page=100&page=10", "/user/repos?per_page=100&page=0", "/user/repos?per_page=50&page=1",
+                     "/user/repos?per_page=100&page=1&visibility=all", "/users/a/repos?per_page=100&page=1"]) assert.ok(!SB.allowed(bad), bad);
+  const names = n => Array.from({ length: n }, (_, i) => ({ full_name: "acme/r" + String(i).padStart(4, "0"), private: true }));
+  let s = setup([[/^\/user\/repos/, () => json([{ full_name: "acme/zeta" }, { full_name: "acme/alpha" }])]]);
+  let r = await SB.readAccountRepos(s.ctx, s.client);
+  assert.equal(r.state, "current");
+  assert.deepEqual(r.data.repos, ["acme/alpha", "acme/zeta"]);
+  // A full page asks for the next one; a shorter one is the end.
+  const all = names(150);
+  s = setup([[/^\/user\/repos\?per_page=100&page=(\d)$/, p => json(all.slice((Number(p.slice(-1)) - 1) * 100, Number(p.slice(-1)) * 100))]]);
+  r = await SB.readAccountRepos(s.ctx, s.client);
+  assert.equal(r.data.repos.length, 150);
+  assert.equal(s.gh.calls.length, 2);
+  // Nine full pages: the list is partial, and no tenth page is asked for.
+  s = setup([[/^\/user\/repos/, p => json(names(100).map(x => ({ full_name: x.full_name + "-" + p.slice(-1) })))]]);
+  r = await SB.readAccountRepos(s.ctx, s.client);
+  assert.equal(r.state, "partial");
+  assert.equal(r.data.repos.length, 900);
+  assert.equal(s.gh.calls.length, 9);
+  s = setup([[/^\/user\/repos/, () => json([])]]);
+  assert.equal((await SB.readAccountRepos(s.ctx, s.client)).state, "empty");
+  s = setup([[/^\/user\/repos/, () => json([{ full_name: "not a name" }])]]);
+  assert.equal((await SB.readAccountRepos(s.ctx, s.client)).state, "invalid");
+  s = setup([[/^\/user\/repos/, () => json({ message: "no" }, 403)]]);
+  r = await SB.readAccountRepos(s.ctx, s.client);
+  assert.equal(r.state, "denied");
+  assert.ok(r.data == null);
+});
+
+test("the workspace list may give the plan files a found repository is read with", () => {
+  const doc = found => Object.assign(F.workspacesDoc(), found === undefined ? {} : { found });
+  assert.equal(SB.validateWorkspaces(doc()), null);
+  assert.equal(SB.validateWorkspaces(doc({ files: F.FILES })), null);
+  assert.equal(SB.validateWorkspaces(doc({ files: Object.assign({ brief: "notes/{id}.md" }, F.FILES) })), null);
+  for (const bad of [null, {}, { files: { table: "plan/tasks.md" } }, { files: Object.assign({ extra: "x.md" }, F.FILES) },
+                     { files: Object.assign({}, F.FILES, { table: "../x.md" }) }, { files: F.FILES, more: 1 }]) {
+    assert.equal(SB.validateWorkspaces(doc(bad)), "bad found plan files", JSON.stringify(bad));
+  }
+});
+
 test("an activity feed reads one page of pull requests", async () => {
   const s = setup();
   await SB.readPulls(s.ctx, s.client, REPO, 1);
