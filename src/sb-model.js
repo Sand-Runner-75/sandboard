@@ -343,7 +343,150 @@
     return { events, untimed, other };
   }
 
+  // ---- History: the commits read, laid out in lanes, and what they say per week, per day and per login.
+  // Nothing here is guessed: a parent that was not read leaves its lane open at the bottom, and every
+  // figure says it covers only the commits read.
+
+  // Children before parents, newest first among those ready; commits with a bad time sort last.
+  function historyOrder(commits) {
+    const by = new Map(commits.map(c => [c.sha, c]));
+    const kids = new Map(commits.map(c => [c.sha, 0]));
+    for (const c of commits) for (const p of c.parents) if (by.has(p)) kids.set(p, kids.get(p) + 1);
+    const t = c => { const v = c.at ? Date.parse(c.at) : NaN; return Number.isNaN(v) ? -Infinity : v; };
+    const ready = commits.filter(c => kids.get(c.sha) === 0);
+    const out = [];
+    while (ready.length) {
+      let best = 0;
+      for (let i = 1; i < ready.length; i++) if (t(ready[i]) > t(ready[best])) best = i;
+      const c = ready.splice(best, 1)[0];
+      out.push(c);
+      for (const p of c.parents) if (by.has(p)) { kids.set(p, kids.get(p) - 1); if (kids.get(p) === 0) ready.push(by.get(p)); }
+    }
+    return out;
+  }
+
+  // The read ref's history plus each compared branch's own commits, as rows with a lane each. A row
+  // keeps the lanes open below it and, for each, which lanes above it come down into it.
+  function historyGraph(main, branches) {
+    const seen = new Map();
+    for (const c of main) if (!seen.has(c.sha)) seen.set(c.sha, c);
+    for (const b of branches) for (const c of b.commits) if (!seen.has(c.sha)) seen.set(c.sha, c);
+    const ordered = historyOrder([...seen.values()]);
+    let lanes = [];
+    const free = taken => { const i = lanes.findIndex((v, j) => v === null && !taken.includes(j)); return i === -1 ? lanes.length : i; };
+    const rows = ordered.map(c => {
+      const hits = lanes.map((v, j) => v === c.sha ? j : -1).filter(j => j >= 0);
+      const lane = hits.length ? hits[0] : free([]);
+      for (const j of hits) lanes[j] = null;
+      if (lane >= lanes.length) lanes.push(null);
+      const into = {};
+      lanes.forEach((v, j) => { if (v !== null) into[j] = [j]; });
+      c.parents.forEach((p, n) => {
+        const j = lanes.findIndex(v => v === p);
+        if (j >= 0) { (into[j] = into[j] || []).push(lane); return; }
+        const k = n === 0 && lanes[lane] === null ? lane : free([lane]);
+        if (k >= lanes.length) lanes.push(null);
+        lanes[k] = p;
+        into[k] = [lane];
+      });
+      while (lanes.length && lanes[lanes.length - 1] === null) lanes.pop();
+      return { commit: c, lane, merge: c.parents.length > 1, root: c.parents.length === 0, open: lanes.slice(), into };
+    });
+    const width = Math.max(1, ...rows.map(r => Math.max(r.lane + 1, r.open.length)));
+    const last = rows.length ? rows[rows.length - 1].open : [];
+    return { rows, width, unread: last.filter(v => v !== null).length };
+  }
+
+  // A UTC day as GitHub-style ISO text; years past 9999 or before 0 keep their sign and six digits.
+  const isoDay = t => new Date(t).toISOString().split("T")[0];
+  // The Monday that starts a time's week, or the earliest day a date can hold when that Monday is before it.
+  const mondayOf = t => { const d = new Date(t); const back = (d.getUTCDay() + 6) % 7;
+    const m = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - back);
+    return isoDay(Number.isNaN(m) ? -864e13 : m); };
+
+  // Live reads for a repository's history, by what each one is read at.
+  const historyKey = {
+    page: (repo, commit, page) => "hist|" + repo + "@" + commit + "|" + page,
+    refs: (repo, kind) => kind + "|" + repo,
+    compare: (repo, base, head) => "cmp|" + repo + "|" + base + "..." + head,
+    lane: (repo, head) => "lane|" + repo + "@" + head,
+  };
+  const COMPARE_FIRST = 10;
+  // The branches compared with the read commit: the first ten GitHub lists, then any the owner asks for.
+  const comparedBranches = (repo, branches, asked) => branches.filter((b, i) => i < COMPARE_FIRST || asked.has(repo + "|" + b.name));
+
+  // Everything a repository's history view shows, from the reads made so far (live: key => result).
+  // It also says which reads are still wanted: the next page asked for, and each comparison and branch.
+  function historyView(live, repo, commit, depth, asked) {
+    const K = historyKey;
+    const main = [], wanted = [];
+    let state = "current", end = false, error = null, pages = 0;
+    for (let p = 1; p <= depth; p++) {
+      const res = live(K.page(repo, commit, p));
+      if (!res || res.state === "loading") { wanted.push({ kind: "page", page: p }); if (p === 1) state = "loading"; break; }
+      if (!res.data) { if (p === 1) state = res.state; error = res; break; }
+      pages = p;
+      main.push(...res.data.commits);
+      if (res.data.end) { end = true; break; }
+    }
+    const inMain = new Set(main.map(c => c.sha));
+    const branches = live(K.refs(repo, "branches")), tags = live(K.refs(repo, "tags"));
+    if (!branches) wanted.push({ kind: "refs", list: "branches" });
+    if (!tags) wanted.push({ kind: "refs", list: "tags" });
+    const list = branches && branches.data ? branches.data.refs : [];
+    const chosen = new Set(comparedBranches(repo, list, asked).map(b => b.name));
+    const compared = list.map(b => {
+      if (!chosen.has(b.name)) return { branch: b, cmp: null, asked: false };
+      if (b.sha === commit) return { branch: b, cmp: SB.result("current", { status: "identical", ahead: 0, behind: 0, base: commit }, {}), asked: true, commits: [], unread: 0 };
+      const cmp = live(K.compare(repo, commit, b.sha));
+      if (!cmp) { wanted.push({ kind: "compare", head: b.sha }); return { branch: b, cmp: { state: "loading" }, asked: true }; }
+      if (!cmp.data || !cmp.data.ahead) return { branch: b, cmp, asked: true, commits: [], unread: 0 };
+      const lane = live(K.lane(repo, b.sha));
+      if (!lane) wanted.push({ kind: "lane", head: b.sha });
+      const read = lane && lane.data ? lane.data.commits : [];
+      // The branch's own commits: those reached from its head before the read history or the merge base.
+      const by = new Map(read.map(c => [c.sha, c])), mine = new Set(), todo = [b.sha];
+      while (todo.length) {
+        const sha = todo.pop();
+        if (mine.has(sha) || inMain.has(sha) || sha === cmp.data.base || !by.has(sha)) continue;
+        mine.add(sha);
+        todo.push(...by.get(sha).parents);
+      }
+      const own = read.filter(c => mine.has(c.sha));
+      return { branch: b, cmp, asked: true, lane: lane || { state: "loading" }, commits: own, unread: Math.max(0, cmp.data.ahead - own.length) };
+    });
+    const graph = historyGraph(main, compared.filter(x => x.commits && x.commits.length));
+    return { state, error, end, pages, main, branches, tags, compared, graph, wanted, more: !end && !error && pages === depth && depth < SB.MAX_HISTORY_PAGES };
+  }
+
+  // Commits read per week (Monday, UTC) and per day, for the latest weeks and days of the window from the
+  // oldest commit read to the newest: WEEKS_SHOWN weeks and DAYS_SHOWN days, each counting 0 when none was
+  // read. Only the shown buckets are built, however far apart the dates are; weekSpan and daySpan say how
+  // many weeks and days the whole window has, so the view can say how many it did not draw.
+  const WEEKS_SHOWN = 12, DAYS_SHOWN = 26 * 7, DAY = 864e5;
+  function commitTimes(commits) {
+    const times = commits.map(c => c.at ? Date.parse(c.at) : NaN).filter(t => !Number.isNaN(t));
+    if (!times.length) return { weeks: [], days: [], weekSpan: 0, daySpan: 0, from: null, to: null, untimed: commits.length };
+    const lo = times.reduce((a, b) => Math.min(a, b)), hi = times.reduce((a, b) => Math.max(a, b));
+    const byWeek = new Map(), byDay = new Map();
+    for (const t of times) { const w = mondayOf(t), d = isoDay(t); byWeek.set(w, (byWeek.get(w) || 0) + 1); byDay.set(d, (byDay.get(d) || 0) + 1); }
+    const span = (first, last, step) => Math.round((Date.parse(last) - Date.parse(first)) / step) + 1;
+    const fill = (last, n, step, counts, key) => Array.from({ length: n }, (_, i) => {
+      const at = isoDay(Date.parse(last) - (n - 1 - i) * step); return { [key]: at, n: counts.get(at) || 0 }; });
+    const weekSpan = span(mondayOf(lo), mondayOf(hi), 7 * DAY), daySpan = span(isoDay(lo), isoDay(hi), DAY);
+    return { weeks: fill(mondayOf(hi), Math.min(weekSpan, WEEKS_SHOWN), 7 * DAY, byWeek, "week"),
+             days: fill(isoDay(hi), Math.min(daySpan, DAYS_SHOWN), DAY, byDay, "day"),
+             weekSpan, daySpan, from: isoDay(lo), to: isoDay(hi), untimed: commits.length - times.length };
+  }
+
+  // Commits read per GitHub login, most first. A commit not linked to a GitHub account is counted, never named.
+  function contributors(commits) {
+    const counts = tally(commits.filter(c => c.author).map(c => c.author));
+    return { logins: counts.map(x => ({ login: x.value, n: x.n })), unlinked: commits.filter(c => !c.author).length };
+  }
+
   Object.assign(SB, { SORTS, portfolio, filterPortfolio, sortPortfolio, portfolioOptions, tally, analytics, languageBytes, repoHref, feedEvents, feedKey, typeOf,
+                      historyOrder, historyGraph, commitTimes, WEEKS_SHOWN, DAYS_SHOWN, contributors, historyKey, COMPARE_FIRST, comparedBranches, historyView,
                       ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
                       approvals, resultHref, tabKey, stageOfPhase, short,
                       HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs });

@@ -268,3 +268,22 @@ details.group > .table-wrap { margin-top: 4px; }
 .coverage { margin: 0; padding-left: 1.1em; font-size: 0.8rem; color: var(--muted); display: grid; gap: 2px; }
 @media (max-width: 1150px) { .counters { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .counters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .bars li { grid-template-columns: minmax(0, 1fr) auto; } .bars .btrack { grid-column: 1 / -1; grid-row: 2; } .open-form input { width: 100%; } }
+
+/* History: rows of commits with the graph drawn beside them; refs as small labels; commits by day. */
+.hist-graph { position: relative; overflow: auto; max-height: 34rem; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.hist-canvas { position: absolute; left: 0; top: 0; pointer-events: none; }
+.hist-rows { list-style: none; margin: 0; padding: 0; min-width: max-content; }
+.hist-rows li { display: flex; flex-wrap: nowrap; gap: 4px 10px; align-items: center; padding-right: 12px; font-size: 0.84rem; white-space: nowrap; box-sizing: border-box; }
+.hist-rows li .ev-title { max-width: 32rem; overflow: hidden; text-overflow: ellipsis; }
+.ref { border: 1px solid var(--control); border-radius: 999px; padding: 0 8px; font-size: 0.74rem; font-family: var(--font-data); }
+.ref-read { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.ref-tag { border-style: dashed; }
+.heat { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 12px); grid-auto-columns: 12px; gap: 3px; overflow-x: auto; padding-bottom: 4px; }
+.heat span, .legend .sw { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+.heat .pad { visibility: hidden; }
+.h0 { background: var(--sunken); }
+.h1 { background: color-mix(in srgb, var(--accent) 30%, var(--surface)); }
+.h2 { background: color-mix(in srgb, var(--accent) 55%, var(--surface)); }
+.h3 { background: color-mix(in srgb, var(--accent) 78%, var(--surface)); }
+.h4 { background: var(--accent); }
+.legend { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }

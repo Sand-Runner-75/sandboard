@@ -43,11 +43,30 @@
       const name = m[1], rest = m[2];
       if (rest === "") return reply(Object.assign({ full_name: name, private: r.private !== false, default_branch: r.default_branch || "main" }, r.meta || {}));
       if (rest === "/languages") return r.languages && r.languages.status ? reply({ message: "synthetic refusal" }, r.languages.status) : reply(r.languages || {});
-      if ((m = /^[/]commits[?]sha=([0-9a-f]{40})&per_page=(\d+)$/.exec(rest))) {
-        const list = r.commits || [{ sha: r.commit, commit: { message: "Synthetic commit", committer: { date: r.date || null } }, parents: [{}] }];
-        const from = list.findIndex(c => c.sha === m[1]);
-        if (from < 0) return reply({ message: "No commit found for SHA" }, 404);
-        return reply(list.slice(from, from + Number(m[2])));
+      const all = r.commits || [{ sha: r.commit, commit: { message: "Synthetic commit", committer: { date: r.date || null } }, parents: [] }];
+      // The commits behind one, newest first, as GitHub lists them.
+      const behind = sha => {
+        const by = new Map(all.map(c => [c.sha, c])), seen = new Set(), todo = [sha];
+        while (todo.length) { const x = todo.pop(); if (seen.has(x) || !by.has(x)) continue; seen.add(x); todo.push(...by.get(x).parents.map(p => p.sha)); }
+        return all.filter(c => seen.has(c.sha)).sort((a, b) => Date.parse(b.commit.committer.date) - Date.parse(a.commit.committer.date));
+      };
+      if ((m = /^[/]commits[?]sha=([0-9a-f]{40})&per_page=(\d+)(?:&page=(\d+))?$/.exec(rest))) {
+        if (!all.some(c => c.sha === m[1])) return reply({ message: "No commit found for SHA" }, 404);
+        const per = Number(m[2]), page = Number(m[3] || 1);
+        return reply(behind(m[1]).slice((page - 1) * per, page * per));
+      }
+      if ((m = /^[/](branches|tags)[?]per_page=100&page=(\d+)$/.exec(rest))) {
+        const list = r[m[1]] || (m[1] === "branches" ? [{ name: r.default_branch || "main", commit: { sha: r.commit } }] : []);
+        return reply(list.slice((Number(m[2]) - 1) * 100, Number(m[2]) * 100));
+      }
+      if ((m = /^[/]compare[/]([0-9a-f]{40})[.]{3}([0-9a-f]{40})[?]per_page=1$/.exec(rest))) {
+        if (!all.some(c => c.sha === m[1]) || !all.some(c => c.sha === m[2])) return reply({ message: "Not Found" }, 404);
+        const base = behind(m[1]), head = behind(m[2]);
+        const inBase = new Set(base.map(c => c.sha)), inHead = new Set(head.map(c => c.sha));
+        const ahead = head.filter(c => !inBase.has(c.sha)).length, back = base.filter(c => !inHead.has(c.sha)).length;
+        const common = head.find(c => inBase.has(c.sha));
+        return reply({ status: ahead && back ? "diverged" : ahead ? "ahead" : back ? "behind" : "identical", ahead_by: ahead, behind_by: back,
+                       merge_base_commit: common ? { sha: common.sha } : null, commits: head.filter(c => !inBase.has(c.sha)).slice(-1) });
       }
       if (rest === "/issues/comments?sort=created&direction=desc&per_page=50") {
         const all = (r.pulls || []).flatMap(p => (p.comments || []).map(c => Object.assign({ issue_url: SB.API + "/repos/" + name + "/issues/" + p.number }, c)));

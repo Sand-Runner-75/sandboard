@@ -32,6 +32,7 @@ function json(body, status = 200, headers = {}) {
 
 // repos: {"owner/name": {private, default_branch, branches: {name: commit}, files: {commit: {path: text}},
 //          languages?, commits? (or commitsAt: {commit: [...]}, per pinned commit), comments? (the repository overview's lists, as the API gives them),
+//          history?, branchList?, tagList?, compare? (see the history reads below),
 //          info? (more repository reply fields; undefined drops one), checks: {commit: [runs] | {status, headers}}, pulls: [{number, title, state, ..., comments}]}}
 // overrides: [[RegExp on the path, (path, init) => Response | Promise<Response> | null]], tried first.
 function mockGitHub(repos, overrides = []) {
@@ -85,6 +86,18 @@ function mockGitHub(repos, overrides = []) {
       if (m[2] === "languages") return json(r.languages || {});
       if (m[2].startsWith("commits")) { const at = m[2].slice(12, 52); return json((r.commitsAt && r.commitsAt[at]) || r.commits || []); }
       return json(r.comments || []);
+    }
+    // History: pages behind a commit (history: {commit: [page, ...]}, a page being a list or a status),
+    // branches and tags (branchList, tagList: a list or a status), and comparisons (compare: {head: reply or status}).
+    m = /^\/repos\/([^/]+\/[^/]+)\/(?:commits\?sha=([0-9a-f]{40})&per_page=100&page=(\d+)|(branches|tags)\?per_page=100&page=(\d+)|compare\/([0-9a-f]{40})\.\.\.([0-9a-f]{40})\?per_page=1)$/.exec(p);
+    if (m) {
+      const r = repos[m[1]];
+      if (!r) return json({ message: "Not Found" }, 404);
+      const give = v => typeof v === "number" ? json({ message: "no" }, v) : json(v);
+      if (m[2]) { const pages = (r.history || {})[m[2]] || []; return give(pages[Number(m[3]) - 1] || []); }
+      if (m[4]) { const list = r[m[4] === "branches" ? "branchList" : "tagList"] || []; return typeof list === "number" ? give(list) : json(list.slice((Number(m[5]) - 1) * 100, Number(m[5]) * 100)); }
+      const c = (r.compare || {})[m[7]];
+      return c === undefined ? json({ message: "Not Found" }, 404) : give(c);
     }
     m = /^\/repos\/([^/]+\/[^/]+)\/commits\/([^/?]+)$/.exec(p);
     if (m) {
