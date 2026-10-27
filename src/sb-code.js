@@ -184,7 +184,13 @@
     if (!res || res.state === "loading") { card.append(notice("loading")); return card; }
     if (!res.data) { card.append(notice(res.state, res.error, "Changes not read")); return card; }
     const list = res.data.files;
-    if (!list.length) { card.append(el("p", { class: "muted plain", "data-part": "change-empty" }, "No file changed.")); return card; }
+    const cut = list.length >= SB.MAX_DIFF_FILES ? "GitHub lists at most " + SB.MAX_DIFF_FILES + " changed files in one reply."
+      : "GitHub says the list of changed files goes on.";
+    if (!list.length) {
+      card.append(res.state === "partial" ? muted(cut + " This reply lists none, so none is shown; this is not a change of no files.", "change-coverage")
+        : el("p", { class: "muted plain", "data-part": "change-empty" }, "No file changed."));
+      return card;
+    }
     const shown = list.find(f => f.path === c.diff) || list[0];
     card.append(el("div", { class: "table-wrap" }, el("table", { class: "grid-table", "data-part": "change-files" },
       el("thead", {}, el("tr", {}, ["File", "Change", "Lines added", "Lines removed"].map(t => el("th", { scope: "col" }, t)))),
@@ -192,7 +198,7 @@
         el("th", { scope: "row" }, el("button", { type: "button", class: "linkbtn mono", "data-diff": f.path, "aria-pressed": String(f === shown), onclick: () => A.showCodeDiff(name, f.path) }, f.path),
           f.from ? el("div", { class: "qual muted" }, "from " + f.from) : null),
         el("td", {}, STATUS[f.status]), el("td", { class: "num" }, "+" + f.added), el("td", { class: "num" }, "−" + f.removed)))))));
-    card.append(muted(res.state === "partial" ? "GitHub lists at most " + SB.MAX_DIFF_FILES + " changed files in one reply. These are the first " + plural(list.length, "file") + "; the rest are not shown."
+    card.append(muted(res.state === "partial" ? cut + " These are the first " + plural(list.length, "file") + "; the rest are not shown."
       : plural(list.length, "file") + " changed: the whole list GitHub gives.", "change-coverage"));
     card.append(diffBlock(shown));
     return card;

@@ -986,8 +986,12 @@ function privateRepos() {
     [new RegExp("^/repos/acme/garden/commits/" + FC + "$"), () => freply({ sha: FC, commit: { message: "Merge the list", committer: { date: "2026-01-02T00:00:00Z" } },
       parents: [{ sha: FBASE }, { sha: sha("other") }], files: Array.from({ length: 300 }, (_, i) => ({ filename: "gen/f" + i + ".txt", status: "added", additions: 1, deletions: 0, patch: "@@ -0,0 +1 @@\n+x" })) })],
     [new RegExp("^/repos/acme/garden/commits/release$"), () => freply({ sha: FBASE, commit: { message: "Release", committer: { date: "2026-01-01T00:00:00Z" } }, parents: [], files: [] })],
-    [new RegExp("^/repos/acme/garden/compare/" + FBASE + "\\.\\.\\." + FC + "\\?per_page=1$"), () => freply({ status: "ahead", ahead_by: 3, behind_by: 0,
-      merge_base_commit: { sha: FBASE }, files: [{ filename: "src/main.js", status: "modified", additions: 1, deletions: 0, patch: "@@ -1 +1,2 @@\n x\n+https://example.invalid/more" }] })],
+    // A reply with no list of changed files is not a change of no files.
+    [new RegExp("^/repos/acme/garden/commits/nofiles$"), () => freply({ sha: sha("nofiles"), commit: { message: "Odd", committer: { date: "2026-01-01T00:00:00Z" } }, parents: [] })],
+    // Three commits ahead at one commit a page: GitHub's next page lists commits, and every changed file is here.
+    [new RegExp("^/repos/acme/garden/compare/" + FBASE + "\\.\\.\\." + FC + "\\?per_page=1$"), () => json({ status: "ahead", ahead_by: 3, behind_by: 0,
+      merge_base_commit: { sha: FBASE }, files: [{ filename: "src/main.js", status: "modified", additions: 1, deletions: 0, patch: "@@ -1 +1,2 @@\n x\n+https://example.invalid/more" }] },
+      200, { link: '<https://api.github.com/repos/acme/garden/compare/x?per_page=1&page=2>; rel="next"' })],
   ]);
   const furls = [];
   p = await open();
@@ -995,7 +999,9 @@ function privateRepos() {
     const req = route.request();
     furls.push(req.method() + " " + req.url());
     const res = await fgh.fetch(req.url(), { method: req.method() });
-    await route.fulfill({ status: res.status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }, body: await res.text() });
+    const headers = { "content-type": "application/json", "access-control-allow-origin": "*", "access-control-expose-headers": "link" };
+    if (res.headers.get("link")) headers.link = res.headers.get("link");
+    await route.fulfill({ status: res.status, headers, body: await res.text() });
   });
   await p.fill("#plan-repo", "acme/garden-plan"); await p.fill("#token", "synthetic-token"); await p.click("#connect button[type=submit]");
   await finished(); await p.waitForTimeout(400);
@@ -1009,6 +1015,8 @@ function privateRepos() {
   co.private.changes = await codeNow();
   await p.fill("#code-against", "release"); await p.click("#code-compare"); await p.waitForTimeout(1000);
   co.private.compare = await codeNow();
+  await p.fill("#code-against", "nofiles"); await p.click("#code-compare"); await p.waitForTimeout(900);
+  co.private.noFiles = await codeNow();
   await tree(p, "r:garden:acme/garden-plan"); await p.waitForTimeout(400);
   await p.click("#rs-files"); await p.waitForTimeout(800);
   co.private.denied = await codeNow();

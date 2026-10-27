@@ -32,8 +32,9 @@
   const isTaskId = v => typeof v === "string" && /^[A-Za-z0-9_.-]{1,40}$/.test(v) && v !== "." && v !== "..";
   const isRef = v => v === undefined || v === null || (typeof v === "string" && /^[A-Za-z0-9_./-]{1,200}$/.test(v));
 
-  function decode(bytes) {
-    try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch (e) { return null; }
+  // keepMark keeps a leading byte order mark (U+FEFF) as text, so a code view can show it.
+  function decode(bytes, keepMark = false) {
+    try { return new TextDecoder("utf-8", { fatal: true, ignoreBOM: keepMark }).decode(bytes); } catch (e) { return null; }
   }
 
   // ---- Workspaces: an explicit list from the private plan repo, never guessed from names.
@@ -784,7 +785,7 @@
     const file = await client.readFile(ctx, repo, commit, path);
     if (file.state !== "current") return file;
     const { bytes, sha } = file.data;
-    const text = bytes.includes(0) ? null : decode(bytes);
+    const text = bytes.includes(0) ? null : decode(bytes, true);
     if (text === null) return result("current", { binary: true, text: null, size: bytes.length, sha }, file.source);
     return result(text ? "current" : "empty", { binary: false, text, size: bytes.length, sha }, file.source);
   }
@@ -797,11 +798,19 @@
              patch: f.patch === undefined ? null : f.patch };
   }
 
-  // GitHub lists at most 300 changed files in one reply; a list that reaches that, or says it goes on, is partial.
-  function changesResult(files, res, data, source) {
-    const more = files.length >= MAX_DIFF_FILES || /rel="next"/.test(res.headers.get("link") || "");
-    if (more) return result("partial", data, source, { coverage: { shown: files.length, total: null } });
+  // GitHub lists at most 300 changed files in one reply; a list that reaches that is partial. A commit's
+  // reply also says when its file list goes on (pagesOn); a comparison's next page lists commits, not files.
+  function changesResult(files, pagesOn, data, source) {
+    if (files.length >= MAX_DIFF_FILES || pagesOn) return result("partial", data, source, { coverage: { shown: files.length, total: null } });
     return result(files.length ? "current" : "empty", data, source);
+  }
+
+  // The changed files of a reply: null when the list is missing or one entry is not in the expected form,
+  // so a reply without its list is never taken for a change of no files.
+  function changedFiles(list) {
+    if (!Array.isArray(list)) return null;
+    const files = list.map(changedFile);
+    return files.some(f => !f) ? null : files;
   }
 
   // A commit, named by its ID or by a branch or tag (resolved by GitHub now), with the files it changed
@@ -819,10 +828,10 @@
     if (!res.ok) return result(client.stateFor(res), null, source, { error: "HTTP " + res.status });
     const body = await client.json(ctx, res);
     const c = historyCommit(body);
-    if (!c || !(body.files === undefined || Array.isArray(body.files))) return result("invalid", null, source, { error: "unexpected commit reply" });
-    const files = (body.files || []).map(changedFile);
-    if (files.some(f => !f)) return result("invalid", null, source, { error: "malformed changed file" });
-    return changesResult(files, res, { commit: c, files }, Object.assign({ commit: c.sha }, source));
+    if (!c) return result("invalid", null, source, { error: "unexpected commit reply" });
+    const files = changedFiles(body.files);
+    if (!files) return result("invalid", null, source, { error: "no well-formed list of changed files" });
+    return changesResult(files, /rel="next"/.test(res.headers.get("link") || ""), { commit: c, files }, Object.assign({ commit: c.sha }, source));
   }
 
   // The changes from one commit to another since their common ancestor, as GitHub compares them now.
@@ -837,11 +846,12 @@
     if (!res.ok) return result(client.stateFor(res), null, source, { error: "HTTP " + res.status });
     const b = await client.json(ctx, res);
     if (!isObject(b) || !COMPARE_STATES.includes(b.status) || !isCount(b.ahead_by) || !isCount(b.behind_by) ||
-        !(b.merge_base_commit === undefined || b.merge_base_commit === null || (isObject(b.merge_base_commit) && isSha(b.merge_base_commit.sha))) ||
-        !(b.files === undefined || Array.isArray(b.files))) return result("invalid", null, source, { error: "unexpected comparison" });
-    const files = (b.files || []).map(changedFile);
-    if (files.some(f => !f)) return result("invalid", null, source, { error: "malformed changed file" });
-    return changesResult(files, res, { status: b.status, ahead: b.ahead_by, behind: b.behind_by,
+        !(b.merge_base_commit === undefined || b.merge_base_commit === null || (isObject(b.merge_base_commit) && isSha(b.merge_base_commit.sha)))) {
+      return result("invalid", null, source, { error: "unexpected comparison" });
+    }
+    const files = changedFiles(b.files);
+    if (!files) return result("invalid", null, source, { error: "no well-formed list of changed files" });
+    return changesResult(files, false, { status: b.status, ahead: b.ahead_by, behind: b.behind_by,
                                        mergeBase: b.merge_base_commit && b.merge_base_commit.sha ? b.merge_base_commit.sha : null, files }, source);
   }
 

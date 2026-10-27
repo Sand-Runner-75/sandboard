@@ -119,6 +119,10 @@ test("a file's text is read at the pinned commit and checked against GitHub's ha
     .update("blob 4\0").update(latin).digest("hex"), content: latin.toString("base64") }))]);
   r = await SB.readCodeFile(s.ctx, s.client, REPO, C, "latin.txt");
   assert.deepEqual([r.state, r.data.binary, r.data.text], ["current", true, null], "not UTF-8 is kept as binary, never guessed");
+  s = setup({ "bom.txt": "\uFEFFx\n" });
+  r = await SB.readCodeFile(s.ctx, s.client, REPO, C, "bom.txt");
+  assert.equal(r.data.text, "\uFEFFx\n", "a leading byte order mark is kept as text, not dropped by the decoder");
+  assert.deepEqual(SB.textPieces(SB.textLines(r.data.text).lines[0]), [{ hidden: "U+FEFF" }, { text: "x" }], "and is shown by its code");
   s = setup({}, [route("/contents/a.txt?ref=" + C, json({ type: "file", encoding: "base64", sha: sha("other"), content: Buffer.from("x").toString("base64") }))]);
   assert.equal((await SB.readCodeFile(s.ctx, s.client, REPO, C, "a.txt")).state, "invalid", "bytes that do not match the blob ID are not shown");
   s = setup({}, [route("/contents/big.bin?ref=" + C, json({ type: "file", encoding: "none", sha: sha("big"), content: "" }))]);
@@ -175,7 +179,12 @@ test("a commit's changes name the commit and its parents; a branch is resolved b
   s = setup({}, [route("/commits/" + C, json(commitReply(C, { files: Array.from({ length: 300 }, (_, i) => changed("f" + i)) })))]);
   assert.equal((await SB.readCommitChanges(s.ctx, s.client, REPO, C)).state, "partial", "GitHub's 300-file cap is never shown as the whole change");
   s = setup({}, [route("/commits/" + C, json(commitReply(C, { files: [changed("a")] }), 200, { link: '<https://api.github.com/x?page=2>; rel="next"' }))]);
-  assert.equal((await SB.readCommitChanges(s.ctx, s.client, REPO, C)).state, "partial");
+  assert.equal((await SB.readCommitChanges(s.ctx, s.client, REPO, C)).state, "partial", "a commit's file list that goes on is partial");
+  s = setup({}, [route("/commits/" + C, json(commitReply(C, { files: [] }), 200, { link: '<https://api.github.com/x?page=2>; rel="next"' }))]);
+  assert.deepEqual(await SB.readCommitChanges(s.ctx, s.client, REPO, C).then(x => [x.state, x.data.files.length]), ["partial", 0], "no file on this page is not no change");
+  s = setup({}, [route("/commits/" + C, json(commitReply(C)))]);
+  r = await SB.readCommitChanges(s.ctx, s.client, REPO, C);
+  assert.deepEqual([r.state, r.data == null], ["invalid", true], "a reply without its list of files is never a change of no files");
   for (const bad of [{ filename: "../x" }, { status: "exploded" }, { additions: -1 }, { patch: 5 }, { previous_filename: "/abs" }]) {
     s = setup({}, [route("/commits/" + C, json(commitReply(C, { files: [changed("a", bad)] })))]);
     assert.equal((await SB.readCommitChanges(s.ctx, s.client, REPO, C)).state, "invalid", JSON.stringify(bad));
@@ -193,6 +202,17 @@ test("a comparison gives GitHub's counts, common ancestor and changed files betw
     files: [changed("src/a.js")] }))]);
   let r = await SB.readCompareChanges(s.ctx, s.client, REPO, BASE, C);
   assert.deepEqual([r.state, r.data.status, r.data.ahead, r.data.behind, r.data.mergeBase, r.data.files.length], ["current", "diverged", 2, 1, sha("mb"), 1]);
+  // With one commit a page, GitHub's next page of a comparison lists more commits; its files are all on the first page.
+  s = setup({}, [route("/compare/" + BASE + "..." + C + "?per_page=1", json({ status: "ahead", ahead_by: 2, behind_by: 0, merge_base_commit: { sha: BASE },
+    files: [changed("src/a.js")] }, 200, { link: '<https://api.github.com/x?per_page=1&page=2>; rel="next"' }))]);
+  assert.equal((await SB.readCompareChanges(s.ctx, s.client, REPO, BASE, C)).state, "current", "more commits are not more files");
+  s = setup({}, [route("/compare/" + BASE + "..." + C + "?per_page=1", json({ status: "ahead", ahead_by: 400, behind_by: 0,
+    files: Array.from({ length: 300 }, (_, i) => changed("f" + i)) }, 200, { link: '<https://api.github.com/x?per_page=1&page=2>; rel="next"' }))]);
+  r = await SB.readCompareChanges(s.ctx, s.client, REPO, BASE, C);
+  assert.deepEqual([r.state, r.coverage], ["partial", { shown: 300, total: null }], "GitHub's 300-file cap is never shown as the whole comparison");
+  s = setup({}, [route("/compare/" + BASE + "..." + C + "?per_page=1", json({ status: "ahead", ahead_by: 1, behind_by: 0 }))]);
+  r = await SB.readCompareChanges(s.ctx, s.client, REPO, BASE, C);
+  assert.deepEqual([r.state, r.data == null], ["invalid", true], "a comparison without its list of files is never a change of no files");
   s = setup({}, [route("/compare/" + C + "..." + C + "?per_page=1", json({ status: "identical", ahead_by: 0, behind_by: 0, merge_base_commit: { sha: C }, files: [] }))]);
   assert.equal((await SB.readCompareChanges(s.ctx, s.client, REPO, C, C)).state, "empty");
   s = setup({}, [route("/compare/" + BASE + "..." + C + "?per_page=1", json({ status: "ahead", ahead_by: -1, behind_by: 0 }))]);

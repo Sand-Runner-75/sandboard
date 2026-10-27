@@ -735,6 +735,12 @@ class BrowserTest(unittest.TestCase):
         cmp = pv["compare"]
         self.assertIn("main is 3 commits ahead of release", cmp["source"])
         self.assertEqual(cmp["lines"], ["@@ -1 +1,2 @@", "x", "https://example.invalid/more"])
+        self.assertEqual(cmp["changeCoverage"], "1 file changed: the whole list GitHub gives.",
+                         "a comparison's next page lists commits, so it never makes its files partial")
+        nf = pv["noFiles"]
+        self.assertIn("“nofiles” could not be read (no well-formed list of changed files). Nothing else is compared in its place.", nf["changes"])
+        self.assertNotIn("No file changed", nf["changes"])
+        self.assertEqual(nf["files"], [])
         self.assertEqual(len(cmp["links"]), 1)
         self.assertIn("/compare/", cmp["links"][0][0])
         self.assertEqual(pv["denied"]["treeState"], "denied")
