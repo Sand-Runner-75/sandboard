@@ -181,7 +181,10 @@
      "parents": [],
      "author": "demo-owner"
     }
-   ]
+   ],
+   "runs": {
+    "status": 403
+   }
   },
   "example-org/demo-app": {
    "files": null,
@@ -204,6 +207,47 @@
    ],
    "pulls": [
     {
+     "number": 6,
+     "title": "Search screen <b>draft</b>",
+     "state": "open",
+     "draft": true,
+     "merged_at": null,
+     "merge_commit_sha": null,
+     "head": "search-draft",
+     "head_ref": "feature/search",
+     "base_ref": "main",
+     "user": "demo-user",
+     "reviewers": [],
+     "body": "",
+     "comments": [],
+     "created": "2026-01-13T10:00:00Z",
+     "updated": "2026-01-14T11:00:00Z",
+     "reviews": []
+    },
+    {
+     "number": 3,
+     "title": "Read the list from the plan",
+     "state": "closed",
+     "merged_at": "2025-12-10T10:00:00Z",
+     "merge_commit_sha": "{sha:merge2-app}",
+     "head": "list-data-b",
+     "head_ref": "list-data",
+     "base_ref": "main",
+     "user": "demo-claude",
+     "body": "",
+     "comments": [],
+     "created": "2025-12-01T11:00:00Z",
+     "updated": "2025-12-10T10:00:00Z",
+     "reviews": [
+      {
+       "state": "APPROVED",
+       "at_commit": "{sha:list-data-b}",
+       "by": "demo-gpt",
+       "at": "2025-12-09T15:00:00Z"
+      }
+     ]
+    },
+    {
      "number": 2,
      "title": "Feature list screen",
      "state": "open",
@@ -217,7 +261,54 @@
        "body": "FROM: Agent B → TO: Agent A\nSTATE: REVIEW PASSED\nHEAD: {commit}\nRESULT: The screen matches the list. <script>alert('demo')</script> stays text."
       }
      ],
-     "created": "2026-01-14T16:00:00Z"
+     "created": "2026-01-14T16:00:00Z",
+     "user": "demo-claude",
+     "head_ref": "feature/list-screen",
+     "base_ref": "main",
+     "updated": "2026-01-15T09:00:00Z",
+     "reviewers": [
+      "demo-user"
+     ],
+     "teams": [
+      "reviewers"
+     ],
+     "reviews": [
+      {
+       "state": "CHANGES_REQUESTED",
+       "at_commit": "{sha:list-screen-1}",
+       "by": "demo-gpt",
+       "at": "2026-01-14T18:00:00Z"
+      },
+      {
+       "state": "COMMENTED",
+       "at_commit": "{sha:list-screen-1}",
+       "by": "demo-owner",
+       "at": "2026-01-14T18:30:00Z"
+      },
+      {
+       "state": "APPROVED",
+       "at_commit": "{commit}",
+       "by": "demo-gpt",
+       "at": "2026-01-15T09:00:00Z"
+      }
+     ]
+    },
+    {
+     "number": 1,
+     "title": "Try a second list layout",
+     "state": "closed",
+     "merged_at": null,
+     "merge_commit_sha": null,
+     "closed": "2025-11-20T09:00:00Z",
+     "head": "layout-try",
+     "head_ref": "layout-try",
+     "base_ref": "main",
+     "user": "demo-gpt",
+     "body": "",
+     "comments": [],
+     "created": "2025-11-18T09:00:00Z",
+     "updated": "2025-11-20T09:00:00Z",
+     "reviews": []
     }
    ],
    "meta": {
@@ -342,6 +433,261 @@
     {
      "name": "v0.2.0",
      "at": "merge2"
+    }
+   ],
+   "issues": [
+    {
+     "number": 9,
+     "title": "List is slow with <i>many</i> rows",
+     "state": "open",
+     "state_reason": null,
+     "user": {
+      "login": "demo-owner"
+     },
+     "labels": [
+      {
+       "name": "bug"
+      },
+      {
+       "name": "performance"
+      }
+     ],
+     "assignees": [
+      {
+       "login": "demo-user"
+      }
+     ],
+     "comments": 2,
+     "created_at": "2026-01-14T12:00:00Z",
+     "closed_at": null
+    },
+    {
+     "number": 8,
+     "title": "Add a dark theme",
+     "state": "open",
+     "state_reason": null,
+     "user": {
+      "login": "demo-owner"
+     },
+     "labels": [
+      {
+       "name": "idea"
+      }
+     ],
+     "assignees": [],
+     "comments": 0,
+     "created_at": "2026-01-10T12:00:00Z",
+     "closed_at": null
+    },
+    {
+     "number": 7,
+     "title": "Export the list as a file",
+     "state": "closed",
+     "state_reason": "not_planned",
+     "user": {
+      "login": "demo-owner"
+     },
+     "labels": [
+      {
+       "name": "idea"
+      }
+     ],
+     "assignees": [],
+     "comments": 1,
+     "created_at": "2025-12-20T12:00:00Z",
+     "closed_at": "2026-01-05T12:00:00Z"
+    },
+    {
+     "number": 5,
+     "title": "Empty list shows a blank page",
+     "state": "closed",
+     "state_reason": "completed",
+     "user": {
+      "login": "demo-owner"
+     },
+     "labels": [
+      {
+       "name": "bug"
+      }
+     ],
+     "assignees": [
+      {
+       "login": "demo-claude"
+      }
+     ],
+     "comments": 3,
+     "created_at": "2025-12-02T12:00:00Z",
+     "closed_at": "2025-12-10T10:00:00Z"
+    },
+    {
+     "number": 4,
+     "title": "Same as the blank page report",
+     "state": "closed",
+     "state_reason": "duplicate",
+     "user": {
+      "login": "demo-owner"
+     },
+     "labels": [],
+     "assignees": [],
+     "comments": 0,
+     "created_at": "2025-12-03T12:00:00Z",
+     "closed_at": "2025-12-03T13:00:00Z"
+    }
+   ],
+   "runs": [
+    {
+     "id": 9006,
+     "name": "Tests",
+     "display_title": "Feature list screen",
+     "run_number": 42,
+     "event": "pull_request",
+     "status": "in_progress",
+     "conclusion": null,
+     "head_branch": "feature/list-screen",
+     "head_sha": "{commit}",
+     "actor": {
+      "login": "demo-claude"
+     },
+     "created_at": "2026-01-15T09:05:00Z",
+     "run_started_at": "2026-01-15T09:05:10Z",
+     "updated_at": "2026-01-15T09:06:00Z"
+    },
+    {
+     "id": 9005,
+     "name": "Audit",
+     "display_title": "Feature list screen",
+     "run_number": 17,
+     "event": "pull_request",
+     "status": "queued",
+     "conclusion": null,
+     "head_branch": "feature/list-screen",
+     "head_sha": "{commit}",
+     "actor": {
+      "login": "demo-claude"
+     },
+     "created_at": "2026-01-15T09:05:00Z",
+     "run_started_at": null,
+     "updated_at": "2026-01-15T09:05:00Z"
+    },
+    {
+     "id": 9004,
+     "name": "Build",
+     "display_title": "Feature list screen",
+     "run_number": 30,
+     "event": "pull_request",
+     "status": "completed",
+     "conclusion": "failure",
+     "head_branch": "feature/list-screen",
+     "head_sha": "{commit}",
+     "actor": {
+      "login": "demo-claude"
+     },
+     "created_at": "2026-01-15T09:05:00Z",
+     "run_started_at": "2026-01-15T09:05:05Z",
+     "updated_at": "2026-01-15T09:07:35Z"
+    },
+    {
+     "id": 9003,
+     "name": "Tests",
+     "display_title": "Feature list screen",
+     "run_number": 41,
+     "event": "pull_request",
+     "status": "completed",
+     "conclusion": "success",
+     "head_branch": "feature/list-screen",
+     "head_sha": "{sha:list-screen-1}",
+     "actor": {
+      "login": "demo-claude"
+     },
+     "created_at": "2026-01-14T17:35:00Z",
+     "run_started_at": "2026-01-14T17:35:04Z",
+     "updated_at": "2026-01-14T17:38:10Z"
+    },
+    {
+     "id": 9002,
+     "name": "Nightly",
+     "display_title": "Nightly check",
+     "run_number": 12,
+     "event": "schedule",
+     "status": "completed",
+     "conclusion": "cancelled",
+     "head_branch": "main",
+     "head_sha": "{sha:merge2}",
+     "actor": {
+      "login": "demo-claude"
+     },
+     "created_at": "2026-01-14T02:00:00Z",
+     "run_started_at": "2026-01-14T02:00:03Z",
+     "updated_at": "2026-01-14T02:00:40Z"
+    },
+    {
+     "id": 9001,
+     "name": "Deploy preview",
+     "display_title": "Search screen <b>draft</b>",
+     "run_number": 3,
+     "event": "push",
+     "status": "completed",
+     "conclusion": "skipped",
+     "head_branch": "feature/search",
+     "head_sha": "{sha:search-draft}",
+     "actor": {
+      "login": "demo-claude"
+     },
+     "created_at": "2026-01-14T11:00:00Z",
+     "run_started_at": "2026-01-14T11:00:02Z",
+     "updated_at": "2026-01-14T11:00:04Z"
+    }
+   ],
+   "releases": [
+    {
+     "id": 503,
+     "tag_name": "v0.3.0",
+     "name": "Search (draft notes)",
+     "draft": true,
+     "prerelease": false,
+     "created_at": "2026-01-14T12:00:00Z",
+     "published_at": null,
+     "author": {
+      "login": "demo-claude"
+     },
+     "assets": []
+    },
+    {
+     "id": 502,
+     "tag_name": "v0.2.0",
+     "name": "List screen preview",
+     "draft": false,
+     "prerelease": true,
+     "created_at": "2025-12-10T10:30:00Z",
+     "published_at": "2025-12-10T11:00:00Z",
+     "author": {
+      "login": "demo-owner"
+     },
+     "assets": [
+      {
+       "name": "demo-app-0.2.0.zip",
+       "size": 184320,
+       "download_count": 12
+      },
+      {
+       "name": "checksums.txt",
+       "size": 164,
+       "download_count": 3
+      }
+     ]
+    },
+    {
+     "id": 501,
+     "tag_name": "v0.1.0",
+     "name": "v0.1.0",
+     "draft": false,
+     "prerelease": false,
+     "created_at": "2025-04-20T12:30:00Z",
+     "published_at": "2025-04-20T13:00:00Z",
+     "author": {
+      "login": "demo-owner"
+     },
+     "assets": []
     }
    ]
   },

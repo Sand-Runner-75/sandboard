@@ -328,7 +328,8 @@
     // The account views cover every mapped repository, so they sit apart from the projects.
     const account = { id: "g:account", label: "Account", tip: TIPS["All repositories"], kids: [
       { id: "a:portfolio", label: "All repositories", tip: TIPS["All repositories"], act: () => A.goAccount("portfolio"), cur: !S.activeTab && S.view.kind === "portfolio" },
-      { id: "a:activity", label: "Activity and languages", tip: TIPS.Activity, act: () => A.goAccount("activity"), cur: !S.activeTab && S.view.kind === "activity" }] };
+      { id: "a:activity", label: "Activity and languages", tip: TIPS.Activity, act: () => A.goAccount("activity"), cur: !S.activeTab && S.view.kind === "activity" },
+      { id: "a:inbox", label: "Inbox", tip: TIPS.Inbox, act: () => A.goAccount("inbox"), cur: !S.activeTab && S.view.kind === "inbox" }] };
     return [projects, account];
   }
 
@@ -459,7 +460,7 @@
     const other = runs.length - groups.reduce((n, g) => n + g[0], 0);
     if (other) groups.push([other, "with a conclusion not known here"]);
     const text = groups.filter((g, i) => i < 3 || g[0]).map(g => g[0] + " " + g[1]).join(", ");
-    return el("span", {}, res.state === "empty" ? "No check runs" : runs.length + " check runs: " + text,
+    return el("span", {}, res.state === "empty" ? "No check runs" : runs.length + (runs.length === 1 ? " check run: " : " check runs: ") + text,
       res.coverage ? " (" + res.coverage.shown + " of " + res.coverage.total + " read)" : "");
   }
 
@@ -470,7 +471,7 @@
       !c.pinned ? el("span", { class: "muted" }, "Loading") : c.pinned.state === "current"
         ? [el("span", { class: "mono", title: c.pinned.data.commit }, c.pinned.data.ref + " → " + short(c.pinned.data.commit)), checksSummary(c.checks)]
         : el("span", {}, (STATE[c.pinned.state] || STATE.failed)[2])))));
-    card.append(el("p", { class: "qual muted plain" }, "Recent commits and pull requests are under Recent activity; history and files come in a later slice. Activity is never progress."));
+    card.append(el("p", { class: "qual muted plain" }, "Recent commits and pull requests are under Recent activity; each repository has History, Pull requests, Issues, Actions and Releases tabs, and files come in a later slice. Activity is never progress."));
     return card;
   }
 
@@ -859,7 +860,7 @@
 
   function tabBar(S, A) {
     const bar = el("div", { class: "tabs", role: "tablist", "aria-label": "Open items" });
-    const names = { overview: "Overview", tasks: "Tasks", repo: "Repository", portfolio: "All repositories", activity: "Activity" };
+    const names = { overview: "Overview", tasks: "Tasks", repo: "Repository", portfolio: "All repositories", activity: "Activity", inbox: "Inbox" };
     bar.append(el("div", { class: "tab" + (S.activeTab ? "" : " on") }, el("button", { type: "button", role: "tab", id: "tab-view",
       "aria-selected": String(!S.activeTab), tabindex: S.activeTab ? "-1" : "0", onclick: () => A.showTab(null),
       onkeydown: e => tabKeys(e, A) }, el("span", { class: "kind" }, "View"), names[S.view.kind] || "View")));
@@ -943,19 +944,21 @@
       code.checks && code.checks.data && code.checks.data.runs.length ? el("ul", { class: "feed" }, code.checks.data.runs.map(r =>
         el("li", {}, el("b", {}, r.name), r.status === "completed" ? (r.conclusion || "no conclusion") : r.status))) : null,
       el("p", { class: "qual muted plain" }, "Checks passing is not owner approval.")));
-    // Overview and History as tabs of the repository; Left and Right move between them.
-    const SUBS = [["overview", "Overview"], ["history", "History"]];
-    const sub = S.view.sub === "history" ? "history" : "overview";
+    // Overview, History and the work evidence as tabs of the repository; Left and Right move between them.
+    const SUBS = [["overview", "Overview"], ["history", "History"], ["pulls", "Pull requests"], ["issues", "Issues"], ["runs", "Actions"], ["releases", "Releases"]];
+    const sub = SUBS.some(x => x[0] === S.view.sub) ? S.view.sub : "overview";
     const pick = k => A.go(entry.w.id, { kind: "repo", repo: name, sub: k }, { focus: "rs-" + k });
     sec.append(el("div", { class: "subtabs", role: "tablist", "aria-label": "Repository views" }, SUBS.map(([k, l], i) =>
       el("button", { type: "button", role: "tab", id: "rs-" + k, "aria-selected": String(sub === k), "aria-controls": "rs-panel", tabindex: sub === k ? "0" : "-1",
         onclick: () => pick(k),
-        onkeydown: e => { if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return; e.preventDefault(); pick(SUBS[(i + 1) % SUBS.length][0]); } }, l))));
+        onkeydown: e => { if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return; e.preventDefault();
+          pick(SUBS[(i + (e.key === "ArrowRight" ? 1 : SUBS.length - 1)) % SUBS.length][0]); } }, l))));
     const panel = el("div", { class: "stack", role: "tabpanel", id: "rs-panel", "aria-labelledby": "rs-" + sub });
     if (sub === "history") panel.append(...V.history(S, A, entry, name, pinned));
+    else if (V.WORK_SUBS.includes(sub)) panel.append(...V.work(S, A, entry, name, pinned, sub));
     else panel.append(...V.repoDetails(S, A, entry, name, pinned, role));
     sec.append(panel);
-    sec.append(el("p", { class: "qual muted plain" }, "Pull request details, Actions, releases and files come in later slices."));
+    sec.append(el("p", { class: "qual muted plain" }, "Files come in a later slice."));
     return sec;
   }
 
@@ -970,8 +973,8 @@
         : notice(S.list.state, "Workspace list (" + SB.WORKSPACES_FILE + ") in " + S.planRepo + ": " + (S.list.error || (STATE[S.list.state] || STATE.failed)[3])));
       return;
     }
-    if (!S.activeTab && (S.view.kind === "portfolio" || S.view.kind === "activity")) {
-      box.replaceChildren(tabBar(S, A), S.view.kind === "portfolio" ? V.portfolio(S, A) : V.activity(S, A));
+    if (!S.activeTab && (S.view.kind === "portfolio" || S.view.kind === "activity" || S.view.kind === "inbox")) {
+      box.replaceChildren(tabBar(S, A), S.view.kind === "portfolio" ? V.portfolio(S, A) : S.view.kind === "inbox" ? V.inbox(S, A) : V.activity(S, A));
       return;
     }
     const entry = S.entries.find(e => e.w.id === S.current);
@@ -985,5 +988,5 @@
     box.replaceChildren(...parts);
   }
 
-  const V = SB.views = { el, notice, tree, treeGroups, focusTree, main, planState, tableState, rowsVisible, progressOf, stageIdOf, STATE, TIPS };
+  const V = SB.views = { el, notice, checksSummary, tree, treeGroups, focusTree, main, planState, tableState, rowsVisible, progressOf, stageIdOf, STATE, TIPS };
 })(typeof window !== "undefined" ? window : globalThis);

@@ -780,6 +780,108 @@ function privateRepos() {
     laneNotes: [...document.querySelectorAll("[data-part=lane-unread]")].map(n => [n.dataset.branch, n.dataset.state, n.textContent]) })));
   await p.close();
 
+  // 11. Work evidence: pull requests with reviews at their own commit and checks at the head, issues
+  // apart from pull requests, runs that have not finished never shown as passing, releases with asset
+  // names only, and the inbox over the mapped repositories; then, on a mocked private run, links at the
+  // repository's web address, a refused Actions list and reviews, an older page that fails, and reads only.
+  const wo = out.work = {};
+  p = await open();
+  await demo(p);
+  await tree(p, "repos:demo"); await p.waitForTimeout(150);
+  await tree(p, "r:demo:example-org/demo-app"); await p.waitForTimeout(400);
+  const workNow = () => p.evaluate(() => { const c = document.querySelector("[data-part^=work-]");
+    const rows = sel => [...document.querySelectorAll(sel)].map(r => [...r.children].map(x => x.textContent));
+    return { kind: c ? c.dataset.part : "", tabs: [...document.querySelectorAll(".subtabs [role=tab]")].map(n => n.textContent),
+      selected: (document.querySelector(".subtabs [aria-selected=true]") || {}).id || "", notice: (document.querySelector("[data-state=work]") || {}).textContent || "",
+      pulls: rows("tr[data-pull]"), issues: rows("tr[data-issue]"), runs: [...document.querySelectorAll("tr[data-run]")].map(r => [r.dataset.status, r.dataset.result, r.children[3].textContent]),
+      releases: [...document.querySelectorAll("li[data-release]")].map(n => n.dataset.release), reviews: [...document.querySelectorAll("li[data-review]")].map(n => [n.dataset.review, n.dataset.at]),
+      reviewText: (document.querySelector("[data-part=reviews]") || {}).textContent || "", checks: (document.querySelector("[data-part=pull-checks]") || {}).textContent || "",
+      coverage: (document.querySelector("[data-part=work-coverage]") || {}).textContent || "", issuePulls: (document.querySelector("[data-part=issue-pulls]") || {}).textContent || "",
+      runTotal: (document.querySelector("[data-part=run-total]") || {}).textContent || "", text: c ? c.textContent : "", older: !!document.getElementById("w-older"),
+      links: [...document.querySelectorAll("#rs-panel a")].slice(0, 3).map(a => [a.getAttribute("href"), a.target, a.rel]),
+      linkCount: document.querySelectorAll("#rs-panel a").length,
+      linksSafe: [...document.querySelectorAll("#rs-panel a")].every(a => a.target === "_blank" && a.rel === "noopener noreferrer" && a.href.startsWith("https://")),
+      bold: document.querySelectorAll("#rs-panel .ev-title *").length, focus: document.activeElement.id || document.activeElement.dataset.evidence || "",
+      controls: [...document.querySelectorAll("#rs-panel button")].map(b => b.textContent) }; });
+  await p.focus("#rs-history"); await p.keyboard.press("ArrowRight"); await p.waitForTimeout(800);
+  wo.pulls = await workNow();
+  await p.click('[data-evidence="2"]'); await p.waitForTimeout(800);
+  wo.evidence = await workNow();
+  await p.click("#wf-closed"); await p.waitForTimeout(800);
+  wo.closed = await workNow();
+  await p.click("#rs-issues"); await p.waitForTimeout(800);
+  wo.issues = await workNow();
+  await p.click("#wf-all"); await p.waitForTimeout(800);
+  wo.issuesAll = await workNow();
+  await p.click("#rs-runs"); await p.waitForTimeout(800);
+  wo.runs = await workNow();
+  await p.click("#rs-releases"); await p.waitForTimeout(800);
+  wo.releases = Object.assign(await workNow(), { assets: await p.$$eval("[data-part=releases] details li", n => n.map(x => x.textContent)) });
+  await tree(p, "r:demo:example-org/demo-plan"); await p.waitForTimeout(400);
+  await p.click("#rs-runs"); await p.waitForTimeout(800);
+  wo.planRuns = await workNow();
+  await tree(p, "a:inbox"); await p.waitForTimeout(1500);
+  const inboxNow = () => p.evaluate(() => ({ head: document.getElementById("view-h").textContent,
+    mine: [...document.querySelectorAll("[data-part=inbox-mine] li")].map(n => n.dataset.pull),
+    review: [...document.querySelectorAll("[data-part=inbox-review] li")].map(n => n.dataset.pull),
+    assigned: [...document.querySelectorAll("[data-part=inbox-assigned] li")].map(n => n.dataset.issue),
+    coverage: [...document.querySelectorAll("[data-part=inbox-coverage] li")].map(n => n.textContent),
+    notice: (document.querySelector("[data-state=inbox]") || {}).textContent || "", text: document.getElementById("workspace").textContent }));
+  wo.inbox = await inboxNow();
+  await p.setViewportSize({ width: 320, height: 800 }); await p.waitForTimeout(200);
+  wo.narrowInbox = await p.evaluate(() => document.documentElement.scrollWidth);
+  await p.click("#menu"); await tree(p, "r:demo:example-org/demo-app"); await p.waitForTimeout(400);
+  await p.click("#rs-runs"); await p.waitForTimeout(600);
+  wo.narrowRuns = await p.evaluate(() => document.documentElement.scrollWidth);
+  await p.close();
+  const wrepos = F.planRepos();
+  const OLD = sha("garden-old-head"), HEAD2 = sha("garden-pr-7");
+  const wpull = (n, extra) => Object.assign({ number: n, title: "Change " + n, state: "open", draft: false, merged_at: null, merge_commit_sha: null,
+    head: { sha: sha("garden-pr-" + n), ref: "topic-" + n }, base: { ref: "main" }, user: { login: "agent-" + (n % 2) }, requested_reviewers: [],
+    requested_teams: [], body: "", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-02T00:00:00Z", closed_at: null }, extra);
+  const page1 = Array.from({ length: 100 }, (_, i) => wpull(200 - i, i === 0 ? { title: "XQ101 layout <b>now</b>", user: { login: "synthetic-user" } }
+    : i === 1 ? { number: 7, head: { sha: HEAD2, ref: "topic-7" }, requested_reviewers: [{ login: "synthetic-user" }] } : i === 2 ? { draft: true } : {}));
+  wrepos["acme/garden"].work = {
+    "/pulls?state=open&per_page=100&page=1": page1, "/pulls?state=open&per_page=100&page=2": 502,
+    "/pulls/7/reviews?per_page=100&page=1": [{ state: "APPROVED", commit_id: OLD, user: { login: "agent-1" }, submitted_at: "2026-01-02T00:00:00Z" }],
+    "/pulls/200/reviews?per_page=100&page=1": 403,
+    "/actions/runs?per_page=100&page=1": 403,
+    "/issues?state=open&per_page=100&page=1": [{ number: 300, title: "Assigned to you", state: "open", user: { login: "agent-1" }, labels: [],
+      assignees: [{ login: "synthetic-user" }], comments: 0, created_at: "2026-01-03T00:00:00Z", closed_at: null }],
+    "/releases?per_page=100&page=1": [{ id: 1, tag_name: "v1.0", name: "One", draft: false, prerelease: false, created_at: "2026-01-01T00:00:00Z",
+      published_at: "2026-01-01T00:00:00Z", author: { login: "agent-1" }, assets: [{ name: "a.zip", size: 10, download_count: 1, browser_download_url: "https://example.invalid/a.zip" }] }],
+  };
+  wrepos["acme/garden"].checks[HEAD2] = [{ name: "pending", status: "in_progress", conclusion: null }];
+  wrepos["acme/garden-plan"].work = { "/pulls?state=open&per_page=100&page=1": 403 };
+  const wgh = mockGitHub(wrepos);
+  const wurls = [];
+  p = await open();
+  await p.route("https://api.github.com/**", async route => {
+    const req = route.request();
+    wurls.push(req.method() + " " + req.url());
+    const res = await wgh.fetch(req.url(), { method: req.method() });
+    await route.fulfill({ status: res.status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }, body: await res.text() });
+  });
+  await p.fill("#plan-repo", "acme/garden-plan"); await p.fill("#token", "synthetic-token"); await p.click("#connect button[type=submit]");
+  await finished(); await p.waitForTimeout(400);
+  await garden();
+  await p.click("#rs-pulls"); await p.waitForTimeout(1000);
+  wo.private = { first: await workNow() };
+  await p.click('[data-evidence="7"]'); await p.waitForTimeout(800);
+  wo.private.evidence = await workNow();
+  await p.click('[data-evidence="200"]'); await p.waitForTimeout(800);
+  wo.private.denied = await p.$eval('tr[data-detail="200"]', n => n.textContent);
+  await p.click("#w-older"); await p.waitForTimeout(1000);
+  wo.private.second = await workNow();
+  await p.click("#rs-runs"); await p.waitForTimeout(800);
+  wo.private.runs = await workNow();
+  await p.click("#rs-releases"); await p.waitForTimeout(800);
+  wo.private.releases = await workNow();
+  await tree(p, "a:inbox"); await p.waitForTimeout(1500);
+  wo.private.inbox = await inboxNow();
+  wo.private.urls = wurls;
+  await p.close();
+
   // 7. Framed: the page refuses to show.
   p = await open();
   await p.goto(BASE + "/frame.html"); await p.waitForTimeout(400);

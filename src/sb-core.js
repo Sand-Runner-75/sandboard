@@ -78,7 +78,7 @@
     new RegExp("^/repos/" + NAME + "/" + NAME + "/contents/" + FILE_PATH + "[?]ref=" + SHA + "$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/commits/" + SHA + "/check-runs[?]per_page=100&page=[1-9][0-9]?$"),
     // A task's review cycle: the repository's pull requests, and the comments on one of them.
-    new RegExp("^/repos/" + NAME + "/" + NAME + "/pulls[?]state=all&per_page=100&page=[1-9]$"),
+    new RegExp("^/repos/" + NAME + "/" + NAME + "/pulls[?]state=(?:open|closed|all)&per_page=100&page=[1-9]$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/issues/[1-9][0-9]{0,8}/comments[?]per_page=100&page=[1-9]$"),
     // The repository overview: a repository's languages, and the recent evidence of its activity feed
     // (the latest commits at a pinned commit, the latest comments on its issues and pull requests).
@@ -89,6 +89,10 @@
     new RegExp("^/repos/" + NAME + "/" + NAME + "/commits[?]sha=" + SHA + "&per_page=100&page=(?:[1-9]|10)$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/(?:branches|tags)[?]per_page=100&page=[1-3]$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/compare/" + SHA + "[.]{3}" + SHA + "[?]per_page=1$"),
+    // Work evidence: pull requests by state with each one's reviews, issues by state, Actions runs and releases.
+    new RegExp("^/repos/" + NAME + "/" + NAME + "/pulls/[1-9][0-9]{0,8}/reviews[?]per_page=100&page=[1-3]$"),
+    new RegExp("^/repos/" + NAME + "/" + NAME + "/issues[?]state=(?:open|closed|all)&per_page=100&page=[1-9]$"),
+    new RegExp("^/repos/" + NAME + "/" + NAME + "/(?:actions/runs|releases)[?]per_page=100&page=[1-9]$"),
   ];
 
   function allowed(path) {

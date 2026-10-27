@@ -46,7 +46,7 @@ test("paths outside the allowlist are refused before any network call", async ()
                    "/repos/acme/../garden-plan", "/repos/acme/garden-plan/commits/%2e%2e",
                    "/repos/acme/garden-plan/pulls", "/repos/acme/garden-plan/pulls?state=all&per_page=100&page=10",
                    "/repos/acme/garden-plan/pulls/3/merge", "/repos/acme/garden-plan/issues/0/comments?per_page=100&page=1",
-                   "/repos/acme/garden-plan/issues/3/comments", "/repos/acme/garden-plan/pulls?state=open&per_page=100&page=1"];
+                   "/repos/acme/garden-plan/issues/3/comments", "/repos/acme/garden-plan/pulls?state=merged&per_page=100&page=1"];
   for (const p of refused) await assert.rejects(client.get(ctx, p), SB.NotAllowed, p);
   assert.equal(gh.calls.length, 0);
 });

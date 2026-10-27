@@ -33,7 +33,8 @@ function json(body, status = 200, headers = {}) {
 // repos: {"owner/name": {private, default_branch, branches: {name: commit}, files: {commit: {path: text}},
 //          languages?, commits? (or commitsAt: {commit: [...]}, per pinned commit), comments? (the repository overview's lists, as the API gives them),
 //          history?, branchList?, tagList?, compare? (see the history reads below),
-//          info? (more repository reply fields; undefined drops one), checks: {commit: [runs] | {status, headers}}, pulls: [{number, title, state, ..., comments}]}}
+//          info? (more repository reply fields; undefined drops one), checks: {commit: [runs] | {status, headers}}, pulls: [{number, title, state, ..., comments, reviews?}],
+//          work? ({path after the repository: reply body or status}, tried first, for the work evidence lists)}}
 // overrides: [[RegExp on the path, (path, init) => Response | Promise<Response> | null]], tried first.
 function mockGitHub(repos, overrides = []) {
   const calls = [];
@@ -64,12 +65,28 @@ function mockGitHub(repos, overrides = []) {
       const total = checks.total === undefined ? checks.length : checks.total;
       return json({ total_count: total, check_runs: checks.slice((page - 1) * 100, page * 100) });
     }
-    m = /^\/repos\/([^/]+\/[^/]+)\/pulls\?state=all&per_page=100&page=(\d+)$/.exec(p);
+    // Work evidence: a repository's own replies (work), else lists made from its pulls, issues, runs and releases.
+    m = /^\/repos\/([^/]+\/[^/]+)(\/(?:pulls|issues|actions\/runs|releases)(?:\/\d+\/reviews)?\?.*)$/.exec(p);
+    if (m && repos[m[1]] && repos[m[1]].work && repos[m[1]].work[m[2]] !== undefined) {
+      const v = repos[m[1]].work[m[2]];
+      return typeof v === "number" ? json({ message: "no" }, v) : json(v);
+    }
+    m = /^\/repos\/([^/]+\/[^/]+)\/pulls\?state=(open|closed|all)&per_page=100&page=(\d+)$/.exec(p);
     if (m) {
       const r = repos[m[1]];
       if (!r) return json({ message: "Not Found" }, 404);
-      const page = Number(m[2]);
-      return json((r.pulls || []).slice((page - 1) * 100, page * 100).map(({ comments, ...pr }) => pr));
+      const page = Number(m[3]);
+      return json((r.pulls || []).filter(x => m[2] === "all" || x.state === m[2]).slice((page - 1) * 100, page * 100).map(({ comments, reviews, ...pr }) => pr));
+    }
+    m = /^\/repos\/([^/]+\/[^/]+)\/(?:pulls\/(\d+)\/reviews|issues|actions\/runs|releases)\?(?:state=(open|closed|all)&)?per_page=100&page=(\d+)$/.exec(p);
+    if (m) {
+      const r = repos[m[1]];
+      if (!r) return json({ message: "Not Found" }, 404);
+      const at = list => list.slice((Number(m[4]) - 1) * 100, Number(m[4]) * 100);
+      if (m[2]) { const pr = (r.pulls || []).find(x => x.number === Number(m[2])); return pr ? json(at(pr.reviews || [])) : json({ message: "Not Found" }, 404); }
+      if (p.includes("/issues?")) return json(at((r.issues || []).filter(x => m[3] === "all" || x.state === m[3])));
+      if (p.includes("/actions/runs?")) return json({ total_count: (r.runs || []).length, workflow_runs: at(r.runs || []) });
+      return json(at(r.releases || []));
     }
     m = /^\/repos\/([^/]+\/[^/]+)\/issues\/(\d+)\/comments\?per_page=100&page=(\d+)$/.exec(p);
     if (m) {

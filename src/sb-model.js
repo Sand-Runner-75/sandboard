@@ -485,8 +485,83 @@
     return { logins: counts.map(x => ({ login: x.value, n: x.n })), unlinked: commits.filter(c => !c.author).length };
   }
 
+  // ---- Work evidence: a repository's pull requests, issues, Actions runs and releases, read a page
+  // at a time as GitHub lists them now. Nothing here is progress, and a review, a passing check or a
+  // merge is never the owner's approval.
+
+  const WORK_LISTS = { pulls: "pulls", issues: "issues", runs: "runs", releases: "releases" };
+  const workKey = {
+    list: (kind, repo, state, page) => "work|" + kind + "|" + repo + "|" + (state || "-") + "|" + page,
+    reviews: (repo, number) => "reviews|" + repo + "#" + number,
+    checks: (repo, sha) => "checks|" + repo + "@" + sha,
+  };
+
+  // The pages read so far of one list, in order, stopping at the first one not read, failed or last.
+  function workList(live, kind, repo, state, depth) {
+    const items = [], wanted = [];
+    let status = "current", end = false, error = null, pages = 0, pulls = 0, total = null;
+    for (let p = 1; p <= depth; p++) {
+      const res = live(workKey.list(kind, repo, state, p));
+      if (!res || res.state === "loading") { wanted.push(p); if (p === 1) status = "loading"; break; }
+      if (!res.data) { if (p === 1) status = res.state; error = res; break; }
+      pages = p;
+      items.push(...res.data[WORK_LISTS[kind]]);
+      pulls += res.data.pulls && typeof res.data.pulls === "number" ? res.data.pulls : 0;
+      if (p === 1 && Number.isInteger(res.data.total)) total = res.data.total;
+      if (res.data.end) { end = true; break; }
+    }
+    if (status === "current" && !items.length && end) status = "empty";
+    return { state: status, error, end, pages, items, wanted, pulls, total,
+             more: !end && !error && pages === depth && depth < SB.MAX_WORK_PAGES };
+  }
+
+  // A pull request as one word: draft, open, merged or closed without merging.
+  const pullState = pr => pr.merged ? "merged" : pr.state === "open" ? (pr.draft ? "draft" : "open") : "closed";
+
+  // Each review with whether it was given at the pull request's current head. GitHub keeps a
+  // review on the commit it was given at; one at an older commit is not a review of the head.
+  function reviewEvidence(pr, reviews) {
+    const list = reviews.map(r => Object.assign({ atHead: r.commit === pr.head }, r));
+    const atHead = state => list.filter(r => r.atHead && r.state === state).length;
+    return { list, approvedAtHead: atHead("APPROVED"), changesAtHead: atHead("CHANGES_REQUESTED"),
+             older: list.filter(r => !r.atHead && r.state !== "COMMENTED").length, unknownCommit: list.filter(r => !r.commit).length };
+  }
+
+  // A run's status and conclusion kept apart: a run not completed has no conclusion yet, and is never
+  // shown as a success. Its duration is GitHub's start to its last update, only once it completed.
+  function runOutcome(run) {
+    const done = run.status === "completed";
+    const ms = done && run.started && run.updated ? Date.parse(run.updated) - Date.parse(run.started) : null;
+    return { done, pending: !done, outcome: done ? run.conclusion || (run.rawConclusion ? "other" : "none") : run.status || "unknown",
+             ms: ms !== null && ms >= 0 ? ms : null };
+  }
+
+  // The signed-in account's own work in the given repositories only: its open pull requests, open pull
+  // requests that ask it for a review, and open issues assigned to it. Read from the first page of
+  // each repository's open lists; what was not read is said, and no account-wide list is read.
+  function inbox(live, repos, login) {
+    const out = { mine: [], review: [], assigned: [], problems: [], partial: [], loading: 0, teams: 0, wanted: [] };
+    for (const repo of repos) {
+      for (const kind of ["pulls", "issues"]) {
+        const res = live(workKey.list(kind, repo, "open", 1));
+        if (!res) { out.wanted.push({ repo, kind }); out.loading += 1; continue; }
+        if (res.state === "loading") { out.loading += 1; continue; }
+        if (!res.data) { out.problems.push({ repo, kind, res }); continue; }
+        if (res.state === "partial") out.partial.push({ repo, kind });
+        if (!login) continue;
+        if (kind === "pulls") for (const pr of res.data.pulls) {
+          if (pr.author === login) out.mine.push({ repo, pr });
+          if (pr.reviewers.includes(login)) out.review.push({ repo, pr });
+          if (pr.teams) out.teams += 1;
+        } else for (const issue of res.data.issues) if (issue.assignees.includes(login)) out.assigned.push({ repo, issue });
+      }
+    }
+    return out;
+  }
+
   Object.assign(SB, { SORTS, portfolio, filterPortfolio, sortPortfolio, portfolioOptions, tally, analytics, languageBytes, repoHref, feedEvents, feedKey, typeOf,
-                      historyOrder, historyGraph, commitTimes, WEEKS_SHOWN, DAYS_SHOWN, contributors, historyKey, COMPARE_FIRST, comparedBranches, historyView,
+                      historyOrder, historyGraph, commitTimes, WEEKS_SHOWN, DAYS_SHOWN, contributors,
+                      workKey, workList, pullState, reviewEvidence, runOutcome, inbox, historyKey, COMPARE_FIRST, comparedBranches, historyView,
                       ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
                       approvals, resultHref, tabKey, stageOfPhase, short,
                       HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs });

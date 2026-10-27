@@ -89,6 +89,9 @@ def demo_repos(fixture_dir):
             repos[name]["checks"] = r["checks"]
         if "pulls" in r:
             repos[name]["pulls"] = demo_pulls(r["pulls"], repos[name]["commit"])
+        for key in ("issues", "runs", "releases"):
+            if key in r:
+                repos[name][key] = demo_work(r[key], repos[name]["commit"])
         if "meta" in r:
             repos[name]["meta"] = r["meta"]
         if "languages" in r:
@@ -133,21 +136,48 @@ def demo_commits(name, spec, commit):
     return out, refs("branches"), refs("tags")
 
 
+def fill_sha(text, commit):
+    """In text, "{commit}" stands for the repository's demo commit and "{sha:seed}" for a made-up commit ID."""
+    text = text.replace("{commit}", commit)
+    return re.sub(r"\{sha:([A-Za-z0-9_.-]+)\}", lambda m: hashlib.sha1(m.group(1).encode()).hexdigest(), text)
+
+
 def demo_pulls(pulls, commit):
-    """Synthetic pull requests in the API's shape. "{commit}" stands for the repository's
-    demo commit and "{sha:seed}" for a made-up commit ID; a bare head is a seed."""
-    def fill(text):
-        text = text.replace("{commit}", commit)
-        return re.sub(r"\{sha:([A-Za-z0-9_.-]+)\}", lambda m: hashlib.sha1(m.group(1).encode()).hexdigest(), text)
+    """Synthetic pull requests in the API's shape, with their reviews. A bare head is a seed;
+    a person is a made-up login."""
+    fill = lambda text: fill_sha(text, commit)
     out = []
     for p in pulls:
         head = fill(p["head"]) if "{" in p["head"] else hashlib.sha1(p["head"].encode()).hexdigest()
-        out.append({"number": p["number"], "title": p["title"], "state": p["state"], "merged_at": p["merged_at"],
-                    "merge_commit_sha": fill(p["merge_commit_sha"]) if p["merge_commit_sha"] else None,
-                    "head": {"sha": head}, "body": p["body"],
-                    "created_at": p.get("created"), "closed_at": p.get("closed", p["merged_at"]),
-                    "comments": [{"body": fill(c["body"]), "created_at": c["at"]} for c in p["comments"]]})
+        pr = {"number": p["number"], "title": p["title"], "state": p["state"], "merged_at": p["merged_at"],
+              "merge_commit_sha": fill(p["merge_commit_sha"]) if p["merge_commit_sha"] else None,
+              "head": {"sha": head}, "body": p["body"],
+              "created_at": p.get("created"), "closed_at": p.get("closed", p["merged_at"]),
+              "comments": [{"body": fill(c["body"]), "created_at": c["at"]} for c in p["comments"]]}
+        if "head_ref" in p:
+            pr["head"]["ref"] = p["head_ref"]
+            pr["base"] = {"ref": p.get("base_ref", "main")}
+        for key, api in (("draft", "draft"), ("updated", "updated_at")):
+            if key in p:
+                pr[api] = p[key]
+        if "user" in p:
+            pr["user"] = {"login": p["user"]}
+        if "reviewers" in p:
+            pr["requested_reviewers"] = [{"login": x} for x in p["reviewers"]]
+            pr["requested_teams"] = [{"slug": x} for x in p.get("teams", [])]
+        if "reviews" in p:
+            pr["reviews"] = [{"state": v["state"], "commit_id": fill(v["at_commit"]), "user": {"login": v["by"]}, "submitted_at": v["at"]}
+                             for v in p["reviews"]]
+        out.append(pr)
     return out
+
+
+def demo_work(items, commit):
+    """Issues, workflow runs or releases already in the API's shape, with "{commit}" and
+    "{sha:seed}" filled in; a refusal ({"status": n}) is kept as it is."""
+    if isinstance(items, dict):
+        return items
+    return json.loads(fill_sha(json.dumps(items), commit))
 
 
 def demo_js(data):

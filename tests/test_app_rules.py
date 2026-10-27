@@ -63,7 +63,7 @@ class SourceRulesTest(unittest.TestCase):
             html = f.read()
         loaded = re.findall(r'<script src="([^"]+)" defer></script>', html)
         self.assertEqual(loaded, ["demo-data.js", "sb-core.js", "sb-readers.js", "sb-render.js", "sb-model.js", "sb-demo.js",
-                                  "sb-views.js", "sb-repos.js", "sb-history.js", "app.js"])
+                                  "sb-views.js", "sb-repos.js", "sb-history.js", "sb-work.js", "app.js"])
         self.assertEqual(sorted(n for n, _ in sources()), sorted(loaded[1:]))
 
     def test_token_field_is_a_password_field_never_kept(self):

@@ -205,7 +205,7 @@ class BrowserTest(unittest.TestCase):
     def test_untrusted_text_is_shown_as_text(self):
         p = self.r["progress"]
         self.assertIn('<script>alert("never runs")</script>', p["hostile"])
-        self.assertEqual((p["scripts"], p["imgs"]), (10, 0))
+        self.assertEqual((p["scripts"], p["imgs"]), (11, 0))
         self.assertEqual(p["writeControls"], [])
 
     def test_copy_is_exactly_the_shown_text_and_a_refusal_is_reported(self):
@@ -327,7 +327,7 @@ class BrowserTest(unittest.TestCase):
         f = self.r["firstUse"]
         self.assertEqual(f["expandAll"], 0)
         self.assertGreater(f["itemsExpanded"], 40)
-        self.assertEqual(f["itemsCollapsed"], ["g:projects", "p:demo", "p:second", "p:notes", "p:kit", "p:locked", "p:tools", "g:account", "a:portfolio", "a:activity"])
+        self.assertEqual(f["itemsCollapsed"], ["g:projects", "p:demo", "p:second", "p:notes", "p:kit", "p:locked", "p:tools", "g:account", "a:portfolio", "a:activity", "a:inbox"])
 
     def test_the_stage_filter_keeps_its_phases_and_never_changes_figures(self):
         f, v = self.r["firstUse"], self.r["private"]
@@ -552,6 +552,78 @@ class BrowserTest(unittest.TestCase):
         self.assertGreater(d["heat"], 0)
         for word in ("Checkout", "Merge", "Delete", "Reset", "Create branch"):
             self.assertNotIn(word, d["controls"], "no control changes anything")
+
+    def test_work_evidence_tabs_list_pull_requests_with_reviews_at_their_own_commit(self):
+        w = self.r["work"]
+        self.assertEqual(w["pulls"]["tabs"], ["Overview", "History", "Pull requests", "Issues", "Actions", "Releases"])
+        self.assertEqual(w["pulls"]["focus"], "rs-pulls", "Right arrow moves from History to Pull requests")
+        self.assertIn("none of it is progress", w["pulls"]["notice"])
+        self.assertEqual([r[0] for r in w["pulls"]["pulls"]], ["#6", "#2"])
+        self.assertEqual(w["pulls"]["pulls"][0][1:3], ["Search screen <b>draft</b>", "Draft"])
+        self.assertEqual(w["pulls"]["bold"], 0, "a title stays text")
+        self.assertEqual(w["evidence"]["reviews"], [["CHANGES_REQUESTED", "older"], ["COMMENTED", "older"], ["APPROVED", "head"]])
+        self.assertIn("At the head 9c65a9a: 1 approval, 0 requests for changes. 1 review at an older commit does not count for the head.", w["evidence"]["reviewText"])
+        self.assertIn("3 check runs: 1 passing, 1 not passing, 1 running or queued", w["evidence"]["checks"])
+        self.assertEqual(w["evidence"]["focus"], "2", "focus stays on the button that opened the evidence")
+        self.assertEqual([r[2] for r in w["closed"]["pulls"]], ["Merged2025-12-10 10:00 UTC", "Closed without merging"])
+        self.assertIn("evidence, not the owner's approval", w["pulls"]["text"])
+        for word in ("Merge", "Approve", "Comment", "Close", "Review"):
+            self.assertNotIn(word, w["evidence"]["controls"], "no control changes anything")
+
+    def test_work_evidence_keeps_issues_runs_and_releases_apart_and_honest(self):
+        w = self.r["work"]
+        self.assertEqual([r[0] for r in w["issues"]["issues"]], ["#9", "#8"])
+        self.assertEqual(w["issues"]["issuePulls"], "2 pull requests in GitHub's issue list are left to Pull requests.")
+        self.assertEqual([r[2] for r in w["issuesAll"]["issues"]][2:], ["Closed: not plannedClosed 2026-01-05 12:00 UTC",
+                         "Closed: completedClosed 2025-12-10 10:00 UTC", "Closed: duplicateClosed 2025-12-03 13:00 UTC"])
+        runs = w["runs"]["runs"]
+        self.assertEqual([r[:2] for r in runs], [["in_progress", "pending"], ["queued", "pending"], ["completed", "failure"],
+                                                 ["completed", "success"], ["completed", "cancelled"], ["completed", "skipped"]])
+        for r in runs[:2]:
+            self.assertTrue(r[2].startswith("Not finished: no result yet"), "a run not finished is never a success")
+        self.assertEqual(w["runs"]["runTotal"], "6 runs read of the 6 GitHub counts.")
+        self.assertIn("No run is started, rerun or cancelled from here", w["runs"]["text"])
+        self.assertIn("not readable with this token (Actions: read)", w["planRuns"]["text"])
+        self.assertEqual(w["releases"]["releases"], ["v0.3.0", "v0.2.0", "v0.1.0"])
+        self.assertEqual(w["releases"]["assets"], ["demo-app-0.2.0.zip 180.0 KB, 12 downloads", "checksums.txt 164 bytes, 3 downloads"])
+        self.assertEqual(w["releases"]["linkCount"], 0, "the demo gives no web address, so nothing links")
+        self.assertLessEqual(w["narrowRuns"], 320)
+
+    def test_the_inbox_lists_your_own_open_work_in_the_mapped_repositories_only(self):
+        i = self.r["work"]["inbox"]
+        self.assertEqual((i["mine"], i["review"], i["assigned"]), (["example-org/demo-app#6"], ["example-org/demo-app#2"], ["example-org/demo-app#9"]))
+        self.assertIn("in 7 mapped repositories", i["notice"])
+        self.assertIn("GitHub notifications and repositories outside your projects are not read", i["notice"])
+        self.assertIn("a review asked of a team is not counted as asked of you", i["coverage"][0])
+        self.assertLessEqual(self.r["work"]["narrowInbox"], 320)
+        pr = self.r["work"]["private"]["inbox"]
+        self.assertEqual((pr["mine"], pr["review"], pr["assigned"]), (["acme/garden#200"], ["acme/garden#7"], ["acme/garden#300"]))
+        self.assertIn("acme/garden-plan: open pull requests no access (HTTP 403), not read", pr["coverage"])
+        self.assertIn("acme/garden: only the latest 100 open pull requests were read", pr["coverage"])
+
+    def test_work_evidence_on_a_private_run_links_out_says_what_it_could_not_read_and_only_reads(self):
+        pr = self.r["work"]["private"]
+        first = pr["first"]
+        self.assertEqual(len(first["pulls"]), 100)
+        self.assertEqual(first["pulls"][0][1], "XQ101 layout <b>now</b> · names XQ101")
+        self.assertEqual(first["pulls"][2][2], "Draft")
+        self.assertIn("Older ones are read only when you ask", first["coverage"])
+        self.assertTrue(first["older"])
+        self.assertEqual(first["links"][0], ["https://github.example.invalid/acme/garden/pull/200", "_blank", "noopener noreferrer"])
+        self.assertTrue(first["linksSafe"])
+        self.assertEqual(pr["evidence"]["reviews"], [["APPROVED", "older"]])
+        self.assertIn("0 approvals", pr["evidence"]["reviewText"], "an approval at an older commit is not one of the head")
+        self.assertIn("1 check run: 0 passing, 0 not passing, 1 running or queued", pr["evidence"]["checks"])
+        self.assertIn("not readable with this token (Pull requests: read)", pr["denied"])
+        self.assertIn("The next page could not be read", pr["second"]["coverage"])
+        self.assertEqual(len(pr["second"]["pulls"]), 100, "what was read stays shown")
+        self.assertFalse(pr["second"]["older"])
+        self.assertIn("not readable with this token (Actions: read)", pr["runs"]["text"])
+        self.assertEqual(pr["releases"]["links"], [["https://github.example.invalid/acme/garden/releases/tag/v1.0", "_blank", "noopener noreferrer"]],
+                         "a release links to its page; no asset links")
+        urls = pr["urls"]
+        self.assertTrue(all(u.startswith("GET ") for u in urls))
+        self.assertFalse(any(x in u for u in urls for x in ("/merge", "/rerun", "/cancel", "/assets/", "/notifications", "/user/issues", "/search/", "/statuses/")))
 
     def test_framed_page_refuses_to_show(self):
         self.assertEqual(self.r["framed"], {"state": "This page cannot be shown inside another site.", "shell": "hidden"})
