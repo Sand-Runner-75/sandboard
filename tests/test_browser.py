@@ -263,6 +263,9 @@ class BrowserTest(unittest.TestCase):
         self.assertTrue(f["phaseCurrent"])
         self.assertEqual(v["phaseGroup"], ["ph:garden:P1", "ph:garden:P2"], "without stages, phases sit under the project")
 
+    def test_a_stage_picked_in_the_tree_opens_its_tasks_not_the_overview(self):
+        self.assertEqual(self.r["firstUse"]["treeStage"], {"tasks": 1, "lower": 0, "stage": "S1", "phase": "", "current": True})
+
     def test_clearing_a_navigated_phase_keeps_its_stage(self):
         f = self.r["firstUse"]
         self.assertEqual(f["phaseStage"], "S1", "a phase picked in the tree brings its stage")

@@ -307,7 +307,7 @@
           if (Array.isArray(p.data.stages)) {
             kids.push({ id: "stages:" + w.id, label: "Stages", tip: TIPS.Stage, kids: p.data.stages.map((st, i) => ({
               id: "st:" + w.id + ":" + st.id, label: (i + 1) + " " + st.name, sub: st.rows ? st.progress_pct + "%" : "—", tip: stageTip(st),
-              act: () => A.showStage(w.id, st.id),
+              act: () => A.showStageTasks(w.id, st.id),
               kids: p.data.phases.filter(ph => st.phases.includes(ph.id)).map(phase),
               cur: at("overview", () => S.view.stage === st.id) || at("tasks", () => !S.filters.phase && S.filters.stage === st.id) })) });
           } else {

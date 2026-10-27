@@ -655,6 +655,8 @@
       S.activeTab = null;
       // A phase picked from the tree or a phase card brings its stage with it, as the filters show it.
       if (opts && opts.phase !== undefined) S.filters = Object.assign(noFilters(), { stage: V.stageIdOf(entryOf(project), opts.phase), phase: opts.phase });
+      // A stage picked from the tree opens its tasks with the filters, like a phase; only the overview's chips keep the overview.
+      if (opts && opts.stage !== undefined) S.filters = Object.assign(noFilters(), { stage: opts.stage });
       if (opts && opts.select !== undefined) S.selected = opts.select;
       render();
       if (S.selected) loadDocs(entryOf(project), S.selected);
@@ -663,6 +665,7 @@
     },
     showStage(project, stage) { A.go(project, { kind: "overview", stage: stage || null }); },
     showPhase(project, phase) { A.go(project, { kind: "tasks" }, { phase, focus: "tasks-h" }); },
+    showStageTasks(project, stage) { A.go(project, { kind: "tasks" }, { stage, focus: "tasks-h" }); },
     setFilter(key, value, focusId) {
       S.filters[key] = value;
       if (key === "stage") S.filters.phase = "";  // a new stage starts from all of its phases

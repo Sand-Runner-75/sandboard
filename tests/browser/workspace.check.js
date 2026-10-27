@@ -387,6 +387,11 @@ function privateRepos() {
   await expand(p, "stages:demo");
   await p.click('#tree [data-id="st:demo:S1"] > .ti > .tw'); await p.waitForTimeout(100);
   fu.stagePhases = await kids("st:demo:S1");
+  // A stage picked in the tree opens the Tasks view filtered to it, never the two-column overview.
+  await tree(p, "st:demo:S1"); await p.waitForTimeout(150);
+  fu.treeStage = { tasks: await p.$$eval("#task-list", n => n.length), lower: await p.$$eval("[data-part=overview-lower]", n => n.length),
+    stage: await p.$eval("#f-stage", n => n.value), phase: await p.$eval("#f-phase", n => n.value),
+    current: await p.$eval('#tree [data-id="st:demo:S1"] > .ti', n => n.classList.contains("current")) };
   await tree(p, "ph:demo:P2"); await p.waitForTimeout(150);
   fu.phaseRows = await p.$$eval("#task-list .row", r => r.map(x => x.dataset.id));
   fu.phaseCurrent = await p.$eval('#tree [data-id="ph:demo:P2"] > .ti', n => n.classList.contains("current"));
