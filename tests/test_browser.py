@@ -5,6 +5,7 @@ read-only request boundary (tests/browser/workspace.check.js).
 They need Node.js and Playwright with its Chromium. Without them the checks are
 skipped, as on CI; set SANDBOARD_PLAYWRIGHT to the playwright module's folder
 when it is not found on its own."""
+import hashlib
 import json
 import os
 import shutil
@@ -205,7 +206,7 @@ class BrowserTest(unittest.TestCase):
     def test_untrusted_text_is_shown_as_text(self):
         p = self.r["progress"]
         self.assertIn('<script>alert("never runs")</script>', p["hostile"])
-        self.assertEqual((p["scripts"], p["imgs"]), (11, 0))
+        self.assertEqual((p["scripts"], p["imgs"]), (12, 0))
         self.assertEqual(p["writeControls"], [])
 
     def test_copy_is_exactly_the_shown_text_and_a_refusal_is_reported(self):
@@ -495,14 +496,14 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(rows["94a4057"][2], "merge")
         self.assertEqual(rows["94a4057"][3], ["tag v0.2.0"])
         self.assertEqual(d["rows"][-1][2], "root")
-        self.assertEqual({rows["2b2ee57"][1], rows["da7095a"][1], rows["9c65a9a"][1]}, {"2", "1", "0"}, "diverging branches get lanes of their own")
+        self.assertEqual({rows["2b2ee57"][1], rows["da7095a"][1], rows["adc73ab"][1]}, {"2", "1", "0"}, "diverging branches get lanes of their own")
         self.assertEqual(rows["2b2ee57"][3], ["feature/search"])
         self.assertIn("Search box <b>draft</b>", d["titles"])
         self.assertEqual(d["bold"], 0, "a commit title stays text")
         self.assertIn("this is the start of the history", d["coverage"])
         self.assertIn("The other 2 rows are compared branches' own commits", d["coverage"])
         self.assertEqual(d["branches"], [["feature/search", "2b2ee57", "No", "2", "4", "Diverged"], ["list-data", "da7095a", "No", "0", "3", "Behind"],
-                                         ["main", "9c65a9a", "Yes", "0", "0", "Identical"]])
+                                         ["main", "adc73ab", "Yes", "0", "0", "Identical"]])
         self.assertEqual(d["tags"], ["v0.1.035b718ein the history shown", "v0.2.094a4057in the history shown"])
         self.assertGreater(d["canvas"][0], 0)
 
@@ -555,14 +556,14 @@ class BrowserTest(unittest.TestCase):
 
     def test_work_evidence_tabs_list_pull_requests_with_reviews_at_their_own_commit(self):
         w = self.r["work"]
-        self.assertEqual(w["pulls"]["tabs"], ["Overview", "History", "Pull requests", "Issues", "Actions", "Releases"])
+        self.assertEqual(w["pulls"]["tabs"], ["Overview", "History", "Pull requests", "Issues", "Actions", "Releases", "Files"])
         self.assertEqual(w["pulls"]["focus"], "rs-pulls", "Right arrow moves from History to Pull requests")
         self.assertIn("none of it is progress", w["pulls"]["notice"])
         self.assertEqual([r[0] for r in w["pulls"]["pulls"]], ["#6", "#2"])
         self.assertEqual(w["pulls"]["pulls"][0][1:3], ["Search screen <b>draft</b>", "Draft"])
         self.assertEqual(w["pulls"]["bold"], 0, "a title stays text")
         self.assertEqual(w["evidence"]["reviews"], [["CHANGES_REQUESTED", "older"], ["COMMENTED", "older"], ["APPROVED", "head"]])
-        self.assertIn("At the head 9c65a9a: 1 approval, 0 requests for changes. 1 review at an older commit does not count for the head.", w["evidence"]["reviewText"])
+        self.assertIn("At the head adc73ab: 1 approval, 0 requests for changes. 1 review at an older commit does not count for the head.", w["evidence"]["reviewText"])
         self.assertIn("3 check runs: 1 passing, 1 not passing, 1 running or queued", w["evidence"]["checks"])
         self.assertEqual(w["evidence"]["focus"], "2", "focus stays on the button that opened the evidence")
         self.assertEqual([r[2] for r in w["closed"]["pulls"]], ["Merged2025-12-10 10:00 UTC", "Closed without merging"])
@@ -585,7 +586,8 @@ class BrowserTest(unittest.TestCase):
         self.assertIn("No run is started, rerun or cancelled from here", w["runs"]["text"])
         self.assertIn("not readable with this token (Actions: read)", w["planRuns"]["text"])
         self.assertEqual(w["releases"]["releases"], ["v0.3.0", "v0.2.0", "v0.1.0"])
-        self.assertEqual(w["releases"]["assets"], ["demo-app-0.2.0.zip 180.0 KB, 12 downloads", "checksums.txt 164 bytes, 3 downloads"])
+        self.assertEqual(w["releases"]["assets"], ["demo-app-0.2.0.zip 180.0 KB, 12 downloads, no GitHub download address",
+                                                   "checksums.txt 164 bytes, 3 downloads, no GitHub download address"])
         self.assertEqual(w["releases"]["linkCount"], 0, "the demo gives no web address, so nothing links")
         self.assertLessEqual(w["narrowRuns"], 320)
 
@@ -624,8 +626,10 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(len(pr["second"]["pulls"]), 100, "what was read stays shown")
         self.assertFalse(pr["second"]["older"])
         self.assertIn("not readable with this token (Actions: read)", pr["runs"]["text"])
-        self.assertEqual(pr["releases"]["links"], [["https://github.example.invalid/acme/garden/releases/tag/v1.0", "_blank", "noopener noreferrer"]],
-                         "a release links to its page; no asset links")
+        self.assertEqual(pr["releases"]["links"], [["https://github.example.invalid/acme/garden/releases/tag/v1.0", "_blank", "noopener noreferrer"],
+                                                   ["https://github.com/acme/garden/releases/download/v1.0/b.zip", "_blank", "noopener noreferrer"]],
+                         "a release links to its page; an asset links only to GitHub's own download address for the repository")
+        self.assertIn("a.zip 10 bytes, 1 download, no GitHub download address", pr["releases"]["text"])
         po = pr["prOnly"]
         self.assertEqual(po["issues"], [])
         self.assertEqual(po["empty"], None, "a page of pull requests only is not an empty list")
@@ -644,6 +648,113 @@ class BrowserTest(unittest.TestCase):
         urls = pr["urls"]
         self.assertTrue(all(u.startswith("GET ") for u in urls))
         self.assertFalse(any(x in u for u in urls for x in ("/merge", "/rerun", "/cancel", "/assets/", "/notifications", "/user/issues", "/search/", "/statuses/")))
+
+    def test_files_show_the_tree_and_text_at_the_pinned_commit_with_nothing_run_or_linked(self):
+        c = self.r["code"]
+        self.assertEqual(c["tree"]["tabs"][-1], "Files")
+        self.assertEqual(c["tree"]["focus"], "rs-files", "Right arrow moves from Releases to Files")
+        self.assertRegex(c["tree"]["notice"], r"Files read at main → [0-9a-f]{7}")
+        self.assertIn("nothing in it runs", c["tree"]["notice"])
+        self.assertEqual(c["tree"]["tree"], [["assets", "false", None], ["docs", "false", None], ["src", "false", None], ["vendor", "false", None], ["README.md", None, None]],
+                         "folders first and closed, then files")
+        self.assertEqual(c["tree"]["coverage"], "11 files and 4 folders: the whole tree GitHub lists at this commit.")
+        self.assertEqual([x[0] for x in c["opened"]["tree"]][2:6], ["src", "src/access.js", "src/app.js", "src/list.js"], "Enter opens a folder")
+        self.assertEqual(c["opened"]["focus"], "src", "focus stays on the folder")
+        a = c["access"]
+        self.assertEqual(a["focus"], "src/access.js")
+        self.assertIn(["src/access.js", None, "true"], a["tree"])
+        self.assertEqual(a["hidden"], ["U+202E", "U+2066", "U+2069", "U+2066"], "direction marks are shown by their code")
+        self.assertEqual(a["lines"][2], '  if (role !== "ownerU+202E U+2066// owner onlyU+2069 U+2066") {')
+        self.assertIn("4 hidden characters", a["hiddenNote"])
+        self.assertIn("7 lines, 213 bytes", a["meta"])
+        self.assertIn("matched to GitHub's hash", a["meta"])
+        self.assertEqual(c["html"]["lines"][1:4], ['<script>document.title = "ran";</script>', '<img src="x" onerror="document.title = \'ran\'">',
+                                                   '<a href="javascript:alert(1)">Open the plan</a>'])
+        self.assertEqual(c["links"]["lines"][2], "[Open the plan](javascript:alert(1))")
+        for k in ("access", "html", "links"):
+            self.assertEqual(c[k]["preTags"], ["DIV", "SPAN"], "only rows and text spans, never markup from the file")
+            self.assertEqual(c[k]["active"], 0, "no image, frame, script, object or link from the file")
+            self.assertEqual(c[k]["links"], [], "the demo gives no web address, so nothing links")
+        self.assertEqual((c["startTitle"], c["titleAfter"]), ("Sandboard", "Sandboard"), "no script from a file ran")
+
+    def test_files_that_cannot_be_shown_as_text_say_why(self):
+        k = self.r["code"]["kinds"]
+        expect = {"docs/latest.md": "Link not followed", "docs/Meeting notes.txt": "Path not opened", "vendor/ui-kit": "Another repository",
+                  "assets/intro.mp4": "Too large to show", "assets/data.bin": "Not shown as text"}
+        for path, title in expect.items():
+            self.assertEqual(k[path]["state"], "unavailable", path)
+            self.assertIn(title, k[path]["viewer"], path)
+            self.assertEqual(k[path]["lines"], [], path)
+        self.assertIn("27 bytes, blob", k["assets/data.bin"]["viewer"])
+        self.assertIn("50.0 MB", k["assets/intro.mp4"]["viewer"])
+        f = self.r["code"]
+        self.assertEqual(f["find"]["found"], ["src/list.js"])
+        self.assertEqual(f["find"]["focus"], "code-q", "typing keeps the search focused")
+        self.assertEqual(f["found"]["tree"], [["src/list.js", None, "true"]])
+        self.assertEqual(f["found"]["lines"][0], "// The task list, read from the plan's progress file.")
+        self.assertIn("example-org/demo-app files (Demo Project)", f["goto"][0])
+        self.assertEqual((f["narrowFiles"], f["narrowChanges"]), (320, 320), "no sideways page scroll at 320 px")
+
+    def test_changes_show_the_commit_or_a_comparison_and_never_a_guessed_ref(self):
+        c = self.r["code"]
+        ch = c["changes"]
+        self.assertEqual(ch["files"], [["src/list.js", "Changed", "+4", "−1"], ["src/access.js", "Added", "+7", "−0"], ["docs/untrusted.html", "Added", "+5", "−0"],
+                                       ["docs/links.mdfrom docs/old-links.md", "Renamed", "+1", "−1"], ["assets/data.bin", "Added", "+0", "−0"]])
+        self.assertRegex(ch["changes"], r"Changes in main → [0-9a-f]{7}Feature list screen Against its parent [0-9a-f]{7}\.")
+        self.assertEqual(ch["pressed"], "src/list.js", "the first file's diff is shown")
+        self.assertEqual(ch["kinds"], ["hunk", "ctx", "del", "add", "add", "add", "add"])
+        self.assertEqual(c["diff"]["hidden"], ["U+202E", "U+2066", "U+2069", "U+2066"])
+        self.assertEqual(c["diff"]["focus"], "src/access.js", "focus stays on the file picked")
+        self.assertEqual(c["diffHtml"]["lines"][2], '<script>document.title = "ran";</script>')
+        self.assertEqual((c["diffHtml"]["preTags"], c["diffHtml"]["active"]), (["DIV", "SPAN"], 0))
+        self.assertEqual(c["diffBin"]["state"], "unavailable")
+        self.assertIn("No text diff", c["diffBin"]["changes"])
+        cmp = c["compare"]
+        self.assertRegex(cmp["changes"], r"Changes from v0\.2\.0 → [0-9a-f]{7} to main → [0-9a-f]{7}")
+        self.assertIn("main is 1 commit ahead of v0.2.0 and 0 commits behind it", cmp["source"])
+        self.assertIn("common ancestor", cmp["source"])
+        self.assertIn("GitHub finds no branch, tag or commit called “no-such-ref”", c["missing"]["changes"])
+        self.assertIn("Nothing else is compared in its place.", c["missing"]["changes"])
+        self.assertEqual(c["missing"]["files"], [], "nothing is compared in its place")
+        self.assertEqual(c["badRef"]["status"], "Type a branch, tag or commit made of letters, digits, dots, dashes, underscores and slashes.")
+        self.assertEqual(c["badRef"]["against"], "a b", "what was typed stays to be corrected")
+        self.assertRegex(c["own"]["changes"], r"Changes in main → [0-9a-f]{7}")
+
+    def test_files_on_a_private_run_link_out_say_what_github_cut_and_only_read(self):
+        pv = self.r["code"]["private"]
+        self.assertIn("GitHub cut its list of this tree at 3 entries", pv["tree"]["coverage"])
+        self.assertEqual(pv["tree"]["tree"][0][0], "deep")
+        f = pv["file"]
+        self.assertEqual(f["lines"], ['Visit https://example.invalid/phish and <a href="javascript:alert(1)">this</a>'])
+        self.assertEqual(f["links"], [["https://github.example.invalid/acme/garden/blob/" + self.code_commit() + "/src/main.js", "_blank", "noopener noreferrer"]],
+                         "only the file's own page on GitHub links; no address in the text does")
+        ch = pv["changes"]
+        self.assertIn("A merge commit: shown against its first parent", ch["changes"])
+        self.assertIn("GitHub lists at most 300 changed files in one reply. These are the first 300 files; the rest are not shown.", ch["changeCoverage"])
+        self.assertEqual(ch["links"], [["https://github.example.invalid/acme/garden/commit/" + self.code_commit(), "_blank", "noopener noreferrer"]])
+        cmp = pv["compare"]
+        self.assertIn("main is 3 commits ahead of release", cmp["source"])
+        self.assertEqual(cmp["lines"], ["@@ -1 +1,2 @@", "x", "https://example.invalid/more"])
+        self.assertEqual(cmp["changeCoverage"], "1 file changed: the whole list GitHub gives.",
+                         "a comparison's next page lists commits, so it never makes its files partial")
+        nf = pv["noFiles"]
+        self.assertIn("“nofiles” could not be read (no well-formed list of changed files). Nothing else is compared in its place.", nf["changes"])
+        self.assertNotIn("No file changed", nf["changes"])
+        self.assertEqual(nf["files"], [])
+        self.assertEqual(len(cmp["links"]), 1)
+        self.assertIn("/compare/", cmp["links"][0][0])
+        self.assertEqual(pv["denied"]["treeState"], "denied")
+        self.assertEqual(pv["denied"]["viewer"], "", "no file to pick without a tree")
+        urls = pv["urls"]
+        self.assertTrue(all(u.startswith("GET https://api.github.com/") for u in urls))
+        code = [u for u in urls if "/git/trees/" in u or "/contents/src" in u or "/compare/" in u or "/commits/release" in u or u.endswith("/commits/" + self.code_commit())]
+        self.assertEqual(len(code), len(set(code)), "each code read once")
+        self.assertEqual(sum("/git/trees/" in u for u in urls), 2)
+        self.assertFalse(any(x in u for u in urls for x in ("/git/blobs", "/tarball", "/zipball", "/raw", "/merges", "/git/refs")))
+
+    @staticmethod
+    def code_commit():
+        return hashlib.sha1(b"code-main").hexdigest()  # F.CODE_COMMIT in tests/js/fixtures.js
 
     def test_framed_page_refuses_to_show(self):
         self.assertEqual(self.r["framed"], {"state": "This page cannot be shown inside another site.", "shell": "hidden"})

@@ -296,3 +296,32 @@ details.group > .table-wrap { margin-top: 4px; }
 [data-part=releases] details summary { cursor: pointer; font-size: 0.84rem; }
 .grid-table td.wide { min-width: 12rem; }
 .feed .plain-list li { display: list-item; border: 0; padding: 0; }
+
+/* Files: the tree beside the file viewer; text and diffs in numbered rows; hidden characters shown boxed. */
+.files { display: grid; grid-template-columns: minmax(0, 18rem) minmax(0, 1fr); gap: 12px; align-items: start; }
+.find { display: grid; gap: 2px; font-size: 0.78rem; color: var(--muted); }
+.find input, .cmp-form input { min-height: 34px; padding: 4px 8px; border: 1px solid var(--control); border-radius: var(--r); background: var(--surface); color: var(--fg); }
+.ftree { list-style: none; margin: 0; padding: 0; font-size: 0.84rem; }
+.ftree .ftree { padding-left: 14px; }
+.fnode { display: flex; gap: 4px; align-items: baseline; width: 100%; min-height: 28px; padding: 3px 6px; background: none; border: 0; border-radius: 4px; color: var(--fg); text-align: left; cursor: pointer; font: inherit; }
+.fnode:hover { background: var(--sunken); }
+.fnode.current { background: var(--info-bg); color: var(--info-fg); font-weight: 600; }
+.fnode .tw { width: 1em; flex: none; color: var(--muted); }
+.fnode .fname { overflow-wrap: anywhere; min-width: 0; }
+.found .fnode .fname { font-family: var(--font-data); font-size: 0.86em; }
+.fpath { margin: 0; font-size: 0.9rem; overflow-wrap: anywhere; }
+pre.code { margin: 0; background: var(--sunken); border-radius: var(--r); padding: 8px 0; overflow: auto; max-height: 36rem; font: 0.82rem/1.5 var(--font-data); tab-size: 4; }
+pre.code > div { display: flex; min-width: max-content; padding-right: 12px; }
+pre.code .ln { flex: none; width: 3.2em; padding-right: 10px; text-align: right; color: var(--muted); user-select: none; }
+pre.code .mk { flex: none; width: 1.2em; color: var(--muted); }
+pre.code .tx { white-space: pre; }
+pre.code .hid { border: 1px solid var(--warn-fg); border-radius: 3px; padding: 0 2px; margin: 0 1px; color: var(--warn-fg); background: var(--warn-bg); font-size: 0.85em; }
+pre.diff .add { background: color-mix(in srgb, var(--s-done) 16%, var(--sunken)); }
+pre.diff .del { background: color-mix(in srgb, var(--s-blocked) 14%, var(--sunken)); }
+pre.diff .add .mk { color: var(--s-done); } pre.diff .del .mk { color: var(--s-blocked); }
+pre.diff .hunk, pre.diff .note { color: var(--muted); }
+.cmp-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.cmp-form label { display: grid; gap: 2px; font-size: 0.78rem; color: var(--muted); }
+.cmp-form input { width: 18rem; max-width: 100%; }
+@media (max-width: 860px) { .files { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 520px) { .cmp-form label, .cmp-form input { width: 100%; } }

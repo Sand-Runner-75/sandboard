@@ -14,7 +14,7 @@
     "Pull requests": "This repository's pull requests as GitHub lists them now, newest first. A review or passing checks are GitHub evidence, never the owner's approval.",
     "Issues": "This repository's issues as GitHub lists them now, newest first. GitHub's issue list also holds pull requests; they are left to Pull requests.",
     "Actions": "This repository's workflow runs as GitHub lists them now, newest first. A run not finished has no result yet.",
-    "Releases": "This repository's releases as GitHub lists them now. Asset files are listed by name and size only, never fetched.",
+    "Releases": "This repository's releases as GitHub lists them now. An asset links to GitHub's own download address only; nothing is fetched or opened here.",
     "Inbox": "Your open pull requests, reviews asked of you and issues assigned to you, in the repositories mapped to your projects only.",
     "Reviews": "Each review stays on the commit it was given at. A review at an older commit is not a review of the current head.",
   });
@@ -102,7 +102,7 @@
     if (!web) card.append(el("p", { class: "qual muted plain" }, "GitHub gave no web address for this repository, so nothing here links to it."));
     card.append(el("p", { class: "qual muted plain" }, kind === "pulls" ? "A review, passing checks or a merge are GitHub evidence, not the owner's approval."
       : kind === "runs" ? "A run that has not finished has no result yet; it is never shown as a success. No run is started, rerun or cancelled from here."
-      : kind === "releases" ? "Asset files are listed by name and size only: none is linked, fetched or opened. Nothing is published from here."
+      : kind === "releases" ? "An asset links only to GitHub's own download address for this repository; any other address is shown as text. No asset is fetched or opened here, and nothing is published."
       : "No issue is edited, assigned, commented on or closed from here."));
     parts.push(card);
     return parts;
@@ -203,8 +203,8 @@
         el("span", { class: "qual muted" }, r.published ? "Published " + when(r.published) : r.draft ? "Not published" : "Publish time not given"),
         person(r.author),
         r.assets.length ? el("details", {}, el("summary", {}, plural(r.assets.length, "asset")), el("ul", { class: "plain-list" }, r.assets.map(a =>
-          el("li", {}, el("span", { class: "mono" }, a.name), el("span", { class: "qual muted" }, " " + bytes(a.size) +
-            (a.downloads === null ? "" : ", " + plural(a.downloads, "download")))))))
+          el("li", { "data-asset": a.url ? "link" : "text" }, a.url ? link(a.url, a.name) : el("span", { class: "mono" }, a.name), el("span", { class: "qual muted" }, " " + bytes(a.size) +
+            (a.downloads === null ? "" : ", " + plural(a.downloads, "download")) + (a.url ? "" : ", no GitHub download address"))))))
           : el("span", { class: "qual muted" }, "No assets"));
     }));
   }
