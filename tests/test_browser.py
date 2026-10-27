@@ -205,7 +205,7 @@ class BrowserTest(unittest.TestCase):
     def test_untrusted_text_is_shown_as_text(self):
         p = self.r["progress"]
         self.assertIn('<script>alert("never runs")</script>', p["hostile"])
-        self.assertEqual((p["scripts"], p["imgs"]), (9, 0))
+        self.assertEqual((p["scripts"], p["imgs"]), (10, 0))
         self.assertEqual(p["writeControls"], [])
 
     def test_copy_is_exactly_the_shown_text_and_a_refusal_is_reported(self):
@@ -484,6 +484,63 @@ class BrowserTest(unittest.TestCase):
         n = self.r["repos"]["narrow"]
         self.assertLessEqual(n["portfolio"], 320)
         self.assertLessEqual(n["activity"], 320)
+
+    def test_history_draws_lanes_refs_and_branches_from_the_commits_read(self):
+        d = self.r["history"]["demo"]
+        self.assertEqual(d["focus"], "rs-history", "Right arrow moves to the History tab")
+        self.assertIn("none of it is progress", d["notice"])
+        rows = {r[0]: r for r in d["rows"]}
+        self.assertEqual(len(d["rows"]), 8)
+        self.assertEqual(d["rows"][0][3], ["read here: main", "main"])
+        self.assertEqual(rows["94a4057"][2], "merge")
+        self.assertEqual(rows["94a4057"][3], ["tag v0.2.0"])
+        self.assertEqual(d["rows"][-1][2], "root")
+        self.assertEqual({rows["2b2ee57"][1], rows["da7095a"][1], rows["9c65a9a"][1]}, {"2", "1", "0"}, "diverging branches get lanes of their own")
+        self.assertEqual(rows["2b2ee57"][3], ["feature/search"])
+        self.assertIn("Search box <b>draft</b>", d["titles"])
+        self.assertEqual(d["bold"], 0, "a commit title stays text")
+        self.assertIn("this is the start of the history", d["coverage"])
+        self.assertIn("The other 2 rows are compared branches' own commits", d["coverage"])
+        self.assertEqual(d["branches"], [["feature/search", "2b2ee57", "No", "2", "4", "Diverged"], ["list-data", "da7095a", "No", "0", "3", "Behind"],
+                                         ["main", "9c65a9a", "Yes", "0", "0", "Identical"]])
+        self.assertEqual(d["tags"], ["v0.1.035b718ein the history shown", "v0.2.094a4057in the history shown"])
+        self.assertGreater(d["canvas"][0], 0)
+
+    def test_history_zooms_fits_and_reads_older_commits_only_when_asked(self):
+        h = self.r["history"]
+        self.assertTrue(h["demo"]["zoomOut"])
+        self.assertGreater(h["zoomed"]["rowHeight"], h["demo"]["rowHeight"])
+        self.assertFalse(h["zoomed"]["zoomOut"])
+        self.assertEqual(h["fit"]["rowHeight"], h["demo"]["rowHeight"])
+        first, second = h["paged"]["first"], h["paged"]["second"]
+        self.assertEqual(len(first["rows"]), 100)
+        self.assertIn("Older history is read only when you ask", first["coverage"])
+        self.assertTrue(first["older"])
+        self.assertEqual(len(second["rows"]), 140)
+        self.assertIn("this is the start of the history", second["coverage"])
+        self.assertFalse(second["older"])
+        self.assertLessEqual(h["narrow"], 320)
+
+    def test_history_says_what_it_could_not_read_and_only_reads(self):
+        pr = self.r["history"]["private"]
+        self.assertIn("1 line continues past the last row into commits not read", pr["first"]["open"])
+        self.assertIn("No access", pr["first"]["branchesText"])
+        self.assertEqual(pr["first"]["tags"], ["v0.10bb8400not in the commits read"])
+        self.assertIn("The next page could not be read", pr["second"]["coverage"])
+        self.assertFalse(pr["second"]["older"])
+        urls = pr["urls"]
+        self.assertTrue(all(u.startswith("GET ") for u in urls))
+        self.assertFalse(any("/compare/" in u for u in urls), "nothing is compared when the branch list is refused")
+        self.assertFalse(any(x in u for u in urls for x in ("/merges", "/git/", "/stats/", "/contributors", "/events")))
+
+    def test_history_counts_cover_only_the_commits_read_and_name_logins_only(self):
+        d = self.r["history"]["demo"]
+        self.assertEqual(d["weeks"], 12)
+        self.assertEqual(d["contributors"], ["demo-claude3 commits", "demo-owner2 commits"])
+        self.assertIn("1 commit not linked to a GitHub account: counted, not named", d["unlinked"])
+        self.assertGreater(d["heat"], 0)
+        for word in ("Checkout", "Merge", "Delete", "Reset", "Create branch"):
+            self.assertNotIn(word, d["controls"], "no control changes anything")
 
     def test_framed_page_refuses_to_show(self):
         self.assertEqual(self.r["framed"], {"state": "This page cannot be shown inside another site.", "shell": "hidden"})

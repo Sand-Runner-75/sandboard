@@ -458,7 +458,94 @@
     return entries;
   }
 
+  // ---- History (branches, tags, the commits behind a pinned commit, and how a branch compares).
+  // Every list is bounded and says when it may hold more. A login is kept from a commit, never a
+  // name or email address.
+
+  const HISTORY_PAGE = 100;
+  const MAX_HISTORY_PAGES = 10;
+  const MAX_REF_PAGES = 3;
+  const isLogin = v => typeof v === "string" && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?$/.test(v);
+
+  // One commit as the list and compare replies give it, or null when it is not in that form.
+  function historyCommit(c) {
+    const at = isObject(c) && isObject(c.commit) && isObject(c.commit.committer) ? c.commit.committer.date : undefined;
+    if (!isObject(c) || !isSha(c.sha) || !isObject(c.commit) || typeof c.commit.message !== "string" || !isTime(at === undefined ? null : at) ||
+        !Array.isArray(c.parents) || c.parents.length > 8 || !c.parents.every(p => isObject(p) && isSha(p.sha))) return null;
+    return { sha: c.sha, title: c.commit.message.split("\n")[0].slice(0, 200), at: at || null, parents: c.parents.map(p => p.sha),
+             author: isObject(c.author) && isLogin(c.author.login) ? c.author.login : null };
+  }
+
+  // One page of the history behind a pinned commit, newest first. A full page may have more behind it.
+  function readHistoryPage(ctx, client, repo, commit, page) {
+    return SB.guard(readHistoryPageUnguarded(ctx, client, repo, commit, page), { repo, commit, page });
+  }
+
+  async function readHistoryPageUnguarded(ctx, client, repo, commit, page) {
+    const source = { repo, commit, page };
+    if (!SB.validRepo(repo) || !isSha(commit) || !Number.isInteger(page) || page < 1 || page > MAX_HISTORY_PAGES) {
+      return result("invalid", null, source, { error: "not a valid repository, commit or page" });
+    }
+    const res = await client.get(ctx, "/repos/" + repo + "/commits?sha=" + commit + "&per_page=" + HISTORY_PAGE + "&page=" + page);
+    if (!res.ok) return result(client.stateFor(res), null, source, { error: "HTTP " + res.status });
+    const body = await client.json(ctx, res);
+    if (!Array.isArray(body) || body.length > HISTORY_PAGE) return result("invalid", null, source, { error: "unexpected commit list" });
+    const commits = body.map(historyCommit);
+    if (commits.some(c => !c)) return result("invalid", null, source, { error: "malformed commit" });
+    if (commits.length === HISTORY_PAGE) return result("partial", { commits, end: false }, source, { coverage: { shown: commits.length, total: null } });
+    return result(commits.length ? "current" : "empty", { commits, end: true }, source);
+  }
+
+  // A repository's branches or tags as GitHub lists them now, each with the commit it points at.
+  function readRefs(ctx, client, repo, kind) {
+    return SB.guard(readRefsUnguarded(ctx, client, repo, kind), { repo, kind });
+  }
+
+  async function readRefsUnguarded(ctx, client, repo, kind) {
+    const source = { repo, kind };
+    if (!SB.validRepo(repo) || !["branches", "tags"].includes(kind)) return result("invalid", null, source, { error: "not a valid repository or list" });
+    const refs = [];
+    for (let page = 1; page <= MAX_REF_PAGES; page++) {
+      const res = await client.get(ctx, "/repos/" + repo + "/" + kind + "?per_page=100&page=" + page);
+      if (!res.ok) return result(client.stateFor(res), null, source, { error: "HTTP " + res.status });
+      const body = await client.json(ctx, res);
+      if (!Array.isArray(body) || body.length > 100) return result("invalid", null, source, { error: "unexpected " + kind + " list" });
+      for (const r of body) {
+        if (!isObject(r) || typeof r.name !== "string" || !/^[^\u0000-\u001f]{1,250}$/.test(r.name) || !isObject(r.commit) || !isSha(r.commit.sha) ||
+            !(r.protected === undefined || typeof r.protected === "boolean")) {
+          return result("invalid", null, source, { error: "malformed " + (kind === "tags" ? "tag" : "branch") });
+        }
+        refs.push(kind === "tags" ? { name: r.name, sha: r.commit.sha } : { name: r.name, sha: r.commit.sha, protected: r.protected === undefined ? null : r.protected });
+      }
+      if (body.length < 100) return result(refs.length ? "current" : "empty", { refs }, source);
+    }
+    return result("partial", { refs }, source, { coverage: { shown: refs.length, total: null } });
+  }
+
+  // How one commit compares with another: GitHub's ahead and behind counts and their merge base.
+  // Only the counts are read here (one commit per page); a branch's own commits are read apart.
+  const COMPARE_STATES = ["ahead", "behind", "diverged", "identical"];
+  function readCompare(ctx, client, repo, base, head) {
+    return SB.guard(readCompareUnguarded(ctx, client, repo, base, head), { repo, base, head });
+  }
+
+  async function readCompareUnguarded(ctx, client, repo, base, head) {
+    const source = { repo, base, head };
+    if (!SB.validRepo(repo) || !isSha(base) || !isSha(head)) return result("invalid", null, source, { error: "not a valid repository or commit" });
+    const res = await client.get(ctx, "/repos/" + repo + "/compare/" + base + "..." + head + "?per_page=1");
+    if (!res.ok) return result(client.stateFor(res), null, source, { error: "HTTP " + res.status });
+    const b = await client.json(ctx, res);
+    const count = v => Number.isInteger(v) && v >= 0;
+    if (!isObject(b) || !COMPARE_STATES.includes(b.status) || !count(b.ahead_by) || !count(b.behind_by) ||
+        !(b.merge_base_commit === undefined || b.merge_base_commit === null || (isObject(b.merge_base_commit) && isSha(b.merge_base_commit.sha)))) {
+      return result("invalid", null, source, { error: "unexpected comparison" });
+    }
+    return result("current", { status: b.status, ahead: b.ahead_by, behind: b.behind_by,
+                               base: b.merge_base_commit && b.merge_base_commit.sha ? b.merge_base_commit.sha : null }, source);
+  }
+
   Object.assign(SB, { WORKSPACES_FILE, STATUSES, SCOPES, readWorkspace, readTaskFile, isPath, validateWorkspaces, readWorkspaces, splitRow, parsePlanTables, readPlan,
                       validateProgress, readProgress, readCheckRuns, readPulls, readComments,
-                      COMMIT_LIMIT, REPO_COMMENT_LIMIT, readLanguages, readCommits, readRepoComments, readUser });
+                      COMMIT_LIMIT, REPO_COMMENT_LIMIT, readLanguages, readCommits, readRepoComments, readUser,
+                      HISTORY_PAGE, MAX_HISTORY_PAGES, historyCommit, readHistoryPage, readRefs, readCompare });
 })(typeof window !== "undefined" ? window : globalThis);

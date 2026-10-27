@@ -28,6 +28,7 @@ The output is byte-for-byte reproducible and listed with SHA-256 hashes in
 build-manifest.json.
 """
 import argparse
+import datetime
 import hashlib
 import html.parser
 import json
@@ -92,20 +93,44 @@ def demo_repos(fixture_dir):
             repos[name]["meta"] = r["meta"]
         if "languages" in r:
             repos[name]["languages"] = r["languages"]
-        if "commits" in r:
-            repos[name]["commits"] = demo_commits(name, r["commits"], repos[name]["commit"])
+        if "commits" in r or "generate" in r:
+            repos[name]["commits"], branches, tags = demo_commits(name, r, repos[name]["commit"])
+            if "branches" in r:
+                repos[name]["branches"] = branches
+            if "tags" in r:
+                repos[name]["tags"] = tags
     return {"sign_in": spec["sign_in"], "repos": repos}
 
 
-def demo_commits(name, commits, commit):
-    """Synthetic commit history, newest first, in the API's shape. The first is the repository's
-    demo commit; the others get made-up IDs from the repository's name and their place."""
+def demo_commits(name, spec, commit):
+    """Synthetic commit history in the API's shape, newest first. The first commit is the
+    repository's demo commit; the others get made-up IDs from the repository's name and their
+    own "id" (or their place). A commit's parents are the "id"s it names, or else the next
+    commit in the list. "generate" appends a long run of older, linear commits."""
+    listed = list(spec.get("commits", []))
+    gen = spec.get("generate")
+    if gen:
+        start = listed[-1]["at"] if listed else "2026-01-01T00:00:00Z"
+        t0 = datetime.datetime.strptime(start, "%Y-%m-%dT%H:%M:%SZ")
+        authors = gen.get("authors", [None])
+        for n in range(1, gen["count"] + 1):
+            at = (t0 - datetime.timedelta(days=gen.get("every_days", 1) * n)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            listed.append({"id": "gen-%d" % n, "title": gen["title"].replace("{n}", str(gen["count"] + 1 - n)), "at": at,
+                           "author": authors[n % len(authors)]})
+    ids = [c.get("id", "#%d" % i) for i, c in enumerate(listed)]
+    shas = [commit if i == 0 else hashlib.sha1(("%s%s" % (name, ids[i])).encode()).hexdigest() for i in range(len(listed))]
+    by_id = dict(zip(ids, shas))
     out = []
-    for i, c in enumerate(commits):
-        sha = commit if i == 0 else hashlib.sha1(("%s#%d" % (name, i)).encode()).hexdigest()
-        out.append({"sha": sha, "commit": {"message": c["title"], "committer": {"date": c["at"]}},
-                    "parents": [{}] * c.get("parents", 1)})
-    return out
+    for i, c in enumerate(listed):
+        parents = [by_id[p] for p in c["parents"]] if isinstance(c.get("parents"), list) else shas[i + 1:i + 2]
+        entry = {"sha": shas[i], "commit": {"message": c["title"], "committer": {"date": c["at"]}},
+                 "parents": [{"sha": p} for p in parents]}
+        if c.get("author"):
+            entry["author"] = {"login": c["author"]}
+        out.append(entry)
+    refs = lambda key: [{"name": x["name"], "commit": {"sha": shas[0] if x["at"] == "head" else by_id[x["at"]]},
+                         **({"protected": x["protected"]} if key == "branches" and "protected" in x else {})} for x in spec.get(key, [])]
+    return out, refs("branches"), refs("tags")
 
 
 def demo_pulls(pulls, commit):

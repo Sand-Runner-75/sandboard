@@ -140,24 +140,46 @@
    "commits": [
     {
      "title": "DT201: add two features after the review",
-     "at": "2026-01-15T08:00:00Z"
+     "at": "2026-01-15T08:00:00Z",
+     "parents": [
+      "dt103"
+     ],
+     "author": "demo-claude"
     },
     {
+     "id": "dt103",
+     "title": "DT103: audience size range",
+     "at": "2026-01-12T09:00:00Z",
+     "parents": [
+      "merge3"
+     ],
+     "author": "demo-gpt"
+    },
+    {
+     "id": "merge3",
      "title": "Merge pull request #3 from example-org/dt101",
      "at": "2026-01-10T10:00:00Z",
-     "parents": 2
+     "parents": [
+      "first",
+      "dt101"
+     ],
+     "author": "demo-owner"
     },
     {
+     "id": "dt101",
      "title": "DT101: consent notes for two sessions",
-     "at": "2026-01-09T09:00:00Z"
+     "at": "2026-01-09T09:00:00Z",
+     "parents": [
+      "first"
+     ],
+     "author": "demo-claude"
     },
     {
-     "title": "DT103: audience size range",
-     "at": "2026-01-12T09:00:00Z"
-    },
-    {
+     "id": "first",
      "title": "First plan",
-     "at": "2025-03-02T10:00:00Z"
+     "at": "2025-03-02T10:00:00Z",
+     "parents": [],
+     "author": "demo-owner"
     }
    ]
   },
@@ -227,11 +249,99 @@
    "commits": [
     {
      "title": "Feature list screen",
-     "at": "2026-01-14T17:30:00Z"
+     "at": "2026-01-14T17:30:00Z",
+     "parents": [
+      "merge2"
+     ],
+     "author": "demo-claude"
     },
     {
+     "id": "merge2",
+     "title": "Merge branch list-data",
+     "at": "2025-12-10T10:00:00Z",
+     "parents": [
+      "readme",
+      "data2"
+     ],
+     "author": "demo-owner"
+    },
+    {
+     "id": "search2",
+     "title": "Search box <b>draft</b>",
+     "at": "2025-12-08T16:00:00Z",
+     "parents": [
+      "search1"
+     ],
+     "author": "demo-gpt"
+    },
+    {
+     "id": "data2",
+     "title": "Read the list from the plan",
+     "at": "2025-12-05T09:00:00Z",
+     "parents": [
+      "data1"
+     ],
+     "author": "demo-claude"
+    },
+    {
+     "id": "readme",
+     "title": "Explain how to run it",
+     "at": "2025-12-04T15:00:00Z",
+     "parents": [
+      "setup"
+     ]
+    },
+    {
+     "id": "search1",
+     "title": "Start the search screen",
+     "at": "2025-12-03T09:00:00Z",
+     "parents": [
+      "data1"
+     ],
+     "author": "demo-gpt"
+    },
+    {
+     "id": "data1",
+     "title": "List data model",
+     "at": "2025-12-01T11:00:00Z",
+     "parents": [
+      "setup"
+     ],
+     "author": "demo-claude"
+    },
+    {
+     "id": "setup",
      "title": "Set up the app",
-     "at": "2025-04-20T12:00:00Z"
+     "at": "2025-04-20T12:00:00Z",
+     "parents": [],
+     "author": "demo-owner"
+    }
+   ],
+   "branches": [
+    {
+     "name": "feature/search",
+     "at": "search2",
+     "protected": false
+    },
+    {
+     "name": "list-data",
+     "at": "data2",
+     "protected": false
+    },
+    {
+     "name": "main",
+     "at": "head",
+     "protected": true
+    }
+   ],
+   "tags": [
+    {
+     "name": "v0.1.0",
+     "at": "setup"
+    },
+    {
+     "name": "v0.2.0",
+     "at": "merge2"
     }
    ]
   },
@@ -277,6 +387,15 @@
    },
    "languages": {
     "status": 403
+   },
+   "generate": {
+    "count": 140,
+    "title": "Routine site update {n}",
+    "every_days": 2,
+    "authors": [
+     "demo-claude",
+     null
+    ]
    }
   },
   "example-org/notes-plan": {

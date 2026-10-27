@@ -43,6 +43,9 @@
       // Repository overview: live reads by repository (languages, activity feed, the account), the
       // portfolio filters, and repositories opened by name for this visit only.
       live: new Map(), repoFilters: noRepoFilters(), opened: [],
+      // History: how many pages each read commit's history goes back, the branches the owner asked
+      // to compare beyond the first ones, and the graph's zoom.
+      histDepth: new Map(), histAsk: new Set(), histZoom: 1,
     };
   }
   let S = freshState();
@@ -205,9 +208,25 @@
     const mine = SB.portfolio([e]).filter(r => r.meta);
     if (S.view.kind === "repo") {
       const r = mine.find(x => x.repo === S.view.repo);
-      if (r) { loadLive("lang|" + r.repo, ctx => SB.readLanguages(ctx, client, r.repo)); feed(r); }
+      if (!r) return;
+      if (S.view.sub === "history") return historyReads(r.repo, r.pinned.data.commit);
+      loadLive("lang|" + r.repo, ctx => SB.readLanguages(ctx, client, r.repo)); feed(r);
     } else if (S.view.kind === "overview") {
       for (const r of mine) feed(r);
+    }
+  }
+
+  // A repository's history reads what its view still wants: pages, the branch and tag lists, each
+  // comparison with the read commit, and each compared branch's own commits.
+  const depthKey = (repo, commit) => repo + "@" + commit;
+  function historyReads(repo, commit) {
+    const K = SB.historyKey;
+    const h = SB.historyView(key => S.live.get(key), repo, commit, S.histDepth.get(depthKey(repo, commit)) || 1, S.histAsk);
+    for (const w of h.wanted) {
+      if (w.kind === "page") loadLive(K.page(repo, commit, w.page), ctx => SB.readHistoryPage(ctx, client, repo, commit, w.page));
+      else if (w.kind === "refs") loadLive(K.refs(repo, w.list), ctx => SB.readRefs(ctx, client, repo, w.list));
+      else if (w.kind === "compare") loadLive(K.compare(repo, commit, w.head), ctx => SB.readCompare(ctx, client, repo, commit, w.head));
+      else if (w.kind === "lane") loadLive(K.lane(repo, w.head), ctx => SB.readHistoryPage(ctx, client, repo, w.head, 1));
     }
   }
 
@@ -404,6 +423,26 @@
     render,
     docKey,
     live: key => S.live.get(key),
+    historyDepth: (repo, commit) => S.histDepth.get(depthKey(repo, commit)) || 1,
+    olderHistory(repo, commit) {
+      const k = depthKey(repo, commit);
+      S.histDepth.set(k, Math.min(SB.MAX_HISTORY_PAGES, (S.histDepth.get(k) || 1) + 1));
+      render();
+      const n = $("g-older") || $("g-end");
+      if (n) n.focus();
+    },
+    compareBranch(repo, branch) {
+      S.histAsk.add(repo + "|" + branch);
+      render();
+      const row = document.querySelector('[data-part=branches] tr[data-branch="' + CSS.escape(branch) + '"] th');
+      if (row) { row.tabIndex = -1; row.focus(); }
+    },
+    zoomHistory(zoom, focusId) {
+      S.histZoom = zoom;
+      render();
+      const n = $(focusId);
+      if (n && !n.disabled) n.focus(); else { const f = $("g-fit"); if (f) f.focus(); }
+    },
     // The account views (all mapped repositories, and their activity) belong to no single project.
     goAccount(kind) {
       S.view = { kind };
@@ -562,7 +601,8 @@
     // A document read at a commit stays right for that commit; only reads that did not finish
     // with an answer about the file are dropped, so they are tried again.
     for (const [key, res] of [...S.docs]) if (!["current", "empty", "missing", "invalid"].includes(res.state) || key.includes("|live|")) S.docs.delete(key);
-    S.live = new Map();  // languages, feeds and the account are read again
+    S.live = new Map();  // languages, feeds, history and the account are read again
+    S.histDepth = new Map();
     const ctx = session.start();  // same token, new run: replies to the old run are dropped
     announce("Refreshing.");
     load(ctx);
@@ -583,6 +623,7 @@
       }
       for (const r of [w.plan && w.plan.repo, ...w.code.map(c => c.repo)].filter(Boolean)) {
         out.push([r + " (" + w.label + ")", "Repository", () => A.go(w.id, { kind: "repo", repo: r })]);
+        out.push([r + " history (" + w.label + ")", "Repository", () => A.go(w.id, { kind: "repo", repo: r, sub: "history" })]);
       }
     }
     const current = entryOf(S.current);
