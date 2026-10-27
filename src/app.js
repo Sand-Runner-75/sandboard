@@ -193,19 +193,21 @@
   // The reads the shown view needs and does not have yet. Called after every render; each read starts once.
   function ensureReads() {
     if (!S.signedIn || !session || !S.run || S.list.state !== "current" || S.activeTab) return;
-    const readable = SB.portfolio(S.entries).filter(r => r.meta);
-    const feed = r => loadLive("feed|" + r.repo, readFeed(r.repo, r.pinned.data.commit));
+    const feed = r => loadLive(SB.feedKey(r.repo, r.pinned.data.commit), readFeed(r.repo, r.pinned.data.commit));
     if (S.view.kind === "activity") {
       loadLive("user", ctx => SB.readUser(ctx, client));
-      for (const r of readable) loadLive("lang|" + r.repo, ctx => SB.readLanguages(ctx, client, r.repo));
-    } else if (S.view.kind === "repo") {
-      const r = readable.find(x => x.repo === S.view.repo);
+      for (const r of SB.portfolio(S.entries)) if (r.meta) loadLive("lang|" + r.repo, ctx => SB.readLanguages(ctx, client, r.repo));
+      return;
+    }
+    // A project's own views read its repositories at its own pins, as the feed card shows them.
+    const e = entryOf(S.current);
+    if (!e) return;
+    const mine = SB.portfolio([e]).filter(r => r.meta);
+    if (S.view.kind === "repo") {
+      const r = mine.find(x => x.repo === S.view.repo);
       if (r) { loadLive("lang|" + r.repo, ctx => SB.readLanguages(ctx, client, r.repo)); feed(r); }
     } else if (S.view.kind === "overview") {
-      const e = entryOf(S.current);
-      if (!e) return;
-      const mine = new Set([planRepo(e.w), ...e.w.code.map(c => c.repo)]);
-      for (const r of readable) if (mine.has(r.repo)) feed(r);
+      for (const r of mine) feed(r);
     }
   }
 

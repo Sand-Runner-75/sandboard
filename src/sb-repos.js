@@ -32,6 +32,8 @@
   const notGiven = () => el("span", { class: "muted" }, "Not given by GitHub");
   const shown = (v, fmt) => v === null || v === undefined ? notGiven() : fmt ? fmt(v) : String(v);
   const plural = (n, one, many) => n + " " + (n === 1 ? one : many || one + "s");
+  // A main language: GitHub's explicit "none" differs from a value it did not give.
+  const langName = v => v === null || v === undefined ? "Not given by GitHub" : v === "none" ? "No main language" : v;
   const typeText = m => m.fork === null ? notGiven() : [m.fork ? "Fork" : "Original", m.archived ? "archived" : null].filter(Boolean).join(", ");
   const sizeText = kb => kb >= 1024 ? (kb / 1024).toFixed(1) + " MB" : kb + " KB";
   const stateName = res => (STATE[res.state] || STATE.failed)[2];
@@ -88,9 +90,9 @@
     group.checked = f.group;
     sec.append(el("div", { class: "filters", role: "search" },
       el("label", {}, "Search repositories", q),
-      el("label", {}, "Visibility", select("r-vis", "visibility", opts.visibilities.map(v => [v, v[0].toUpperCase() + v.slice(1)]), "Any")),
-      el("label", {}, "Language", select("r-lang", "language", opts.languages.map(l => [l, l]).concat(opts.noLanguage ? [["-", "No main language"]] : []), "Any")),
-      el("label", {}, "Type", select("r-type", "type", [["original", "Originals"], ["fork", "Forks"], ["archived", "Archived"]], "Any")),
+      el("label", {}, "Visibility", select("r-vis", "visibility", opts.visibilities.map(v => [v, v[0].toUpperCase() + v.slice(1)]).concat(opts.unknown.visibility ? [["?", "Not given by GitHub"]] : []), "Any")),
+      el("label", {}, "Language", select("r-lang", "language", opts.languages.map(l => [l, l]).concat(opts.noLanguage ? [["-", "No main language"]] : [], opts.unknown.language ? [["?", "Not given by GitHub"]] : []), "Any")),
+      el("label", {}, "Type", select("r-type", "type", [["original", "Originals"], ["fork", "Forks"], ["archived", "Archived"]].concat(opts.unknown.type ? [["?", "Not given by GitHub"]] : []), "Any")),
       el("label", {}, "Sort by", sort),
       el("label", { class: "check" }, group, "Group by project")));
     const list = SB.sortPortfolio(SB.filterPortfolio(rows, f), f.sort);
@@ -127,7 +129,7 @@
       const num = v => el("td", { class: "num" }, shown(v));
       return el("tr", { "data-repo": r.repo }, el("th", { scope: "row" }, name), el("td", {}, roles),
         el("td", {}, shown(m.visibility, v => v[0].toUpperCase() + v.slice(1))), el("td", {}, typeText(m)),
-        el("td", {}, m.language || el("span", { class: "muted" }, "None")),
+        el("td", {}, m.language === "none" ? el("span", { class: "muted" }, "None") : m.language === null ? notGiven() : m.language),
         el("td", {}, m.topics === null ? notGiven() : m.topics.length ? m.topics.join(", ") : el("span", { class: "muted" }, "None")),
         num(m.stars), num(m.forks), num(m.issues), el("td", { class: "num" }, shown(m.size, sizeText)), el("td", { class: "num" }, shown(m.pushed, day)));
     }));
@@ -152,19 +154,22 @@
       el("div", {}, el("b", {}, "GitHub activity, not progress"), el("div", {}, "These figures describe the repositories. Only a plan's progress output says how far its work has got."))), "Not progress"));
     if (!a.read) { sec.append(rows.some(r => !r.pinned) ? notice("loading") : notice("unavailable", "No mapped repository could be read, so there is nothing to count.")); return sec; }
     const c = a.counters;
+    // Categorical counts say how many repositories gave the field, as the sums do.
+    const over = known => el("div", { class: "qual muted" }, known === a.read ? "over " + plural(a.read, "repository", "repositories")
+      : "over the " + known + " of " + a.read + " that give it; " + (a.read - known) + " not given by GitHub");
     const sumCard = (name, s) => el("div", { class: "card" }, el("p", { class: "label" }, name), el("div", { class: "big num" }, String(s.total)),
       el("div", { class: "qual muted" }, s.known === a.read ? "over " + plural(a.read, "repository", "repositories") : "over the " + s.known + " of " + a.read + " that give it"));
     sec.append(el("div", { class: "counters", "aria-label": "Counters" },
       el("div", { class: "card" }, el("p", { class: "label" }, "Repositories"), el("div", { class: "big num" }, String(a.read)),
         el("div", { class: "qual muted" }, a.read === a.mapped ? "all mapped ones read" : "read of " + a.mapped + " mapped")),
-      el("div", { class: "card" }, el("p", { class: "label" }, "Visibility"), el("div", { class: "num" }, c.public + " public · " + c.private + " private" + (c.internal ? " · " + c.internal + " internal" : ""))),
-      el("div", { class: "card" }, tip(el("p", { class: "label" }, "Kind"), "Original"), el("div", { class: "num" }, plural(c.original, "original") + " · " + plural(c.fork, "fork")),
+      el("div", { class: "card" }, el("p", { class: "label" }, "Visibility"), el("div", { class: "num" }, c.public + " public · " + c.private + " private" + (c.internal ? " · " + c.internal + " internal" : "")), over(c.visibilityKnown)),
+      el("div", { class: "card" }, tip(el("p", { class: "label" }, "Kind"), "Original"), el("div", { class: "num" }, plural(c.original, "original") + " · " + plural(c.fork, "fork")), over(c.typeKnown),
         c.archived ? el("div", { class: "qual muted" }, c.archived + " archived") : null),
       sumCard("Stars", c.stars), sumCard("Forks", c.forks), sumCard("Open issues", c.issues)));
     const grid = el("div", { class: "grid2" });
     grid.append(chartCard("Languages by number of repositories", "Each repository counts once, by the main language GitHub gives it.",
-      bars(a.languages.map(l => ({ name: l.value || "No main language", value: l.n, text: String(l.n),
-        tip: (l.value || "No main language") + ": " + plural(l.n, "repository", "repositories") })), "Languages by number of repositories")));
+      bars(a.languages.map(l => ({ name: langName(l.value), value: l.n, text: String(l.n),
+        tip: langName(l.value) + ": " + plural(l.n, "repository", "repositories") })), "Languages by number of repositories")));
     grid.append(bytesCard(A, rows.filter(r => r.meta)));
     grid.append(chartCard("Repositories by year created", "Originals as solid bars, forks as hatched bars.",
       a.years.length ? el("ul", { class: "bars", "aria-label": "Repositories by year created" }, a.years.map(y => yearBar(y, a.years))) : el("p", { class: "muted plain" }, "No creation dates given."),
@@ -261,6 +266,7 @@
     const props = el("dl", { class: "props", "data-part": "repo-meta" },
       el("dt", {}, "Description"), el("dd", {}, shown(m.description)),
       el("dt", {}, "Type"), el("dd", {}, m.fork === undefined ? notGiven() : typeText(m)),
+      el("dt", {}, "Main language"), el("dd", {}, m.language === "none" ? el("span", { class: "muted" }, "None") : shown(m.language)),
       el("dt", {}, "Default branch"), el("dd", { class: "mono" }, shown(m.branch)),
       el("dt", {}, "Licence"), el("dd", {}, m.license === "none" ? "No licence" : shown(m.license)),
       el("dt", {}, "Created"), el("dd", {}, shown(m.created, day)),
@@ -303,7 +309,7 @@
     let loading = 0;
     for (const r of rows) {
       if (!r.meta) { if (r.pinned && r.pinned.state !== "loading") problems.push(r.repo + ": " + stateName(r.pinned) + ", not read"); else loading += 1; continue; }
-      const f = A.live("feed|" + r.repo);
+      const f = A.live(SB.feedKey(r.repo, r.pinned.data.commit));
       if (!f || f.state === "loading") { loading += 1; continue; }
       if (!f.data) { problems.push(r.repo + ": " + stateName(f)); continue; }
       sources.push({ repo: r.repo, web: r.pinned.data.web, commits: f.data.commits, pulls: f.data.pulls, comments: f.data.comments, ref: r.pinned.data.ref });
@@ -314,7 +320,8 @@
     }
     const feed = SB.feedEvents(sources);
     if (loading && !feed.events.length) card.append(notice("loading"));
-    else if (!feed.events.length) card.append(el("p", { class: "muted plain" }, sources.length ? "No activity was read." : "Nothing could be read."));
+    else if (!feed.events.length) card.append(el("p", { class: "muted plain", "data-part": "feed-empty" }, !sources.length ? "Nothing could be read."
+      : feed.untimed ? "Activity was read, but no event had a time GitHub gave in a readable form, so none can be listed in order." : "No activity was read."));
     else {
       card.append(el("ol", { class: "feed events", "aria-label": "Recent activity, newest first" }, feed.events.slice(0, FEED_SHOWN).map(ev => {
         const id = ev.href ? el("a", { href: ev.href, target: "_blank", rel: "noopener noreferrer", class: "mono" }, ev.id) : el("span", { class: "mono" }, ev.id);
@@ -326,6 +333,8 @@
     }
     if (loading && feed.events.length) card.append(el("p", { class: "qual muted plain" }, "Still reading " + plural(loading, "repository", "repositories") + "."));
     if (problems.length) card.append(el("ul", { class: "coverage", "data-part": "feed-coverage", "aria-label": "What was not read" }, problems.map(p => el("li", {}, p))));
+    if (feed.untimed) card.append(el("p", { class: "qual muted plain", "data-part": "feed-untimed" },
+      plural(feed.untimed, "event was", "events were") + " read with no readable time and " + (feed.untimed === 1 ? "is" : "are") + " not listed."));
     if (feed.other) card.append(el("p", { class: "qual muted plain" }, plural(feed.other, "other comment") + " not in the handoff form, not shown."));
     card.append(tip(el("p", { class: "qual muted plain" }, "From each repository: the latest " + SB.COMMIT_LIMIT + " commits at the pinned commit, the latest 100 pull requests and the latest " +
       SB.REPO_COMMENT_LIMIT + " comments, read live. Older events are not read. Activity is not progress, and no event changes a figure. Refresh reads it again."), "Not progress"));

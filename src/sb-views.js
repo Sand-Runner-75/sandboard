@@ -937,7 +937,8 @@
       el("div", { class: "card" }, lab("Role in this project", role === "plan" ? "plan" : "code"), el("div", {}, role)),
       el("div", { class: "card" }, lab("Read at", "Everything for this repository was read at exactly this commit of this branch."), el("div", { class: "mono" }, d.ref + " → " + short(d.commit)),
         el("div", { class: "qual muted" }, d.date ? "Committed " + d.date : "No commit date")),
-      el("div", { class: "card" }, lab("Visibility", "Whether GitHub shows this repository to everyone (Public) or only to people given access (Private)."), el("div", {}, d.private ? "Private" : "Public"))));
+      el("div", { class: "card" }, lab("Visibility", "Whether GitHub shows this repository to everyone (Public) or only to people given access (Private)."), el("div", {}, d.meta && d.meta.visibility ? d.meta.visibility[0].toUpperCase() + d.meta.visibility.slice(1)
+        : el("span", { class: "muted" }, "Not given by GitHub")))));
     if (code) sec.append(el("div", { class: "card" }, lab("Check runs at this commit", "Check runs"), checksSummary(code.checks),
       code.checks && code.checks.data && code.checks.data.runs.length ? el("ul", { class: "feed" }, code.checks.data.runs.map(r =>
         el("li", {}, el("b", {}, r.name), r.status === "completed" ? (r.conclusion || "no conclusion") : r.status))) : null,

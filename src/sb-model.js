@@ -207,6 +207,9 @@
     return [...rows.values()].map(r => Object.assign(r, { meta: r.pinned && r.pinned.state === "current" ? r.pinned.data.meta || null : null }));
   }
 
+  // A feed is read at one pinned commit: the same repository at another ref is another feed.
+  const feedKey = (repo, commit) => "feed|" + repo + "@" + commit;
+
   const typeOf = m => !m || m.fork === null ? null : m.fork ? "fork" : "original";
 
   // Rows matching every filter. A repository that could not be read shows only when nothing but the name is filtered.
@@ -215,9 +218,11 @@
     return rows.filter(r => {
       const m = r.meta;
       if (!m) return !f.visibility && !f.language && !f.type && (!q || r.repo.toLowerCase().includes(q));
-      if (f.visibility && m.visibility !== f.visibility) return false;
-      if (f.language && (m.language || "") !== (f.language === "-" ? "" : f.language)) return false;
-      if (f.type === "archived" ? m.archived !== true : f.type && typeOf(m) !== f.type) return false;
+      // "-" picks repositories GitHub says have no main language; "?" picks those it gave no value for.
+      const pick = (v, want) => !want || (want === "?" ? v === null : v === want);
+      if (!pick(m.visibility, f.visibility)) return false;
+      if (!pick(m.language, f.language === "-" ? "none" : f.language)) return false;
+      if (f.type === "archived" ? m.archived !== true : !pick(typeOf(m), f.type)) return false;
       return !q || r.repo.toLowerCase().includes(q) || (m.description || "").toLowerCase().includes(q) ||
         (m.topics || []).some(t => t.includes(q));
     });
@@ -241,8 +246,10 @@
   function portfolioOptions(rows) {
     const read = rows.filter(r => r.meta);
     return { visibilities: ["public", "private", "internal"].filter(v => read.some(r => r.meta.visibility === v)),
-             languages: [...new Set(read.map(r => r.meta.language).filter(Boolean))].sort(),
-             noLanguage: read.some(r => !r.meta.language) };
+             languages: [...new Set(read.map(r => r.meta.language).filter(l => l && l !== "none"))].sort(),
+             noLanguage: read.some(r => r.meta.language === "none"),
+             unknown: { visibility: read.some(r => r.meta.visibility === null), language: read.some(r => r.meta.language === null),
+                        type: read.some(r => typeOf(r.meta) === null) } };
   }
 
   // Counted values of one field, largest first, with what the field did not give counted apart.
@@ -272,8 +279,9 @@
       mapped: rows.length, read: read.length,
       counters: { public: count(m => m.visibility === "public"), private: count(m => m.visibility === "private"),
                   internal: count(m => m.visibility === "internal"), original: count(m => m.fork === false), fork: count(m => m.fork === true),
-                  archived: count(m => m.archived === true), stars: sum("stars"), forks: sum("forks"), issues: sum("issues") },
-      languages: tally(read.map(r => r.meta.language || null)),
+                  archived: count(m => m.archived === true), visibilityKnown: count(m => m.visibility !== null),
+                  typeKnown: count(m => m.fork !== null), stars: sum("stars"), forks: sum("forks"), issues: sum("issues") },
+      languages: tally(read.map(r => r.meta.language)),
       years: [...years.values()].sort((a, b) => a.year - b.year),
       noYear: read.filter(r => year(r.meta.created) === null).length,
       lifespans: read.filter(r => r.meta.created && r.meta.pushed).map(r => ({ repo: r.repo, created: r.meta.created, pushed: r.meta.pushed }))
@@ -335,7 +343,7 @@
     return { events, untimed, other };
   }
 
-  Object.assign(SB, { SORTS, portfolio, filterPortfolio, sortPortfolio, portfolioOptions, tally, analytics, languageBytes, repoHref, feedEvents, typeOf,
+  Object.assign(SB, { SORTS, portfolio, filterPortfolio, sortPortfolio, portfolioOptions, tally, analytics, languageBytes, repoHref, feedEvents, feedKey, typeOf,
                       ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
                       approvals, resultHref, tabKey, stageOfPhase, short,
                       HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs });

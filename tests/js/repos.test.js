@@ -169,3 +169,51 @@ test("the feed is newest first, links each event to its origin, and counts what 
   const none = SB.feedEvents([{ repo: "o/x", web: null, commits: res("current", { commits: [{ sha: H, title: "c", at: "2026-01-01T00:00:00Z" }] }) }]);
   assert.equal(none.events[0].href, null);
 });
+
+// ---- Unknown is not none; a feed belongs to one pinned commit; undatable events are disclosed
+
+test("a main language GitHub says is none differs from one it did not give or gave malformed", () => {
+  assert.equal(SB.repoMeta({ language: null }).language, "none");
+  assert.equal(SB.repoMeta({}).language, null);
+  assert.equal(SB.repoMeta({ language: 7 }).language, null);
+  assert.equal(SB.repoMeta({ language: "  " }).language, null);
+  assert.equal(SB.repoMeta({}).visibility, null);
+  assert.equal(SB.repoMeta({ visibility: "secret" }).visibility, null);
+});
+
+test("unknown visibility, type and language are counted and filtered apart from known values", () => {
+  const e = (id, m) => ({ w: { id, label: id, kind: "standalone", plan: null, code: [{ repo: "o/" + id, role: "app" }] }, code: [{ pinned: pinned(m) }] });
+  const rows = SB.portfolio([e("go", meta({})), e("none", meta({ language: "none" })),
+    e("unknown", meta({ language: null, visibility: null, fork: null })), e("bad", SB.repoMeta({ language: 3, private: "yes" }))]);
+  const a = SB.analytics(rows);
+  assert.deepEqual(a.languages.map(l => [l.value, l.n]), [[null, 2], ["Go", 1], ["none", 1]]);
+  assert.equal(a.counters.public, 2);
+  assert.equal(a.counters.visibilityKnown, 2);
+  assert.equal(a.counters.typeKnown, 2);
+  const o = SB.portfolioOptions(rows);
+  assert.deepEqual(o.languages, ["Go"]);
+  assert.equal(o.noLanguage, true);
+  assert.deepEqual(o.unknown, { visibility: true, language: true, type: true });
+  const pick = f => SB.filterPortfolio(rows, f).map(r => r.repo);
+  assert.deepEqual(pick({ language: "-" }), ["o/none"]);
+  assert.deepEqual(pick({ language: "?" }), ["o/unknown", "o/bad"]);
+  assert.deepEqual(pick({ visibility: "?" }), ["o/unknown", "o/bad"]);
+  assert.deepEqual(pick({ type: "?" }), ["o/unknown", "o/bad"]);
+  assert.deepEqual(pick({ visibility: "public" }), ["o/go", "o/none"]);
+});
+
+test("the same repository at two pinned commits has two feeds", () => {
+  assert.notEqual(SB.feedKey("o/app", sha("main")), SB.feedKey("o/app", sha("release")));
+  assert.equal(SB.feedKey("o/app", sha("main")), SB.feedKey("o/app", sha("main")));
+});
+
+test("events with no readable time are counted, whether some or all of them are", () => {
+  const src = commits => [{ repo: "o/app", web: WEB + "/app", ref: "main", commits: SB.result("current", { commits }, {}),
+    pulls: SB.result("current", { pulls: [] }, {}), comments: SB.result("current", { comments: [] }, {}) }];
+  const all = SB.feedEvents(src([{ sha: sha("a"), title: "One", at: null, parents: 1 }]));
+  assert.equal(all.events.length, 0);
+  assert.equal(all.untimed, 1);
+  const mixed = SB.feedEvents(src([{ sha: sha("a"), title: "One", at: null, parents: 1 }, { sha: sha("b"), title: "Two", at: "2026-01-01T00:00:00Z", parents: 1 }]));
+  assert.equal(mixed.events.length, 1);
+  assert.equal(mixed.untimed, 1);
+});

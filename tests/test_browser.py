@@ -421,6 +421,42 @@ class BrowserTest(unittest.TestCase):
         self.assertFalse(any("unmapped" in u for u in pr["urls"]), "an unmapped repository is never read")
         self.assertFalse(any("/users/" in u or "/events" in u or "/user/repos" in u for u in pr["urls"]), "no account-wide read")
 
+    def test_the_feed_follows_the_ref_the_project_reads_through_switches_and_refresh(self):
+        refs = self.r["repos"]["refs"]
+        main, release = "Add the layout <b>now</b>", "Release notes"
+        for k in ("main", "mainAgain", "mainRefreshed"):
+            self.assertIn(main, refs[k]["titles"], k)
+            self.assertNotIn(release, refs[k]["titles"], k)
+        for k in ("release", "releaseRefreshed"):
+            self.assertIn(release, refs[k]["titles"], k)
+            self.assertNotIn(main, refs[k]["titles"], k)
+        urls = self.r["repos"]["private"]["urls"]
+        self.assertEqual(len({u for u in urls if "/acme/garden/commits?sha=" in u}), 2, "each ref's commits are read at its own pin")
+
+    def test_unknown_metadata_is_shown_as_not_given_and_counts_say_what_they_cover(self):
+        ro = self.r["repos"]
+        rows = {r[0]: r for r in ro["privateRows"]}
+        self.assertEqual(rows["acme/garden-plan"][4], "None", "GitHub said there is no main language")
+        self.assertEqual(rows["acme/garden"][4], "Not given by GitHub", "GitHub gave no language field")
+        self.assertEqual(rows["acme/garden"][3], "Not given by GitHub")
+        self.assertEqual(rows["acme/recipes"][2], "Not given by GitHub")
+        for opt in ("r-vis:?", "r-lang:-", "r-lang:?", "r-type:?"):
+            self.assertIn(opt, ro["privateOptions"])
+        a = ro["privateActivity"]
+        self.assertIn("over the 2 of 3 that give it; 1 not given by GitHub", a["cards"][1])
+        self.assertIn("over the 2 of 3 that give it; 1 not given by GitHub", a["cards"][2])
+        self.assertEqual(sorted(a["langs"]), ["Go", "No main language", "Not given by GitHub"])
+        self.assertIn("Not given by GitHub", ro["recipes"]["visibility"], "unknown privacy is never shown as Public")
+        self.assertNotIn("Public", ro["recipes"]["visibility"])
+
+    def test_undatable_activity_is_disclosed_and_not_an_empty_feed(self):
+        ro = self.r["repos"]
+        self.assertEqual(ro["recipes"]["titles"], [])
+        self.assertIn("Activity was read, but no event had a time", ro["recipes"]["empty"])
+        self.assertIn("1 event was read with no readable time", ro["recipes"]["untimed"])
+        self.assertIn("1 event was read with no readable time", ro["refs"]["release"]["untimed"])
+        self.assertEqual(ro["refs"]["main"]["untimed"], "")
+
     def test_a_repository_page_keeps_hostile_metadata_as_text(self):
         app = self.r["repos"]["app"]
         self.assertIn("<img src=x onerror=alert(1)> stays text", app["text"])

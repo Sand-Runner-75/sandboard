@@ -629,7 +629,17 @@ function privateRepos() {
   // The private path: links at the repositories' own web addresses, an unmapped repository never read,
   // comments that the token cannot read shown as such, and only GET reads.
   const orepos = F.planRepos();
-  orepos["acme/garden"].commits = [{ sha: F.CODE_COMMIT, commit: { message: "Add the layout <b>now</b>", committer: { date: "2026-01-03T00:00:00Z" } }, parents: [{}] }];
+  // The same repository at two refs (mapped at main, opened by name at release), each with its own commits;
+  // metadata GitHub says is none, or does not give; and commits with no readable time.
+  const REL = sha("garden-release");
+  const at = (seed, title, date) => ({ sha: sha(seed), commit: { message: title, committer: { date } }, parents: [{}] });
+  orepos["acme/garden"].branches.release = REL;
+  orepos["acme/garden"].files[REL] = {};
+  orepos["acme/garden"].commitsAt = { [F.CODE_COMMIT]: [{ sha: F.CODE_COMMIT, commit: { message: "Add the layout <b>now</b>", committer: { date: "2026-01-03T00:00:00Z" } }, parents: [{}] }],
+                                      [REL]: [at("rel-1", "Release notes", "2026-02-01T00:00:00Z"), at("rel-2", "Undated release fix", null)] };
+  orepos["acme/garden-plan"].info = { language: null, fork: false };
+  orepos["acme/recipes"].info = { private: undefined, language: "Go", fork: false };
+  orepos["acme/recipes"].commits = [at("rec-1", "Undated recipe", null)];
   orepos["acme/garden"].pulls = [{ number: 2, title: "Layout", state: "open", merged_at: null, merge_commit_sha: null, head: { sha: sha("code-head") }, body: "",
                                    created_at: "2026-01-02T00:00:00Z", comments: [] }];
   orepos["acme/garden"].comments = [{ issue_url: "https://api.github.com/repos/acme/garden/issues/2", body: "FROM: B\nSTATE: REVIEW PASSED\nHEAD: " + sha("code-head"), created_at: "2026-01-04T00:00:00Z" }];
@@ -650,7 +660,33 @@ function privateRepos() {
              kinds: [...f.querySelectorAll(".events li")].map(n => n.dataset.kind), coverage: (f.querySelector("[data-part=feed-coverage]") || {}).textContent || "",
              bold: f.querySelectorAll("b").length };
   });
+  const feedNow = () => p.evaluate(() => { const f = document.querySelector("[data-part=feed]");
+    return { titles: [...f.querySelectorAll(".events .ev-title")].map(n => n.textContent), empty: (f.querySelector("[data-part=feed-empty]") || {}).textContent || "",
+             untimed: (f.querySelector("[data-part=feed-untimed]") || {}).textContent || "", head: document.getElementById("view-h").textContent }; });
+  const open1 = async id => { const ex = await p.$eval(`#tree [data-id="${id}"]`, n => n.getAttribute("aria-expanded")).catch(() => null);
+    if (ex === "false") { await tree(p, id); await p.waitForTimeout(100); } };
+  const garden = async () => { await open1("p:garden"); await open1("repos:garden"); await tree(p, "r:garden:acme/garden"); await p.waitForTimeout(500); };
+  const refs = ro.refs = {};
+  await garden();
+  refs.main = await feedNow();
+  await tree(p, "a:portfolio"); await p.waitForTimeout(200);
+  await p.fill("#open-repo", "acme/garden@release"); await p.click(".open-form button"); await p.waitForTimeout(800);
+  refs.release = await feedNow();
+  await garden();
+  refs.mainAgain = await feedNow();
+  await p.click("#refresh"); await finished(); await p.waitForTimeout(800);
+  refs.mainRefreshed = await feedNow();
+  await tree(p, "p:~opened-1"); await p.waitForTimeout(800);
+  refs.releaseRefreshed = await feedNow();
+  await tree(p, "p:recipes"); await p.waitForTimeout(800);
+  ro.recipes = Object.assign(await feedNow(), { visibility: await p.$eval(".grid3 .card:nth-child(3)", n => n.textContent),
+    meta: await p.$eval("[data-part=repo-meta]", n => n.textContent) });
+  await tree(p, "a:portfolio"); await p.waitForTimeout(300);
+  ro.privateRows = await p.$$eval(".grid-table tbody tr", n => n.map(r => [...r.querySelectorAll("th, td")].map(c => c.textContent)));
+  ro.privateOptions = await p.$$eval("#r-lang option, #r-vis option, #r-type option", n => n.map(o => o.parentElement.id + ":" + o.value));
   await tree(p, "a:activity"); await p.waitForTimeout(600);
+  ro.privateActivity = await p.evaluate(() => ({ cards: [...document.querySelectorAll(".counters .card")].map(c => c.textContent),
+    langs: [...document.querySelectorAll(".chart[aria-label='Languages by number of repositories'] .bname")].map(n => n.textContent) }));
   ro.private.urls = ourls;
   await p.close();
 

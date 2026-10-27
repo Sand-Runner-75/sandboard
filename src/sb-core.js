@@ -236,7 +236,7 @@
       ? info.topics.slice() : null;
     const license = info.license === null ? "none" : info.license && typeof info.license === "object" ? text(info.license.spdx_id, 60) : null;
     return { description: text(info.description, 500), visibility, fork: flag(info.fork), archived: flag(info.archived),
-             language: text(info.language, 60), topics, license, branch: text(info.default_branch, 200),
+             language: info.language === null ? "none" : text(info.language, 60), topics, license, branch: text(info.default_branch, 200),
              stars: count(info.stargazers_count), forks: count(info.forks_count), issues: count(info.open_issues_count),
              size: count(info.size), created: time(info.created_at), pushed: time(info.pushed_at),
              homepage: text(info.homepage, 300) };

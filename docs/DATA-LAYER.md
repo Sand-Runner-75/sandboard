@@ -82,7 +82,7 @@ A comment counts as a review only in the handoff form: lines starting `FROM:`, `
 
 ## Repository overview
 
-Pinning also keeps what GitHub's repository reply says, field by field (`meta`): description, visibility, fork, archived, main language, topics, licence (`none` when GitHub says there is none), default branch, stars, forks, open issues, size, created, last push and homepage. A field that is missing or not in the expected form is `null`, shown as "Not given by GitHub", never as zero or a guess. These are read only for repositories the workspace list maps (or the owner opens by name for the visit).
+Pinning also keeps what GitHub's repository reply says, field by field (`meta`): description, visibility, fork, archived, main language, topics, licence and main language (each `none` when GitHub says there is none), default branch, stars, forks, open issues, size, created, last push and homepage. A field that is missing or not in the expected form is `null`, shown as "Not given by GitHub", never as zero or a guess. These are read only for repositories the workspace list maps (or the owner opens by name for the visit).
 
 Three live reads, made when a view needs them and read again on refresh:
 
@@ -90,7 +90,7 @@ Three live reads, made when a view needs them and read again on refresh:
 - **Commits** (`/commits?sha=<pinned commit>&per_page=30`): the latest 30 reachable from the pinned commit, each with its SHA, first message line, committer time and parent count; 30 back is **partial**.
 - **Comments** (`/issues/comments?sort=created&direction=desc&per_page=50`): the latest 50 on the repository's issues and pull requests, each with the number it was posted on; 50 back is **partial**; a `403` or `404` is **unavailable** (the token lacks **Pull requests: read**), never "no comments".
 
-The activity feed also reads one page of the pull request list (100). Only handoff comments are shown, read as in the review cycle. Sums over repositories (stars, forks, issues, code bytes) are added only over the repositories that gave them, with that count shown. None of these reads or figures feeds progress.
+The activity feed also reads one page of the pull request list (100). Only handoff comments are shown, read as in the review cycle. Sums over repositories (stars, forks, issues, code bytes) are added only over the repositories that gave them, with that count shown. Counts by visibility and by original or fork say over how many repositories they are too, and an unknown value is its own filter choice ("Not given by GitHub"). A repository's feed is read at the commit its project pinned, so the same repository at two refs has two feeds. Events with no readable time are counted and said, never placed in order, and a feed of only such events does not read as empty. None of these reads or figures feeds progress.
 
 ## Repository web address
 
