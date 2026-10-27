@@ -1,4 +1,4 @@
-# Tests, build and the public audit on every pull request and every push to main.
+# Tests (browser checks included), build and the public audit on every pull request and every push to main.
 # Test and build output goes to ci-log.txt only and is audited before any of
 # it is shown, on success and on failure (scripts/ci_step.py). The final audit
 # runs even after a failed step and reads the whole captured log again.
@@ -19,9 +19,21 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Browser for the browser checks (Playwright and Chromium, pinned)
+        env:
+          PUBLIC_AUDIT_TERMS: ${{ secrets.PUBLIC_AUDIT_TERMS }}
+        run: |
+          python3 scripts/ci_step.py --log ci-log.txt -- npm install --prefix "$RUNNER_TEMP/pw" --no-save --no-audit --no-fund playwright@1.63.0
+          python3 scripts/ci_step.py --log ci-log.txt -- "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
       - name: Tests
         env:
           PUBLIC_AUDIT_TERMS: ${{ secrets.PUBLIC_AUDIT_TERMS }}
+          # The browser checks must run here: a missing browser fails, never skips.
+          SANDBOARD_PLAYWRIGHT: ${{ runner.temp }}/pw/node_modules/playwright
+          SANDBOARD_REQUIRE_BROWSER: "1"
         run: python3 scripts/ci_step.py --log ci-log.txt -- python3 -m unittest discover -s tests -v
       - name: Build
         env:
