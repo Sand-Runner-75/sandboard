@@ -181,6 +181,29 @@ class PublicAuditTest(unittest.TestCase):
         kinds = [k for _, k in pa.audit(self.repo.root, self.terms, legacy_end=legacy)]
         self.assertGreaterEqual(kinds.count("a chat session link"), 2)
 
+    def test_every_known_chat_link_form_is_found_and_plain_links_are_not(self):
+        host = "https://" + "claude" + ".ai/"
+        gpt = "https://" + "chatgpt" + ".com/"
+        links = [host + "chat/" + "0f1e2d3c", host + "project/" + "0f1e2d3c",
+                 host + "code/project/" + "chan_01AbC?thread=x", host + "share/" + "0f1e2d3c",
+                 host + "code/" + "session_01AbC", gpt + "c/" + "0f1e2d3c", gpt + "share/" + "0f1e",
+                 "https://chat." + "openai" + ".com/c/" + "0f1e2d3c"]
+        for link in links:
+            with self.subTest(link=link):
+                self.assertEqual([k for _, k in pa.scan_text("see " + link, [])], ["a chat session link"])
+        for plain in (host, host + "code", "https://docs." + "claude" + ".com/en/docs", gpt):
+            with self.subTest(plain=plain):
+                self.assertEqual(list(pa.scan_text("see " + plain, [])), [])
+
+    def test_a_chat_link_in_a_new_file_or_message_fails_even_after_legacy_commits(self):
+        link = "https://" + "chatgpt" + ".com/c/" + "0f1e2d3c"
+        self.repo.commit({"a.txt": "x\n"}, "old work\n\n" + link)
+        legacy = self.head()
+        self.assertEqual(pa.audit(self.repo.root, self.terms, legacy_end=legacy), [])
+        self.repo.commit({"notes.md": "see " + link + "\n"}, "new note")
+        kinds = [k for _, k in pa.audit(self.repo.root, self.terms, legacy_end=legacy)]
+        self.assertIn("a chat session link", kinds)
+
     def test_log_files_are_scanned_and_redacted(self):
         self.repo.commit({"a.txt": "x\n"})
         log = os.path.join(self.repo.tmp.name, "ci-log.txt")

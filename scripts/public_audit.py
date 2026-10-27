@@ -36,7 +36,11 @@ PATTERNS = [
     (re.compile(r"\bS[T]\d{3}\b"), "a private task ID"),
     (re.compile(r"\bSB-[D]\d+\b"), "a private decision ID"),
     (re.compile(r"\bhandover[s]/|\bproject-recor[d]/|\bmaster-task-tabl[e]\b"), "a private record path"),
-    (re.compile(r"claude\.ai/code/sessio[n]_|\bClaude-Sessio[n]:", re.IGNORECASE), "a chat session link"),
+    # AI chat and session links: Claude chats, projects, shares and coding
+    # sessions, the Claude-Session commit line, and ChatGPT conversations.
+    (re.compile(r"claude\.ai/(?:code/)?(?:sessio[n]_|cha[t]/|projec[t]/|shar[e]/)|\bClaude-Sessio[n]:"
+                r"|\b(?:chatgpt\.co[m]|chat\.openai\.co[m])/(?:c|g|share)/", re.IGNORECASE),
+     "a chat session link"),
 ]
 SESSION_LINK = "a chat session link"
 # Commit messages up to this commit carried chat session links before they
