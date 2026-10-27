@@ -322,10 +322,14 @@
       const plan = planState(entry);
       const sub = entry.loading ? "loading" : plan !== "current" && plan !== "none" ? (STATE[plan] || STATE.failed)[2].toLowerCase()
         : w.kind === "kit" ? "kit" : w.kind === "standalone" ? "code only" : "";
-      projects.kids.push({ id: "p:" + w.id, label: w.label, sub, kids,
+      projects.kids.push({ id: "p:" + w.id, label: w.label, sub: w.opened ? "opened by name" : sub, kids,
         act: () => A.go(w.id, w.plan ? { kind: "overview" } : { kind: "repo", repo: w.code[0].repo }) });
     }
-    return [projects];
+    // The account views cover every mapped repository, so they sit apart from the projects.
+    const account = { id: "g:account", label: "Account", tip: TIPS["All repositories"], kids: [
+      { id: "a:portfolio", label: "All repositories", tip: TIPS["All repositories"], act: () => A.goAccount("portfolio"), cur: !S.activeTab && S.view.kind === "portfolio" },
+      { id: "a:activity", label: "Activity and languages", tip: TIPS.Activity, act: () => A.goAccount("activity"), cur: !S.activeTab && S.view.kind === "activity" }] };
+    return [projects, account];
   }
 
   // The IDs of every tree item that has children (for Expand all).
@@ -421,6 +425,7 @@
     }
     sec.append(...[wholeCards(entry), scopeRow(entry), progressBlock(S, A, entry, S.view.stage)].filter(Boolean));
     sec.append(el("div", { class: "grid2" }, waitingCard(S, A, entry), repoCard(entry)));
+    sec.append(V.feedCard(S, A, entry, [w.plan.repo, ...w.code.map(c => c.repo)]));
     return sec;
   }
 
@@ -465,7 +470,7 @@
       !c.pinned ? el("span", { class: "muted" }, "Loading") : c.pinned.state === "current"
         ? [el("span", { class: "mono", title: c.pinned.data.commit }, c.pinned.data.ref + " → " + short(c.pinned.data.commit)), checksSummary(c.checks)]
         : el("span", {}, (STATE[c.pinned.state] || STATE.failed)[2])))));
-    card.append(el("p", { class: "qual muted plain" }, "Commits, pull requests and files come in a later slice. Activity is never progress."));
+    card.append(el("p", { class: "qual muted plain" }, "Recent commits and pull requests are under Recent activity; history and files come in a later slice. Activity is never progress."));
     return card;
   }
 
@@ -854,7 +859,7 @@
 
   function tabBar(S, A) {
     const bar = el("div", { class: "tabs", role: "tablist", "aria-label": "Open items" });
-    const names = { overview: "Overview", tasks: "Tasks", repo: "Repository" };
+    const names = { overview: "Overview", tasks: "Tasks", repo: "Repository", portfolio: "All repositories", activity: "Activity" };
     bar.append(el("div", { class: "tab" + (S.activeTab ? "" : " on") }, el("button", { type: "button", role: "tab", id: "tab-view",
       "aria-selected": String(!S.activeTab), tabindex: S.activeTab ? "-1" : "0", onclick: () => A.showTab(null),
       onkeydown: e => tabKeys(e, A) }, el("span", { class: "kind" }, "View"), names[S.view.kind] || "View")));
@@ -932,12 +937,14 @@
       el("div", { class: "card" }, lab("Role in this project", role === "plan" ? "plan" : "code"), el("div", {}, role)),
       el("div", { class: "card" }, lab("Read at", "Everything for this repository was read at exactly this commit of this branch."), el("div", { class: "mono" }, d.ref + " → " + short(d.commit)),
         el("div", { class: "qual muted" }, d.date ? "Committed " + d.date : "No commit date")),
-      el("div", { class: "card" }, lab("Visibility", "Whether GitHub shows this repository to everyone (Public) or only to people given access (Private)."), el("div", {}, d.private ? "Private" : "Public"))));
+      el("div", { class: "card" }, lab("Visibility", "Whether GitHub shows this repository to everyone (Public) or only to people given access (Private)."), el("div", {}, d.meta && d.meta.visibility ? d.meta.visibility[0].toUpperCase() + d.meta.visibility.slice(1)
+        : el("span", { class: "muted" }, "Not given by GitHub")))));
     if (code) sec.append(el("div", { class: "card" }, lab("Check runs at this commit", "Check runs"), checksSummary(code.checks),
       code.checks && code.checks.data && code.checks.data.runs.length ? el("ul", { class: "feed" }, code.checks.data.runs.map(r =>
         el("li", {}, el("b", {}, r.name), r.status === "completed" ? (r.conclusion || "no conclusion") : r.status))) : null,
       el("p", { class: "qual muted plain" }, "Checks passing is not owner approval.")));
-    sec.append(el("p", { class: "qual muted plain" }, "History, pull requests, Actions, releases and files come in a later slice."));
+    sec.append(...V.repoDetails(S, A, entry, name, pinned, role));
+    sec.append(el("p", { class: "qual muted plain" }, "Branch history, pull request details, Actions, releases and files come in later slices."));
     return sec;
   }
 
@@ -952,6 +959,10 @@
         : notice(S.list.state, "Workspace list (" + SB.WORKSPACES_FILE + ") in " + S.planRepo + ": " + (S.list.error || (STATE[S.list.state] || STATE.failed)[3])));
       return;
     }
+    if (!S.activeTab && (S.view.kind === "portfolio" || S.view.kind === "activity")) {
+      box.replaceChildren(tabBar(S, A), S.view.kind === "portfolio" ? V.portfolio(S, A) : V.activity(S, A));
+      return;
+    }
     const entry = S.entries.find(e => e.w.id === S.current);
     if (!entry) { box.replaceChildren(notice("missing", "Pick a project in the tree.")); return; }
     const parts = [tabBar(S, A)];
@@ -963,5 +974,5 @@
     box.replaceChildren(...parts);
   }
 
-  SB.views = { el, notice, tree, treeGroups, focusTree, main, planState, tableState, rowsVisible, progressOf, stageIdOf, STATE, TIPS };
+  const V = SB.views = { el, notice, tree, treeGroups, focusTree, main, planState, tableState, rowsVisible, progressOf, stageIdOf, STATE, TIPS };
 })(typeof window !== "undefined" ? window : globalThis);

@@ -35,12 +35,24 @@
     return async function serve(url) {
       if (!String(url).startsWith(SB.API + "/")) throw new TypeError("the demo answers only the GitHub API paths");
       const path = String(url).slice(SB.API.length);
+      if (path === "/user") return reply({ login: "demo-user", type: "User" });
       let m = /^[/]repos[/]([^/]+[/][^/?]+)(.*)$/.exec(path);
       const r = m && Object.prototype.hasOwnProperty.call(repos, m[1]) ? repos[m[1]] : null;
       if (!r) return reply({ message: "Not Found" }, 404);
       if (r.status) return reply({ message: "synthetic refusal" }, r.status);
-      const rest = m[2];
-      if (rest === "") return reply({ full_name: m[1], private: r.private !== false, default_branch: r.default_branch || "main" });
+      const name = m[1], rest = m[2];
+      if (rest === "") return reply(Object.assign({ full_name: name, private: r.private !== false, default_branch: r.default_branch || "main" }, r.meta || {}));
+      if (rest === "/languages") return r.languages && r.languages.status ? reply({ message: "synthetic refusal" }, r.languages.status) : reply(r.languages || {});
+      if ((m = /^[/]commits[?]sha=([0-9a-f]{40})&per_page=(\d+)$/.exec(rest))) {
+        const list = r.commits || [{ sha: r.commit, commit: { message: "Synthetic commit", committer: { date: r.date || null } }, parents: [{}] }];
+        const from = list.findIndex(c => c.sha === m[1]);
+        if (from < 0) return reply({ message: "No commit found for SHA" }, 404);
+        return reply(list.slice(from, from + Number(m[2])));
+      }
+      if (rest === "/issues/comments?sort=created&direction=desc&per_page=50") {
+        const all = (r.pulls || []).flatMap(p => (p.comments || []).map(c => Object.assign({ issue_url: SB.API + "/repos/" + name + "/issues/" + p.number }, c)));
+        return reply(all.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)).slice(0, 50));
+      }
       if ((m = /^[/]commits[/]([0-9a-f]{40})[/]check-runs[?]per_page=100&page=(\d+)$/.exec(rest))) {
         if (m[1] !== r.commit || !r.checks) return reply({ total_count: 0, check_runs: [] });
         if (r.checks.status) return reply({ message: "synthetic refusal" }, r.checks.status);

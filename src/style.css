@@ -229,3 +229,42 @@ kbd { font-family: var(--font-data); font-size: 0.8em; border: 1px solid var(--l
 .handoff .hstate { font-weight: 600; }
 .handoff.superseded > div:first-child { color: var(--muted); }
 .warn-text { color: var(--warn-fg); }
+
+/* Repository overview: the portfolio table, counters, bar charts (one series each, values as text),
+   lifespans, the stars scatter and the activity feed. GitHub activity, never progress. */
+.table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
+.grid-table { border-collapse: collapse; width: 100%; font-size: 0.84rem; }
+.grid-table th, .grid-table td { text-align: left; padding: 6px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+.grid-table thead th { border-top: 0; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); white-space: nowrap; }
+.grid-table th[scope="row"] { font-weight: 400; }
+.grid-table td.num { text-align: right; white-space: nowrap; }
+.grid-table .linkbtn { min-height: 24px; white-space: nowrap; }
+.filters label.check { display: flex; gap: 6px; align-items: center; min-height: 34px; }
+.filters label.check input { width: auto; min-height: 0; }
+.open-form input { width: 16rem; }
+details.group > summary { padding: 6px 0; }
+details.group > .table-wrap { margin-top: 4px; }
+.counters { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+.bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.bars li { display: grid; grid-template-columns: minmax(5rem, 9rem) minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: 0.82rem; min-height: 24px; }
+.bars .bname { overflow-wrap: anywhere; }
+.btrack { display: flex; gap: 2px; height: 10px; background: var(--sunken); border-radius: 3px; overflow: hidden; }
+.btrack .fill { display: block; height: 100%; background: var(--accent); border-radius: 0 4px 4px 0; flex: none; }
+.btrack .fill.hatch { background: repeating-linear-gradient(45deg, var(--accent) 0 3px, transparent 3px 6px); box-shadow: inset 0 0 0 1px var(--accent); }
+.btrack .fill.hollow { background: none; box-shadow: inset 0 0 0 1px var(--control); }
+.spans .btrack .fill { border-radius: 4px; }
+.bval { color: var(--muted); white-space: nowrap; }
+.plot { position: relative; height: 13rem; padding: 8px 12px 22px 40px; }
+.plot-area { position: absolute; left: 40px; right: 12px; top: 8px; bottom: 22px; border-left: 1px solid var(--control); border-bottom: 1px solid var(--control); }
+.plot .pt { position: absolute; width: 12px; height: 12px; margin: 0 0 -6px -6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--surface); }
+.plot .tick { position: absolute; font-size: 0.72rem; color: var(--muted); }
+.plot .y1 { left: 0; top: 2px; width: 34px; text-align: right; }
+.plot .y0 { left: 0; bottom: 16px; width: 34px; text-align: right; }
+.plot .x0 { left: 40px; bottom: 0; }
+.plot .x1 { right: 12px; bottom: 0; }
+.events li { gap: 4px 10px; }
+.ev { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); border: 1px solid var(--control); border-radius: 999px; padding: 0 7px; white-space: nowrap; }
+.ev-title { overflow-wrap: anywhere; min-width: 0; }
+.coverage { margin: 0; padding-left: 1.1em; font-size: 0.8rem; color: var(--muted); display: grid; gap: 2px; }
+@media (max-width: 1150px) { .counters { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .counters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .bars li { grid-template-columns: minmax(0, 1fr) auto; } .bars .btrack { grid-column: 1 / -1; grid-row: 2; } .open-form input { width: 100%; } }

@@ -205,7 +205,7 @@ class BrowserTest(unittest.TestCase):
     def test_untrusted_text_is_shown_as_text(self):
         p = self.r["progress"]
         self.assertIn('<script>alert("never runs")</script>', p["hostile"])
-        self.assertEqual((p["scripts"], p["imgs"]), (8, 0))
+        self.assertEqual((p["scripts"], p["imgs"]), (9, 0))
         self.assertEqual(p["writeControls"], [])
 
     def test_copy_is_exactly_the_shown_text_and_a_refusal_is_reported(self):
@@ -327,7 +327,7 @@ class BrowserTest(unittest.TestCase):
         f = self.r["firstUse"]
         self.assertEqual(f["expandAll"], 0)
         self.assertGreater(f["itemsExpanded"], 40)
-        self.assertEqual(f["itemsCollapsed"], ["g:projects", "p:demo", "p:second", "p:notes", "p:kit", "p:locked", "p:tools"])
+        self.assertEqual(f["itemsCollapsed"], ["g:projects", "p:demo", "p:second", "p:notes", "p:kit", "p:locked", "p:tools", "g:account", "a:portfolio", "a:activity"])
 
     def test_the_stage_filter_keeps_its_phases_and_never_changes_figures(self):
         f, v = self.r["firstUse"], self.r["private"]
@@ -380,6 +380,110 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(f["focusTip"], [False, "tip"])
         for word in ("Removed", "Verified", "To be estimated", "Original plan notes", "Cross-references"):
             self.assertIn(word, f["glossary"])
+
+    def test_the_portfolio_lists_only_mapped_repositories_and_filters_change_nothing(self):
+        ro = self.r["repos"]
+        repos = [r[0] for r in ro["rows"]]
+        self.assertEqual(len(repos), 9)
+        self.assertNotIn("example-org/unlisted", repos, "a repository no workspace names never appears")
+        self.assertIn(["example-org/locked-plan", "denied"], ro["rows"])
+        self.assertIn("No access", ro["rowText"])
+        self.assertEqual([r[0] for r in ro["forks"]], ["example-org/second-site"])
+        self.assertEqual([r[0] for r in ro["go"]], ["example-org/tools"])
+        self.assertEqual([r[0] for r in ro["locked"]], ["example-org/locked-app", "example-org/locked-plan"])
+        self.assertEqual(ro["byStars"][:3], ["example-org/starter-kit", "example-org/tools", "example-org/demo-app"])
+        self.assertEqual(ro["byStars"][-2:], ["example-org/locked-app", "example-org/locked-plan"], "unreadable repositories sort last")
+        self.assertEqual(ro["groups"], ["demo", "second", "notes", "kit", "locked", "tools"])
+        self.assertEqual(ro["pctBefore"], ro["pctAfter"], "repository views never change a progress figure")
+
+    def test_activity_counts_say_what_they_cover_and_are_not_progress(self):
+        a = self.r["repos"]["activity"]
+        self.assertIn("demo-user", a["account"])
+        self.assertIn("not progress", a["notice"])
+        self.assertTrue(a["cards"][0].startswith("Repositories7read of 9 mapped"), a["cards"][0])
+        self.assertIn("84over 7 repositories", a["cards"][3])
+        self.assertEqual(a["charts"], ["Languages by number of repositories", "Languages by code bytes", "Repositories by year created",
+                                       "Lifespans", "Stars and last push"])
+        self.assertIn("example-org/second-site (No access)", a["missing"])
+        self.assertEqual(a["dots"], 7)
+
+    def test_the_activity_feed_links_to_its_origins_and_says_what_it_did_not_read(self):
+        ro = self.r["repos"]
+        self.assertEqual(set(ro["feed"]["kinds"]), {"commit", "opened", "merged", "closed", "handoff"})
+        self.assertIn("not progress", ro["feed"]["text"])
+        pr = ro["private"]
+        self.assertEqual(pr["kinds"], ["handoff", "commit", "opened"])
+        self.assertEqual(pr["links"][0], ["https://github.example.invalid/acme/garden/pull/2", "_blank", "noopener noreferrer"])
+        self.assertTrue(pr["links"][1][0].startswith("https://github.example.invalid/acme/garden/commit/"))
+        self.assertIn("acme/garden-plan: comments not available", pr["coverage"])
+        self.assertEqual(pr["bold"], 0, "a commit title stays text")
+        self.assertTrue(all(u.startswith("GET ") for u in pr["urls"]))
+        self.assertFalse(any("unmapped" in u for u in pr["urls"]), "an unmapped repository is never read")
+        self.assertFalse(any("/users/" in u or "/events" in u or "/user/repos" in u for u in pr["urls"]), "no account-wide read")
+
+    def test_the_feed_follows_the_ref_the_project_reads_through_switches_and_refresh(self):
+        refs = self.r["repos"]["refs"]
+        main, release = "Add the layout <b>now</b>", "Release notes"
+        for k in ("main", "mainAgain", "mainRefreshed"):
+            self.assertIn(main, refs[k]["titles"], k)
+            self.assertNotIn(release, refs[k]["titles"], k)
+        for k in ("release", "releaseRefreshed"):
+            self.assertIn(release, refs[k]["titles"], k)
+            self.assertNotIn(main, refs[k]["titles"], k)
+        urls = self.r["repos"]["private"]["urls"]
+        self.assertEqual(len({u for u in urls if "/acme/garden/commits?sha=" in u}), 2, "each ref's commits are read at its own pin")
+
+    def test_unknown_metadata_is_shown_as_not_given_and_counts_say_what_they_cover(self):
+        ro = self.r["repos"]
+        rows = {r[0]: r for r in ro["privateRows"]}
+        self.assertEqual(rows["acme/garden-plan"][4], "None", "GitHub said there is no main language")
+        self.assertEqual(rows["acme/garden"][4], "Not given by GitHub", "GitHub gave no language field")
+        self.assertEqual(rows["acme/garden"][3], "Not given by GitHub")
+        self.assertEqual(rows["acme/recipes"][2], "Not given by GitHub")
+        for opt in ("r-vis:?", "r-lang:-", "r-lang:?", "r-type:?"):
+            self.assertIn(opt, ro["privateOptions"])
+        a = ro["privateActivity"]
+        self.assertIn("over the 2 of 3 that give it; 1 not given by GitHub", a["cards"][1])
+        self.assertIn("over the 2 of 3 that give it; 1 not given by GitHub", a["cards"][2])
+        self.assertEqual(sorted(a["langs"]), ["Go", "No main language", "Not given by GitHub"])
+        self.assertIn("Not given by GitHub", ro["recipes"]["visibility"], "unknown privacy is never shown as Public")
+        self.assertNotIn("Public", ro["recipes"]["visibility"])
+
+    def test_undatable_activity_is_disclosed_and_not_an_empty_feed(self):
+        ro = self.r["repos"]
+        self.assertEqual(ro["recipes"]["titles"], [])
+        self.assertIn("Activity was read, but no event had a time", ro["recipes"]["empty"])
+        self.assertIn("1 event was read with no readable time", ro["recipes"]["untimed"])
+        self.assertIn("1 event was read with no readable time", ro["refs"]["release"]["untimed"])
+        self.assertEqual(ro["refs"]["main"]["untimed"], "")
+
+    def test_a_repository_page_keeps_hostile_metadata_as_text(self):
+        app = self.r["repos"]["app"]
+        self.assertIn("<img src=x onerror=alert(1)> stays text", app["text"])
+        self.assertIn("javascript:alert(1)", app["text"])
+        self.assertEqual(app["links"], [])
+        self.assertEqual(app["imgs"], 0)
+
+    def test_a_standalone_repository_has_no_plan_progress_not_zero(self):
+        t = self.r["repos"]["tools"]
+        self.assertIn("Plan progress: not available", t["noPlan"])
+        self.assertIn("It is not 0%", t["noPlan"])
+        self.assertEqual(t["langs"], ["Go", "Makefile"])
+        self.assertEqual(t["feed"], ["commit", "commit"])
+
+    def test_a_repository_opened_by_name_lasts_for_this_visit_only(self):
+        o = self.r["repos"]["opened"]
+        self.assertEqual(o["head"], "example-org/unlisted")
+        self.assertEqual(o["tree"], ["p:~opened-1"])
+        self.assertTrue(o["afterRefresh"])
+        self.assertTrue(o["marked"])
+        self.assertIn("owner/name", o["badName"])
+        self.assertFalse(o["afterLeave"])
+
+    def test_repository_views_never_scroll_the_page_sideways(self):
+        n = self.r["repos"]["narrow"]
+        self.assertLessEqual(n["portfolio"], 320)
+        self.assertLessEqual(n["activity"], 320)
 
     def test_framed_page_refuses_to_show(self):
         self.assertEqual(self.r["framed"], {"state": "This page cannot be shown inside another site.", "shell": "hidden"})

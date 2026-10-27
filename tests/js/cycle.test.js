@@ -26,7 +26,7 @@ test("pull requests are read live, field by field, and a cut-off list is partial
   let r = await SB.readPulls(ctx, client, "acme/garden-plan");
   assert.equal(r.state, "current");
   assert.deepEqual(r.data.pulls[0], { number: 3, title: "XQ101: sketch", state: "closed", head: B, merged: "2026-01-02T03:04:05Z",
-                                      mergeCommit: sha("m"), body: "" });
+                                      mergeCommit: sha("m"), body: "", created: null, closed: null });
   assert.equal(r.data.pulls[1].merged, null);
   const many = Array.from({ length: 300 }, (_, i) => pull(i + 1, "PR " + (i + 1)));
   const big = setup(many);

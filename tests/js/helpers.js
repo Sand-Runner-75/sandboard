@@ -31,7 +31,8 @@ function json(body, status = 200, headers = {}) {
 }
 
 // repos: {"owner/name": {private, default_branch, branches: {name: commit}, files: {commit: {path: text}},
-//          checks: {commit: [runs] | {status, headers}}, pulls: [{number, title, state, ..., comments}]}}
+//          languages?, commits? (or commitsAt: {commit: [...]}, per pinned commit), comments? (the repository overview's lists, as the API gives them),
+//          info? (more repository reply fields; undefined drops one), checks: {commit: [runs] | {status, headers}}, pulls: [{number, title, state, ..., comments}]}}
 // overrides: [[RegExp on the path, (path, init) => Response | Promise<Response> | null]], tried first.
 function mockGitHub(repos, overrides = []) {
   const calls = [];
@@ -49,7 +50,7 @@ function mockGitHub(repos, overrides = []) {
     if (m) {
       const r = repos[m[1]];
       return r ? json({ full_name: m[1], private: r.private !== false, default_branch: r.default_branch || "main",
-                        html_url: WEB + "/" + m[1] })
+                        html_url: WEB + "/" + m[1], ...(r.info || {}) })
                : json({ message: "Not Found" }, 404);
     }
     m = /^\/repos\/([^/]+\/[^/]+)\/commits\/([0-9a-f]{40})\/check-runs\?per_page=100&page=(\d+)$/.exec(p);
@@ -75,6 +76,15 @@ function mockGitHub(repos, overrides = []) {
       if (!pr) return json({ message: "Not Found" }, 404);
       const page = Number(m[3]);
       return json((pr.comments || []).slice((page - 1) * 100, page * 100));
+    }
+    // The repository overview's reads: a synthetic repository gives its own lists, or none.
+    m = /^\/repos\/([^/]+\/[^/]+)\/(languages|commits\?sha=[0-9a-f]{40}&per_page=30|issues\/comments\?sort=created&direction=desc&per_page=50)$/.exec(p);
+    if (m) {
+      const r = repos[m[1]];
+      if (!r) return json({ message: "Not Found" }, 404);
+      if (m[2] === "languages") return json(r.languages || {});
+      if (m[2].startsWith("commits")) { const at = m[2].slice(12, 52); return json((r.commitsAt && r.commitsAt[at]) || r.commits || []); }
+      return json(r.comments || []);
     }
     m = /^\/repos\/([^/]+\/[^/]+)\/commits\/([^/?]+)$/.exec(p);
     if (m) {

@@ -29,6 +29,8 @@
   let client = null;
 
   const noFilters = () => ({ q: "", stage: "", phase: "", status: "", doer: "" });
+  const noRepoFilters = () => ({ q: "", visibility: "", language: "", type: "", sort: "name", group: false });
+  const MAX_OPENED = 10;
 
   // Everything shown comes from here, and everything here is dropped on sign-out.
   function freshState() {
@@ -37,7 +39,10 @@
       list: { state: "loading" }, entries: [], current: null,
       view: { kind: "overview" }, filters: noFilters(), selected: null,
       tabs: [], activeTab: null, docs: new Map(), mapped: new Map(),
-      expanded: new Set(["g:projects"]), treeFocus: null,
+      expanded: new Set(["g:projects", "g:account"]), treeFocus: null,
+      // Repository overview: live reads by repository (languages, activity feed, the account), the
+      // portfolio filters, and repositories opened by name for this visit only.
+      live: new Map(), repoFilters: noRepoFilters(), opened: [],
     };
   }
   let S = freshState();
@@ -58,6 +63,7 @@
     V.tree(S, A);
     V.main(S, A);
     restoreFocus(focus);
+    ensureReads();
     if (gotoBox.open) renderGoto();  // an open Go to never keeps places the current access no longer allows
   }
 
@@ -117,7 +123,7 @@
       session.alive(ctx);
       S.list = list;
       if (list.state !== "current") { S.tabs = []; S.activeTab = null; S.selected = null; S.docs = new Map(); S.mapped = new Map(); render(); return; }
-      S.entries = list.data.workspaces.map(w => ({ w, loading: true, plan: null, table: null, progress: null,
+      S.entries = list.data.workspaces.concat(S.opened.map(openedWorkspace)).map(w => ({ w, loading: true, plan: null, table: null, progress: null,
                                                    code: w.code.map(c => ({ c, pinned: null, checks: null })), tasks: [] }));
       if (!S.entries.some(e => e.w.id === S.current)) { S.current = S.entries[0].w.id; S.view = { kind: "overview" }; }
       // A project seen for the first time opens with its stages or phases showing; a refresh keeps what was opened or closed.
@@ -145,6 +151,65 @@
   }
 
   const planRepo = w => (w.plan ? w.plan.repo : null);
+
+  // A repository opened by name for this visit: a code-only workspace that is not in the workspace
+  // list, marked as such. Its ID cannot clash with a listed one (listed IDs have no "~").
+  const openedWorkspace = (o, i) => ({ id: "~opened-" + (i + 1), label: o.repo + (o.ref ? "@" + o.ref : ""), kind: "standalone", plan: null,
+                                       code: [{ repo: o.repo, ref: o.ref || null, role: "opened by name" }], opened: true });
+
+  // ---- Live reads for the repository overview, by repository: its languages and its activity feed
+  // (latest commits at the pinned commit, latest pull requests, latest comments), and the account.
+  // They are GitHub's now, not pinned to a plan commit; Refresh reads them again. None is progress.
+
+  async function loadLive(key, read) {
+    if (!session || S.live.has(key)) return;
+    const ctx = S.run;
+    const pending = { state: "loading" };
+    S.live.set(key, pending);
+    try {
+      const res = await read(ctx);
+      session.alive(ctx);
+      if (S.live.get(key) !== pending) return;
+      S.live.set(key, res);
+      render();
+    } catch (err) {
+      if (err instanceof SB.Revoked) { endSession("revoked"); return; }
+      if (S.live.get(key) !== pending) return;
+      try { session.alive(ctx); } catch (e) { S.live.delete(key); return; }
+      S.live.set(key, SB.result("failed", null, null, { error: "browser error (" + err.name + ")" }));
+      render();
+    }
+  }
+
+  const readFeed = (repo, commit) => async ctx => {
+    const commits = await SB.readCommits(ctx, client, repo, commit);
+    session.alive(ctx);
+    const pulls = await SB.readPulls(ctx, client, repo, 1);
+    session.alive(ctx);
+    const comments = await SB.readRepoComments(ctx, client, repo);
+    return SB.result("current", { commit, commits, pulls, comments, readAt: new Date().toISOString() }, { repo, commit });
+  };
+
+  // The reads the shown view needs and does not have yet. Called after every render; each read starts once.
+  function ensureReads() {
+    if (!S.signedIn || !session || !S.run || S.list.state !== "current" || S.activeTab) return;
+    const feed = r => loadLive(SB.feedKey(r.repo, r.pinned.data.commit), readFeed(r.repo, r.pinned.data.commit));
+    if (S.view.kind === "activity") {
+      loadLive("user", ctx => SB.readUser(ctx, client));
+      for (const r of SB.portfolio(S.entries)) if (r.meta) loadLive("lang|" + r.repo, ctx => SB.readLanguages(ctx, client, r.repo));
+      return;
+    }
+    // A project's own views read its repositories at its own pins, as the feed card shows them.
+    const e = entryOf(S.current);
+    if (!e) return;
+    const mine = SB.portfolio([e]).filter(r => r.meta);
+    if (S.view.kind === "repo") {
+      const r = mine.find(x => x.repo === S.view.repo);
+      if (r) { loadLive("lang|" + r.repo, ctx => SB.readLanguages(ctx, client, r.repo)); feed(r); }
+    } else if (S.view.kind === "overview") {
+      for (const r of mine) feed(r);
+    }
+  }
 
   // Tabs and documents belong to a project's plan repository. When the refreshed workspace list no
   // longer maps that repository to the project (removed, or the ID reused for another repository),
@@ -338,6 +403,48 @@
   const A = {
     render,
     docKey,
+    live: key => S.live.get(key),
+    // The account views (all mapped repositories, and their activity) belong to no single project.
+    goAccount(kind) {
+      S.view = { kind };
+      S.activeTab = null;
+      render();
+      $("main").focus();
+    },
+    setRepoFilter(key, value, focusId) {
+      S.repoFilters[key] = value;
+      const caret = key === "q" ? $("rq").selectionStart : null;
+      render();
+      const n = $(focusId);
+      if (n) { n.focus(); if (caret !== null) n.setSelectionRange(caret, caret); }
+    },
+    // Opens a repository typed as owner/name (or owner/name@ref) for this visit, as a code-only project
+    // that is not in the workspace list. A repository the list already maps is shown where it is mapped.
+    async openByName(text, status) {
+      const target = SB.parseRepoRef(String(text || "").trim());
+      if (!target) { status.textContent = "Type a repository as owner/name or owner/name@branch."; return; }
+      const mapped = S.entries.find(e => planRepo(e.w) === target.repo || e.w.code.some(c => c.repo === target.repo));
+      if (mapped && !target.ref) { A.go(mapped.w.id, { kind: "repo", repo: target.repo }); announce(target.repo + " is already in " + mapped.w.label + "."); return; }
+      if (S.opened.length >= MAX_OPENED) { status.textContent = "At most " + MAX_OPENED + " repositories can be opened by name in one visit. Refresh keeps them; Forget access clears them."; return; }
+      S.opened.push({ repo: target.repo, ref: target.ref || null });
+      const w = openedWorkspace(S.opened[S.opened.length - 1], S.opened.length - 1);
+      const entry = { w, loading: true, plan: null, table: null, progress: null, code: [{ c: w.code[0], pinned: null, checks: null }], tasks: [] };
+      S.entries.push(entry);
+      S.expanded.add("p:" + w.id);
+      A.go(w.id, { kind: "repo", repo: target.repo });
+      const ctx = S.run;
+      try {
+        const read = await SB.readWorkspace(ctx, client, w);
+        session.alive(ctx);
+        const i = S.entries.indexOf(entry);
+        if (i < 0) return;
+        S.entries[i] = entryFrom(w, read);
+        render();
+        announce("Opened " + target.repo + " for this visit.");
+      } catch (err) {
+        if (err instanceof SB.Revoked) endSession("revoked");
+      }
+    },
     closeMenu: () => setMenu(false),
     go(project, view, opts) {
       if (project !== S.current) { S.filters = noFilters(); S.selected = null; }
@@ -455,6 +562,7 @@
     // A document read at a commit stays right for that commit; only reads that did not finish
     // with an answer about the file are dropped, so they are tried again.
     for (const [key, res] of [...S.docs]) if (!["current", "empty", "missing", "invalid"].includes(res.state) || key.includes("|live|")) S.docs.delete(key);
+    S.live = new Map();  // languages, feeds and the account are read again
     const ctx = session.start();  // same token, new run: replies to the old run are dropped
     announce("Refreshing.");
     load(ctx);
@@ -466,7 +574,7 @@
   let gotoSel = 0;
 
   function places() {
-    const out = [];
+    const out = [["All repositories", "Account", () => A.goAccount("portfolio")], ["Activity and languages", "Account", () => A.goAccount("activity")]];
     for (const e of S.entries) {
       const w = e.w;
       if (w.plan) {
@@ -587,7 +695,7 @@
   // ---- Events
 
   $("expand-all").addEventListener("click", () => { for (const id of V.treeGroups(S, A)) S.expanded.add(id); render(); });
-  $("collapse-all").addEventListener("click", () => { S.expanded = new Set(["g:projects"]); render(); });
+  $("collapse-all").addEventListener("click", () => { S.expanded = new Set(["g:projects", "g:account"]); render(); });
   $("connect").addEventListener("submit", connect);
   $("show-demo").addEventListener("click", showDemo);
   $("forget").addEventListener("click", () => { endSession(S.demo ? "demo" : "forget"); $("main").focus(); });

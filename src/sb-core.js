@@ -80,6 +80,11 @@
     // A task's review cycle: the repository's pull requests, and the comments on one of them.
     new RegExp("^/repos/" + NAME + "/" + NAME + "/pulls[?]state=all&per_page=100&page=[1-9]$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/issues/[1-9][0-9]{0,8}/comments[?]per_page=100&page=[1-9]$"),
+    // The repository overview: a repository's languages, and the recent evidence of its activity feed
+    // (the latest commits at a pinned commit, the latest comments on its issues and pull requests).
+    new RegExp("^/repos/" + NAME + "/" + NAME + "/languages$"),
+    new RegExp("^/repos/" + NAME + "/" + NAME + "/commits[?]sha=" + SHA + "&per_page=30$"),
+    new RegExp("^/repos/" + NAME + "/" + NAME + "/issues/comments[?]sort=created&direction=desc&per_page=50$"),
   ];
 
   function allowed(path) {
@@ -200,7 +205,7 @@
       }
       const date = commit.commit && commit.commit.committer && commit.commit.committer.date;
       return result("current", { commit: commit.sha, ref: branch, date: typeof date === "string" ? date : null,
-                                 private: info.private === true, web: webAddress(info.html_url, repo) },
+                                 private: info.private === true, web: webAddress(info.html_url, repo), meta: repoMeta(info) },
                     { repo, ref: branch, commit: commit.sha });
     }
 
@@ -216,6 +221,25 @@
       if (e instanceof TransportFailure) return result("failed", null, source, { error: "network error" });
       throw e;
     }
+  }
+
+  // What GitHub says about a repository, field by field. A field that is missing or not in the
+  // expected form is null, and the view says "not given": it is never guessed or shown as zero.
+  function repoMeta(info) {
+    const text = (v, max) => typeof v === "string" && v.trim() !== "" ? v.slice(0, max) : null;
+    const count = v => Number.isInteger(v) && v >= 0 ? v : null;
+    const flag = v => typeof v === "boolean" ? v : null;
+    const time = v => typeof v === "string" && v.length <= 40 && !Number.isNaN(Date.parse(v)) ? v : null;
+    const visibility = ["public", "private", "internal"].includes(info.visibility) ? info.visibility
+      : typeof info.private === "boolean" ? (info.private ? "private" : "public") : null;
+    const topics = Array.isArray(info.topics) && info.topics.length <= 30 && info.topics.every(t => typeof t === "string" && /^[a-z0-9][a-z0-9-]{0,49}$/.test(t))
+      ? info.topics.slice() : null;
+    const license = info.license === null ? "none" : info.license && typeof info.license === "object" ? text(info.license.spdx_id, 60) : null;
+    return { description: text(info.description, 500), visibility, fork: flag(info.fork), archived: flag(info.archived),
+             language: info.language === null ? "none" : text(info.language, 60), topics, license, branch: text(info.default_branch, 200),
+             stars: count(info.stargazers_count), forks: count(info.forks_count), issues: count(info.open_issues_count),
+             size: count(info.size), created: time(info.created_at), pushed: time(info.pushed_at),
+             homepage: text(info.homepage, 300) };
   }
 
   // The repository's web address as GitHub's own reply gives it, for links the
@@ -245,5 +269,5 @@
   }
 
   Object.assign(SB, { API, STATES, Stale, Revoked, NotAllowed, TransportFailure, result, guard, createSession, createClient,
-                      allowed, validRepo, parseRepoRef, webAddress });
+                      allowed, validRepo, parseRepoRef, webAddress, repoMeta });
 })(typeof window !== "undefined" ? window : globalThis);
