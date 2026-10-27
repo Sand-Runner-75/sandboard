@@ -250,6 +250,7 @@ class BrowserTest(unittest.TestCase):
 
     def test_the_tree_arrow_closes_a_project_and_a_refresh_keeps_it_closed(self):
         f = self.r["firstUse"]
+        self.assertTrue(f["startsClosed"] and set(f["startsClosed"]) == {"false"}, "every project starts collapsed")
         self.assertEqual(f["openKids"], ["v:demo:overview", "v:demo:tasks", "stages:demo", "repos:demo"])
         self.assertEqual(f["closed"], {"expanded": "false", "kids": []})
         self.assertEqual(f["closedAfterRefresh"], "false")

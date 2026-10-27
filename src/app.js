@@ -146,10 +146,8 @@
                                                    code: w.code.map(c => ({ c, pinned: null, checks: null })), tasks: [] }));
       if (!S.entries.length) { none(); announce("Reading finished."); return; }
       if (!S.entries.some(e => e.w.id === S.current)) { S.current = S.entries[0].w.id; S.view = startView(S.entries[0].w); }
-      // A project seen for the first time opens with its stages or phases showing; a refresh keeps what was opened or closed.
-      const known = new Set(S.mapped.keys());
+      // Every project starts collapsed in the tree; a refresh keeps what was opened or closed.
       keepMapped();
-      for (const e of S.entries) if (!known.has(e.w.id)) for (const g of ["p:", "stages:", "phases:"]) S.expanded.add(g + e.w.id);
       render();
       for (let i = 0; i < S.entries.length; i++) {
         let w = S.entries[i].w;

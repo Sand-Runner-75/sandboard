@@ -65,7 +65,17 @@ function privateRepos() {
     return page;
   }
   const demo = async page => { await page.click("#show-demo"); await page.waitForFunction(() => /Reading finished/.test(document.getElementById("live").textContent) || document.querySelectorAll("#tree [role=treeitem]").length > 20); await page.waitForTimeout(300); };
-  const tree = (page, id) => page.click(`#tree [data-id="${id}"] > .ti`);
+  // Projects start collapsed, so a place deeper in the tree is reached by opening its groups' arrows first.
+  const expand = async (page, id) => { const n = await page.$(`#tree [data-id="${id}"][aria-expanded="false"] > .ti > .tw`); if (n) { await n.click(); await page.waitForTimeout(50); } };
+  const tree = async (page, id) => {
+    const sel = `#tree [data-id="${id}"] > .ti`, [kind, ws] = id.split(":");
+    if (!(await page.$(sel))) {
+      for (const g of ["p:", ...({ st: ["stages:"], ph: ["stages:", "phases:"], r: ["repos:"] }[kind] || [])]) await expand(page, g + ws);
+      if (kind === "ph" && !(await page.$(sel)))
+        for (const st of await page.$$eval(`#tree [data-id^="st:${ws}:"][aria-expanded="false"]`, n => n.map(x => x.dataset.id))) { await expand(page, st); if (await page.$(sel)) break; }
+    }
+    return page.click(sel);
+  };
   const text = (page, sel) => page.$eval(sel, n => n.textContent).catch(() => null);
   const active = page => page.evaluate(() => { const a = document.activeElement;
     return { id: a.id, key: a.dataset.key || a.dataset.id || "", tag: a.tagName, role: a.getAttribute("role"), outline: getComputedStyle(a).outlineWidth }; });
@@ -297,6 +307,7 @@ function privateRepos() {
   priv.panelOrder = await p.$$eval("#inspector > *", n => n.map(x => x.className || x.tagName.toLowerCase()));
   priv.briefFolded = await p.$eval("#inspector [data-file='brief']", n => n.tagName === "DETAILS" && !n.open);
   priv.xrefLink = await p.$$eval("#inspector [data-file='crossref-link'] a", a => a.map(x => [x.getAttribute("href"), x.target, x.rel]));
+  await expand(p, "p:garden"); await expand(p, "phases:garden");
   priv.phaseGroup = await p.$$eval("#tree [data-id^='ph:garden:']", n => n.map(x => x.dataset.id));
   priv.stageFilter = await p.$$eval("#f-stage", n => n.length);
   priv.commit = F.PLAN_COMMIT;
@@ -362,7 +373,9 @@ function privateRepos() {
   const fu = out.firstUse = {};
   p = await open(); await demo(p);
   const kids = id => p.$$eval(`#tree [data-id="${id}"] > ul > li`, n => n.map(x => x.dataset.id));
-  // The arrow closes and opens a project; the name never closes it.
+  // Every project starts closed; the arrow opens and closes it; the name never closes it.
+  fu.startsClosed = await p.$$eval('#tree [data-id^="p:"]', n => n.map(x => x.getAttribute("aria-expanded")));
+  await p.click('#tree [data-id="p:demo"] > .ti > .tw'); await p.waitForTimeout(100);
   fu.openKids = await kids("p:demo");
   await p.click('#tree [data-id="p:demo"] > .ti > .tw'); await p.waitForTimeout(100);
   fu.closed = { expanded: await p.$eval('#tree [data-id="p:demo"]', n => n.getAttribute("aria-expanded")), kids: await kids("p:demo") };
@@ -371,6 +384,7 @@ function privateRepos() {
   await p.click('#tree [data-id="p:demo"] > .ti > .tw'); await p.waitForTimeout(100);
   fu.reopened = await kids("p:demo");
   // Phases sit under their stage.
+  await expand(p, "stages:demo");
   await p.click('#tree [data-id="st:demo:S1"] > .ti > .tw'); await p.waitForTimeout(100);
   fu.stagePhases = await kids("st:demo:S1");
   await tree(p, "ph:demo:P2"); await p.waitForTimeout(150);
