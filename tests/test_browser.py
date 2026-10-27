@@ -107,6 +107,18 @@ class BrowserTest(unittest.TestCase):
         self.assertIn("Scope gate Approval not supplied", p["stageCards"])
         self.assertTrue(p["stageInTree"])
 
+    def test_the_overview_lists_every_task_beside_the_recent_activity(self):
+        p = self.r["progress"]
+        al, st = p["lowerAll"], p["lowerStage"]
+        self.assertEqual(al["columns"], ["overview-tasks", "feed"])
+        self.assertTrue(al["sideBySide"], "two columns: the tasks beside the recent activity")
+        self.assertEqual(al["title"], "All tasks")
+        self.assertEqual(al["count"], "15 tasks, 3 Done.")
+        self.assertEqual(al["ids"][:3], ["DT101", "DT102", "DT103"])
+        self.assertEqual(len(al["ids"]), 15)
+        self.assertEqual(st["title"], "Tasks in stage 1: Prepare")
+        self.assertTrue(st["ids"] and all(i.startswith(("DT1", "DT2")) for i in st["ids"]), "a stage lists only the tasks of its phases")
+
     def test_unavailable_stale_denied_and_kit_states(self):
         p = self.r["progress"]
         self.assertEqual((p["second"]["states"], p["second"]["phases"], p["second"]["ring"]), (["stale"], 0, 1))

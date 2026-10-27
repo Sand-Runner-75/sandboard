@@ -426,8 +426,27 @@
     }
     sec.append(...[wholeCards(entry), scopeRow(entry), progressBlock(S, A, entry, S.view.stage)].filter(Boolean));
     sec.append(el("div", { class: "grid2" }, waitingCard(S, A, entry), repoCard(entry)));
-    sec.append(V.feedCard(S, A, entry, [w.plan.repo, ...w.code.map(c => c.repo)]));
+    sec.append(el("div", { class: "grid2 pair", "data-part": "overview-lower" }, taskListCard(S, A, entry, stages, st), V.feedCard(S, A, entry, [w.plan.repo, ...w.code.map(c => c.repo)])));
     return sec;
+  }
+
+  // Every task of the project (All stages), or of the stage picked, beside the recent activity; each opens in Tasks.
+  function taskListCard(S, A, entry, stages, st) {
+    const title = st ? "Tasks in stage " + (stages.indexOf(st) + 1) + ": " + st.name : "All tasks";
+    const card = el("section", { class: "card", "aria-labelledby": "all-tasks-h", "data-part": "overview-tasks" },
+      tip(el("h2", { id: "all-tasks-h", class: "label" }, title), "Every task in the plan's table" + (st ? " whose phase is in this stage" : "") + ", in table order, with its status as the table says. Pick one to open it in Tasks."));
+    const ts = tableState(entry);
+    if (ts !== "current") { card.append(ts === "none" ? el("p", { class: "muted plain" }, "No plan, so no tasks.") : notice(ts, entry.table && entry.table.error)); return card; }
+    const rows = SB.filterTasks(entry.tasks, st ? { stagePhases: st.phases } : {});
+    const list = rows.filter(t => !t.invalid), bad = rows.length - list.length;
+    const done = list.filter(t => t.status === "Done").length;
+    card.append(el("p", { class: "qual muted plain", "data-part": "overview-tasks-count" },
+      list.length + (list.length === 1 ? " task" : " tasks") + ", " + done + " Done" + (bad ? "; " + bad + (bad === 1 ? " row" : " rows") + " that could not be read, shown in Tasks" : "") + "."));
+    if (!list.length) { card.append(el("p", { class: "muted plain" }, st ? "No task in this stage." : "No task in the table.")); return card; }
+    card.append(el("ul", { class: "feed task-list", tabindex: "0", "aria-label": title + ", in table order" }, list.map(t => el("li", { "data-task": t.id }, pill(t.status),
+      el("button", { type: "button", class: "linkbtn", onclick: () => A.go(entry.w.id, { kind: "tasks" }, { phase: "", select: t.id }) }, t.id + " " + (t.title || "")),
+      t.phase ? el("span", { class: "qual muted" }, t.phase.id) : null))));
+    return card;
   }
 
   function waitingCard(S, A, entry) {

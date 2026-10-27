@@ -107,7 +107,14 @@ function privateRepos() {
   const whole = () => text(p, "#whole-cards");
   prog.whole = await whole();
   prog.phases = await p.$$eval(".phase", n => n.map(x => [x.dataset.phase, x.textContent]));
+  // The overview's lower part: every task beside the recent activity, or the picked stage's tasks.
+  const lower = () => p.evaluate(() => ({ columns: [...document.querySelectorAll("[data-part=overview-lower] > section")].map(n => n.dataset.part || ""),
+    title: (document.getElementById("all-tasks-h") || {}).textContent || "", count: (document.querySelector("[data-part=overview-tasks-count]") || {}).textContent || "",
+    ids: [...document.querySelectorAll("[data-part=overview-tasks] li")].map(n => n.dataset.task),
+    sideBySide: (() => { const s = [...document.querySelectorAll("[data-part=overview-lower] > section")].map(n => n.getBoundingClientRect()); return s.length === 2 && Math.abs(s[0].top - s[1].top) < 2 && s[0].right <= s[1].left; })() }));
+  prog.lowerAll = await lower();
   await p.click(".chips [data-stage='S1']"); await p.waitForTimeout(100);
+  prog.lowerStage = await lower();
   prog.stagePhases = await p.$$eval(".phase", n => n.map(x => x.dataset.phase));
   prog.stageCards = await text(p, "#stage-cards");
   prog.wholeWithStage = await whole();
