@@ -287,3 +287,12 @@ details.group > .table-wrap { margin-top: 4px; }
 .h3 { background: color-mix(in srgb, var(--accent) 78%, var(--surface)); }
 .h4 { background: var(--accent); }
 .legend { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+
+/* Work evidence: a pull request's reviews and checks open in a row under it; release assets as plain text. */
+.grid-table tr.detail > td { background: var(--sunken); border-top: 0; padding: 8px 12px 12px; }
+.grid-table tr.detail .feed li { padding: 4px 0; }
+.grid-table .pill { margin-bottom: 2px; }
+.plain-list { margin: 4px 0 0; padding-left: 1.1em; font-size: 0.84rem; display: grid; gap: 2px; }
+[data-part=releases] details summary { cursor: pointer; font-size: 0.84rem; }
+.grid-table td.wide { min-width: 12rem; }
+.feed .plain-list li { display: list-item; border: 0; padding: 0; }

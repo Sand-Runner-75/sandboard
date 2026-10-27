@@ -32,7 +32,7 @@ class BuildTest(unittest.TestCase):
         self.assertEqual(build.build(self.out), [])
         self.assertEqual(sorted(os.listdir(self.out)),
                          ["app.js", "build-manifest.json", "demo-data.js", "index.html", "sb-core.js", "sb-demo.js", "sb-history.js",
-                          "sb-model.js", "sb-readers.js", "sb-render.js", "sb-repos.js", "sb-views.js", "style.css"])
+                          "sb-model.js", "sb-readers.js", "sb-render.js", "sb-repos.js", "sb-views.js", "sb-work.js", "style.css"])
 
     def test_page_has_csp_referrer_and_only_external_scripts(self):
         build.build(self.out)

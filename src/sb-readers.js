@@ -544,8 +544,189 @@
                                base: b.merge_base_commit && b.merge_base_commit.sha ? b.merge_base_commit.sha : null }, source);
   }
 
+  // ---- Work evidence: a repository's pull requests (with their reviews), issues, Actions runs and
+  // releases, one page of 100 at a time, as GitHub lists them now. Read live, never at the pinned
+  // commit, and only ever read: nothing here creates, comments, reviews, merges, reruns or publishes.
+  // People are kept by login only.
+
+  const WORK_PAGE = 100;
+  const MAX_WORK_PAGES = 9;
+  const LIST_STATES = ["open", "closed", "all"];
+  const REVIEW_STATES = ["APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED", "PENDING"];
+  const RUN_STATUSES = ["queued", "in_progress", "completed", "waiting", "requested", "pending"];
+  const RUN_CONCLUSIONS = ["success", "failure", "cancelled", "skipped", "neutral", "timed_out", "action_required", "stale", "startup_failure"];
+  const ISSUE_REASONS = ["completed", "not_planned", "reopened", "duplicate"];
+  const loginOf = u => isObject(u) && isLogin(u.login) ? u.login : null;
+  const time = v => v === undefined ? null : v;
+  const isRefName = v => typeof v === "string" && /^[^\u0000-\u001f]{1,250}$/.test(v);
+  const logins = list => Array.isArray(list) ? list.map(loginOf).filter(Boolean).slice(0, 50) : [];
+  const workPage = (repo, state, page) => SB.validRepo(repo) && (state === null || LIST_STATES.includes(state)) &&
+    Number.isInteger(page) && page >= 1 && page <= MAX_WORK_PAGES;
+  // A full page may have more behind it; a shorter one is the end of the list.
+  const pageResult = (items, extra, source) => items.length === WORK_PAGE
+    ? result("partial", Object.assign({ end: false }, extra), source, { coverage: { shown: items.length, total: null } })
+    : result(items.length ? "current" : "empty", Object.assign({ end: true }, extra), source);
+  // Lists that need a permission the token may lack (pull requests and their reviews, issues, Actions) say so as unavailable.
+  async function getList(ctx, client, path, source, permission) {
+    const res = await client.get(ctx, path);
+    if (permission && (res.status === 403 || res.status === 404)) {
+      const state = client.stateFor(res);
+      if (state === "rate-limited") return { out: result(state, null, source, { error: "HTTP " + res.status }) };
+      return { out: result("unavailable", null, source, { error: "not readable with this token (" + permission + ")" }) };
+    }
+    if (!res.ok) return { out: result(client.stateFor(res), null, source, { error: "HTTP " + res.status }) };
+    return { body: await client.json(ctx, res) };
+  }
+
+  function pullOf(pr) {
+    if (!isObject(pr) || !Number.isInteger(pr.number) || pr.number < 1 || typeof pr.title !== "string" || !PULL_STATES.includes(pr.state) ||
+        !isObject(pr.head) || !isSha(pr.head.sha) || !(pr.head.ref === undefined || isRefName(pr.head.ref)) ||
+        !(pr.base === undefined || (isObject(pr.base) && (pr.base.ref === undefined || isRefName(pr.base.ref)))) ||
+        !(pr.draft === undefined || typeof pr.draft === "boolean") ||
+        !["merged_at", "created_at", "updated_at", "closed_at"].every(k => isTime(time(pr[k])))) return null;
+    return { number: pr.number, title: pr.title.slice(0, 300), state: pr.state, draft: pr.draft === true, merged: time(pr.merged_at),
+             head: pr.head.sha, headRef: pr.head.ref || null, baseRef: pr.base && pr.base.ref ? pr.base.ref : null, author: loginOf(pr.user),
+             reviewers: logins(pr.requested_reviewers), teams: Array.isArray(pr.requested_teams) ? pr.requested_teams.length : 0,
+             created: time(pr.created_at), updated: time(pr.updated_at), closed: time(pr.closed_at) };
+  }
+
+  function readPullPage(ctx, client, repo, state, page) {
+    return SB.guard(readPullPageUnguarded(ctx, client, repo, state, page), { repo, state, page });
+  }
+  async function readPullPageUnguarded(ctx, client, repo, state, page) {
+    const source = { repo, state, page };
+    if (!workPage(repo, state, page) || state === null) return result("invalid", null, source, { error: "not a valid repository, list or page" });
+    const { out, body } = await getList(ctx, client, "/repos/" + repo + "/pulls?state=" + state + "&per_page=" + WORK_PAGE + "&page=" + page, source, "Pull requests: read");
+    if (out) return out;
+    if (!Array.isArray(body) || body.length > WORK_PAGE) return result("invalid", null, source, { error: "unexpected pull request list" });
+    const pulls = body.map(pullOf);
+    if (pulls.some(x => !x)) return result("invalid", null, source, { error: "malformed pull request" });
+    return pageResult(pulls, { pulls }, source);
+  }
+
+  // A pull request's reviews, oldest first, each with the commit it was given at.
+  const MAX_REVIEW_PAGES = 3;
+  function readReviews(ctx, client, repo, number) {
+    return SB.guard(readReviewsUnguarded(ctx, client, repo, number), { repo, number });
+  }
+  async function readReviewsUnguarded(ctx, client, repo, number) {
+    const source = { repo, number };
+    if (!SB.validRepo(repo) || !Number.isInteger(number) || number < 1) return result("invalid", null, source, { error: "not a pull request" });
+    const reviews = [];
+    for (let page = 1; page <= MAX_REVIEW_PAGES; page++) {
+      const { out, body } = await getList(ctx, client, "/repos/" + repo + "/pulls/" + number + "/reviews?per_page=100&page=" + page, source, "Pull requests: read");
+      if (out) return out;
+      if (!Array.isArray(body) || body.length > 100) return result("invalid", null, source, { error: "unexpected review list" });
+      for (const r of body) {
+        if (!isObject(r) || !REVIEW_STATES.includes(r.state) || !(r.commit_id === null || r.commit_id === undefined || isSha(r.commit_id)) ||
+            !isTime(time(r.submitted_at))) return result("invalid", null, source, { error: "malformed review" });
+        reviews.push({ state: r.state, commit: r.commit_id || null, by: loginOf(r.user), at: time(r.submitted_at) });
+      }
+      if (body.length < 100) return result(reviews.length ? "current" : "empty", { reviews }, source);
+    }
+    return result("partial", { reviews }, source, { coverage: { shown: reviews.length, total: null } });
+  }
+
+  // Issues only: GitHub's issue list also holds pull requests, which are counted and left to their own list.
+  function readIssuePage(ctx, client, repo, state, page) {
+    return SB.guard(readIssuePageUnguarded(ctx, client, repo, state, page), { repo, state, page });
+  }
+  async function readIssuePageUnguarded(ctx, client, repo, state, page) {
+    const source = { repo, state, page };
+    if (!workPage(repo, state, page) || state === null) return result("invalid", null, source, { error: "not a valid repository, list or page" });
+    const { out, body } = await getList(ctx, client, "/repos/" + repo + "/issues?state=" + state + "&per_page=" + WORK_PAGE + "&page=" + page, source, "Issues: read");
+    if (out) return out;
+    if (!Array.isArray(body) || body.length > WORK_PAGE) return result("invalid", null, source, { error: "unexpected issue list" });
+    const issues = [];
+    let pulls = 0;
+    for (const i of body) {
+      if (!isObject(i) || !Number.isInteger(i.number) || i.number < 1 || typeof i.title !== "string" || !PULL_STATES.includes(i.state) ||
+          !(i.state_reason === null || i.state_reason === undefined || ISSUE_REASONS.includes(i.state_reason)) ||
+          !(i.comments === undefined || (Number.isInteger(i.comments) && i.comments >= 0)) ||
+          !(i.labels === undefined || Array.isArray(i.labels)) || !["created_at", "closed_at"].every(k => isTime(time(i[k])))) {
+        return result("invalid", null, source, { error: "malformed issue" });
+      }
+      if (i.pull_request !== undefined) { pulls += 1; continue; }
+      issues.push({ number: i.number, title: i.title.slice(0, 300), state: i.state, reason: i.state_reason || null, author: loginOf(i.user),
+                    labels: (i.labels || []).map(l => typeof l === "string" ? l : isObject(l) && typeof l.name === "string" ? l.name : null)
+                      .filter(l => l && isRefName(l)).map(l => l.slice(0, 50)).slice(0, 20),
+                    assignees: logins(i.assignees), comments: i.comments === undefined ? null : i.comments,
+                    created: time(i.created_at), closed: time(i.closed_at) });
+    }
+    return pageResult(body, { issues, pulls }, source);
+  }
+
+  // Workflow runs, newest first, with GitHub's own total. Needs Actions: read.
+  function readRunPage(ctx, client, repo, page) {
+    return SB.guard(readRunPageUnguarded(ctx, client, repo, page), { repo, page });
+  }
+  async function readRunPageUnguarded(ctx, client, repo, page) {
+    const source = { repo, page };
+    if (!workPage(repo, null, page)) return result("invalid", null, source, { error: "not a valid repository or page" });
+    const { out, body } = await getList(ctx, client, "/repos/" + repo + "/actions/runs?per_page=" + WORK_PAGE + "&page=" + page, source, "Actions: read");
+    if (out) return out;
+    if (!isObject(body) || !Number.isInteger(body.total_count) || body.total_count < 0 || !Array.isArray(body.workflow_runs) || body.workflow_runs.length > WORK_PAGE) {
+      return result("invalid", null, source, { error: "unexpected run list" });
+    }
+    const runs = [];
+    for (const r of body.workflow_runs) {
+      if (!isObject(r) || !Number.isSafeInteger(r.id) || r.id < 1 || !(r.name === null || r.name === undefined || typeof r.name === "string") ||
+          !(r.run_number === undefined || Number.isInteger(r.run_number)) || !isSha(r.head_sha) ||
+          !(r.head_branch === null || r.head_branch === undefined || isRefName(r.head_branch)) ||
+          !(r.status === null || r.status === undefined || typeof r.status === "string") ||
+          !(r.conclusion === null || r.conclusion === undefined || typeof r.conclusion === "string") ||
+          !["created_at", "run_started_at", "updated_at"].every(k => isTime(time(r[k])))) return result("invalid", null, source, { error: "malformed run" });
+      runs.push({ id: r.id, name: (r.name || "").slice(0, 200) || null, title: typeof r.display_title === "string" ? r.display_title.slice(0, 300) : null,
+                  number: r.run_number === undefined ? null : r.run_number, event: typeof r.event === "string" ? r.event.slice(0, 40) : null,
+                  status: RUN_STATUSES.includes(r.status) ? r.status : null, conclusion: RUN_CONCLUSIONS.includes(r.conclusion) ? r.conclusion : null,
+                  rawConclusion: r.conclusion === null || r.conclusion === undefined ? null : String(r.conclusion).slice(0, 40),
+                  branch: r.head_branch || null, head: r.head_sha, actor: loginOf(r.actor),
+                  created: time(r.created_at), started: time(r.run_started_at), updated: time(r.updated_at) });
+    }
+    // GitHub's total says how many runs there are: a single reply listing more than it counts is not
+    // GitHub's list. The end is reached when the runs up to this page cover the total; a page short of
+    // it is kept as short (not complete), never as the end, and nothing further is read after it.
+    const before = (page - 1) * WORK_PAGE;
+    if (runs.length > body.total_count) return result("invalid", null, source, { error: "run list longer than its total" });
+    const extra = { runs, total: body.total_count };
+    if (before + runs.length >= body.total_count) return result(runs.length ? "current" : "empty", Object.assign({ end: true }, extra), source);
+    const short = runs.length < WORK_PAGE;
+    return result("partial", Object.assign({ end: false, short }, extra), source,
+                  { coverage: { shown: before + runs.length, total: body.total_count } });
+  }
+
+  // Releases, newest first, with their assets' names and sizes only: no asset is fetched.
+  function readReleasePage(ctx, client, repo, page) {
+    return SB.guard(readReleasePageUnguarded(ctx, client, repo, page), { repo, page });
+  }
+  async function readReleasePageUnguarded(ctx, client, repo, page) {
+    const source = { repo, page };
+    if (!workPage(repo, null, page)) return result("invalid", null, source, { error: "not a valid repository or page" });
+    const { out, body } = await getList(ctx, client, "/repos/" + repo + "/releases?per_page=" + WORK_PAGE + "&page=" + page, source);
+    if (out) return out;
+    if (!Array.isArray(body) || body.length > WORK_PAGE) return result("invalid", null, source, { error: "unexpected release list" });
+    const releases = [];
+    for (const r of body) {
+      if (!isObject(r) || !Number.isSafeInteger(r.id) || !isRefName(r.tag_name) || !(r.name === null || r.name === undefined || typeof r.name === "string") ||
+          typeof r.draft !== "boolean" || typeof r.prerelease !== "boolean" || !["created_at", "published_at"].every(k => isTime(time(r[k]))) ||
+          !(r.assets === undefined || (Array.isArray(r.assets) && r.assets.length <= 1000))) return result("invalid", null, source, { error: "malformed release" });
+      const assets = [];
+      for (const a of r.assets || []) {
+        if (!isObject(a) || typeof a.name !== "string" || !Number.isSafeInteger(a.size) || a.size < 0 ||
+            !(a.download_count === undefined || (Number.isSafeInteger(a.download_count) && a.download_count >= 0))) {
+          return result("invalid", null, source, { error: "malformed release asset" });
+        }
+        assets.push({ name: a.name.slice(0, 200), size: a.size, downloads: a.download_count === undefined ? null : a.download_count });
+      }
+      releases.push({ id: r.id, tag: r.tag_name, name: r.name ? r.name.slice(0, 200) : null, draft: r.draft, prerelease: r.prerelease,
+                      created: time(r.created_at), published: time(r.published_at), author: loginOf(r.author), assets });
+    }
+    return pageResult(releases, { releases }, source);
+  }
+
   Object.assign(SB, { WORKSPACES_FILE, STATUSES, SCOPES, readWorkspace, readTaskFile, isPath, validateWorkspaces, readWorkspaces, splitRow, parsePlanTables, readPlan,
                       validateProgress, readProgress, readCheckRuns, readPulls, readComments,
                       COMMIT_LIMIT, REPO_COMMENT_LIMIT, readLanguages, readCommits, readRepoComments, readUser,
-                      HISTORY_PAGE, MAX_HISTORY_PAGES, historyCommit, readHistoryPage, readRefs, readCompare });
+                      HISTORY_PAGE, MAX_HISTORY_PAGES, historyCommit, readHistoryPage, readRefs, readCompare,
+                      WORK_PAGE, MAX_WORK_PAGES, readPullPage, readReviews, readIssuePage, readRunPage, readReleasePage });
 })(typeof window !== "undefined" ? window : globalThis);

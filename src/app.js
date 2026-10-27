@@ -46,6 +46,9 @@
       // History: how many pages each read commit's history goes back, the branches the owner asked
       // to compare beyond the first ones, and the graph's zoom.
       histDepth: new Map(), histAsk: new Set(), histZoom: 1,
+      // Work evidence: each list's state filter (open, closed or all) and how many pages it goes back,
+      // and the pull requests whose reviews and checks are shown.
+      workState: new Map(), workDepth: new Map(), workOpen: new Set(),
     };
   }
   let S = freshState();
@@ -71,7 +74,7 @@
   }
 
   // Views are rebuilt on every change; keep keyboard focus on the same item when it is still there.
-  const MARKS = ["id", "data-id", "data-key", "data-phase", "data-stage", "data-copy", "data-sub", "data-open"];
+  const MARKS = ["id", "data-id", "data-key", "data-phase", "data-stage", "data-copy", "data-sub", "data-open", "data-evidence"];
   function focusMark() {
     const a = document.activeElement;
     if (!a || !(a.closest("#workspace") || a.closest("#tree"))) return null;
@@ -202,6 +205,12 @@
       for (const r of SB.portfolio(S.entries)) if (r.meta) loadLive("lang|" + r.repo, ctx => SB.readLanguages(ctx, client, r.repo));
       return;
     }
+    // The inbox reads the account and the first page of each mapped repository's open lists.
+    if (S.view.kind === "inbox") {
+      loadLive("user", ctx => SB.readUser(ctx, client));
+      for (const r of SB.inboxScope(SB.portfolio(S.entries)).readable) for (const kind of ["pulls", "issues"]) workRead(r.repo, kind, "open", 1);
+      return;
+    }
     // A project's own views read its repositories at its own pins, as the feed card shows them.
     const e = entryOf(S.current);
     if (!e) return;
@@ -210,6 +219,7 @@
       const r = mine.find(x => x.repo === S.view.repo);
       if (!r) return;
       if (S.view.sub === "history") return historyReads(r.repo, r.pinned.data.commit);
+      if (V.WORK_SUBS.includes(S.view.sub)) return workReads(r.repo, S.view.sub);
       loadLive("lang|" + r.repo, ctx => SB.readLanguages(ctx, client, r.repo)); feed(r);
     } else if (S.view.kind === "overview") {
       for (const r of mine) feed(r);
@@ -227,6 +237,29 @@
       else if (w.kind === "refs") loadLive(K.refs(repo, w.list), ctx => SB.readRefs(ctx, client, repo, w.list));
       else if (w.kind === "compare") loadLive(K.compare(repo, commit, w.head), ctx => SB.readCompare(ctx, client, repo, commit, w.head));
       else if (w.kind === "lane") loadLive(K.lane(repo, w.head), ctx => SB.readHistoryPage(ctx, client, repo, w.head, 1));
+    }
+  }
+
+  // A repository's work evidence reads the pages its list still wants, and for each pull request whose
+  // evidence is shown, its reviews and the check runs at its current head.
+  const workSlot = (repo, kind, state) => kind + "|" + repo + "|" + (state || "-");
+  const workStateOf = (repo, kind) => kind === "pulls" || kind === "issues" ? S.workState.get(repo + "|" + kind) || "open" : null;
+  function workRead(repo, kind, state, page) {
+    const key = SB.workKey.list(kind, repo, state, page);
+    if (kind === "pulls") loadLive(key, ctx => SB.readPullPage(ctx, client, repo, state, page));
+    else if (kind === "issues") loadLive(key, ctx => SB.readIssuePage(ctx, client, repo, state, page));
+    else if (kind === "runs") loadLive(key, ctx => SB.readRunPage(ctx, client, repo, page));
+    else loadLive(key, ctx => SB.readReleasePage(ctx, client, repo, page));
+  }
+  function workReads(repo, kind) {
+    const state = workStateOf(repo, kind);
+    const w = SB.workList(key => S.live.get(key), kind, repo, state, S.workDepth.get(workSlot(repo, kind, state)) || 1);
+    for (const page of w.wanted) workRead(repo, kind, state, page);
+    if (kind !== "pulls") return;
+    for (const pr of w.items) {
+      if (!S.workOpen.has(repo + "#" + pr.number)) continue;
+      loadLive(SB.workKey.reviews(repo, pr.number), ctx => SB.readReviews(ctx, client, repo, pr.number));
+      loadLive(SB.workKey.checks(repo, pr.head), ctx => SB.readCheckRuns(ctx, client, repo, pr.head));
     }
   }
 
@@ -443,7 +476,30 @@
       const n = $(focusId);
       if (n && !n.disabled) n.focus(); else { const f = $("g-fit"); if (f) f.focus(); }
     },
-    // The account views (all mapped repositories, and their activity) belong to no single project.
+    workState: workStateOf,
+    workDepth: (repo, kind, state) => S.workDepth.get(workSlot(repo, kind, state)) || 1,
+    setWorkState(repo, kind, state) {
+      S.workState.set(repo + "|" + kind, state);
+      render();
+      const n = $("wf-" + state);
+      if (n) n.focus();
+    },
+    olderWork(repo, kind, state) {
+      const k = workSlot(repo, kind, state);
+      S.workDepth.set(k, Math.min(SB.MAX_WORK_PAGES, (S.workDepth.get(k) || 1) + 1));
+      render();
+      const n = $("w-older") || $("w-end");
+      if (n) n.focus();
+    },
+    evidenceOpen: (repo, number) => S.workOpen.has(repo + "#" + number),
+    toggleEvidence(repo, number) {
+      const k = repo + "#" + number;
+      if (S.workOpen.has(k)) S.workOpen.delete(k); else S.workOpen.add(k);
+      render();
+      const n = document.querySelector('[data-evidence="' + number + '"]');
+      if (n) n.focus();
+    },
+    // The account views (all mapped repositories, their activity, and the inbox) belong to no single project.
     goAccount(kind) {
       S.view = { kind };
       S.activeTab = null;
@@ -603,6 +659,7 @@
     for (const [key, res] of [...S.docs]) if (!["current", "empty", "missing", "invalid"].includes(res.state) || key.includes("|live|")) S.docs.delete(key);
     S.live = new Map();  // languages, feeds, history and the account are read again
     S.histDepth = new Map();
+    S.workDepth = new Map();
     const ctx = session.start();  // same token, new run: replies to the old run are dropped
     announce("Refreshing.");
     load(ctx);
@@ -614,7 +671,8 @@
   let gotoSel = 0;
 
   function places() {
-    const out = [["All repositories", "Account", () => A.goAccount("portfolio")], ["Activity and languages", "Account", () => A.goAccount("activity")]];
+    const out = [["All repositories", "Account", () => A.goAccount("portfolio")], ["Activity and languages", "Account", () => A.goAccount("activity")],
+                 ["Inbox", "Account", () => A.goAccount("inbox")]];
     for (const e of S.entries) {
       const w = e.w;
       if (w.plan) {
@@ -624,6 +682,9 @@
       for (const r of [w.plan && w.plan.repo, ...w.code.map(c => c.repo)].filter(Boolean)) {
         out.push([r + " (" + w.label + ")", "Repository", () => A.go(w.id, { kind: "repo", repo: r })]);
         out.push([r + " history (" + w.label + ")", "Repository", () => A.go(w.id, { kind: "repo", repo: r, sub: "history" })]);
+        for (const [sub, label] of [["pulls", "pull requests"], ["issues", "issues"], ["runs", "Actions"], ["releases", "releases"]]) {
+          out.push([r + " " + label + " (" + w.label + ")", "Repository", () => A.go(w.id, { kind: "repo", repo: r, sub })]);
+        }
       }
     }
     const current = entryOf(S.current);

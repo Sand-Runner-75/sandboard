@@ -28,7 +28,8 @@
     return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
   }
 
-  // demo: {repos: {"owner/name": {status?, private, default_branch, commit, date, files: {path: text}, checks?, pulls?}}}
+  // demo: {repos: {"owner/name": {status?, private, default_branch, commit, date, files: {path: text}, checks?, pulls?,
+  //         issues?, runs?, releases? (a list in the API's shape, or {status} for a refusal)}}}
   // Returns the request function SB.createClient takes, answering from memory.
   function demoServer(demo) {
     const repos = (demo && demo.repos) || {};
@@ -78,12 +79,31 @@
         const page = Number(m[2]);
         return reply({ total_count: r.checks.length, check_runs: r.checks.slice((page - 1) * 100, page * 100) });
       }
-      if ((m = /^[/]pulls[?]state=all&per_page=100&page=(\d+)$/.exec(rest))) {
-        const page = Number(m[1]);
-        return reply((r.pulls || []).slice((page - 1) * 100, page * 100).map(p => {
-          const { comments, ...pr } = p;
+      // Work evidence: lists by state, newest first, a page of 100 at a time.
+      const pageOf = (list, page) => list.slice((page - 1) * 100, page * 100);
+      const byState = (list, state) => list.filter(x => state === "all" || x.state === state).sort((a, b) => b.number - a.number);
+      if ((m = /^[/]pulls[?]state=(open|closed|all)&per_page=100&page=(\d+)$/.exec(rest))) {
+        return reply(pageOf(byState(r.pulls || [], m[1]), Number(m[2])).map(p => {
+          const { comments, reviews, ...pr } = p;
           return pr;
         }));
+      }
+      if ((m = /^[/]pulls[/](\d+)[/]reviews[?]per_page=100&page=(\d+)$/.exec(rest))) {
+        const pr = (r.pulls || []).find(p => p.number === Number(m[1]));
+        return pr ? reply(pageOf(pr.reviews || [], Number(m[2]))) : reply({ message: "Not Found" }, 404);
+      }
+      // GitHub's issue list holds the pull requests too, marked as such.
+      if ((m = /^[/]issues[?]state=(open|closed|all)&per_page=100&page=(\d+)$/.exec(rest))) {
+        if (r.issues && r.issues.status) return reply({ message: "synthetic refusal" }, r.issues.status);
+        const pulls = (r.pulls || []).map(p => ({ number: p.number, title: p.title, state: p.state, user: p.user, created_at: p.created_at,
+                                                   closed_at: p.closed_at, pull_request: {} }));
+        return reply(pageOf(byState([...(r.issues || []), ...pulls], m[1]), Number(m[2])));
+      }
+      if ((m = /^[/](actions[/]runs|releases)[?]per_page=100&page=(\d+)$/.exec(rest))) {
+        const list = m[1] === "releases" ? r.releases || [] : r.runs || [];
+        if (list.status) return reply({ message: "synthetic refusal" }, list.status);
+        const page = pageOf(list, Number(m[2]));
+        return reply(m[1] === "releases" ? page : { total_count: list.length, workflow_runs: page });
       }
       if ((m = /^[/]issues[/](\d+)[/]comments[?]per_page=100&page=(\d+)$/.exec(rest))) {
         const pr = (r.pulls || []).find(p => p.number === Number(m[1]));
