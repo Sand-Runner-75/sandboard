@@ -117,7 +117,7 @@ function privateRepos() {
   const whole = () => text(p, "#whole-cards");
   prog.whole = await whole();
   prog.phases = await p.$$eval(".phase", n => n.map(x => [x.dataset.phase, x.textContent]));
-  // The overview's lower part: every task beside the recent activity, or the picked stage's tasks.
+  // The overview's lower part: every task beside the recent activity; a stage chip opens Tasks instead.
   const lower = () => p.evaluate(() => ({ columns: [...document.querySelectorAll("[data-part=overview-lower] > section")].map(n => n.dataset.part || ""),
     title: (document.getElementById("all-tasks-h") || {}).textContent || "", count: (document.querySelector("[data-part=overview-tasks-count]") || {}).textContent || "",
     ids: [...document.querySelectorAll("[data-part=overview-tasks] li")].map(n => n.dataset.task),
@@ -125,6 +125,7 @@ function privateRepos() {
   prog.lowerAll = await lower();
   await p.click(".chips [data-stage='S1']"); await p.waitForTimeout(100);
   prog.lowerStage = await lower();
+  prog.stageView = { tasks: await p.$$eval("#task-list", n => n.length), stage: await p.$eval("#f-stage", n => n.value) };
   prog.stagePhases = await p.$$eval(".phase", n => n.map(x => x.dataset.phase));
   prog.stageCards = await text(p, "#stage-cards");
   prog.wholeWithStage = await whole();
@@ -387,6 +388,11 @@ function privateRepos() {
   await expand(p, "stages:demo");
   await p.click('#tree [data-id="st:demo:S1"] > .ti > .tw'); await p.waitForTimeout(100);
   fu.stagePhases = await kids("st:demo:S1");
+  // A stage picked in the tree opens the Tasks view filtered to it, never the two-column overview.
+  await tree(p, "st:demo:S1"); await p.waitForTimeout(150);
+  fu.treeStage = { tasks: await p.$$eval("#task-list", n => n.length), lower: await p.$$eval("[data-part=overview-lower]", n => n.length),
+    stage: await p.$eval("#f-stage", n => n.value), phase: await p.$eval("#f-phase", n => n.value),
+    current: await p.$eval('#tree [data-id="st:demo:S1"] > .ti', n => n.classList.contains("current")) };
   await tree(p, "ph:demo:P2"); await p.waitForTimeout(150);
   fu.phaseRows = await p.$$eval("#task-list .row", r => r.map(x => x.dataset.id));
   fu.phaseCurrent = await p.$eval('#tree [data-id="ph:demo:P2"] > .ti', n => n.classList.contains("current"));

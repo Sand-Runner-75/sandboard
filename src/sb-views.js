@@ -272,9 +272,10 @@
     const st = stages && stageId ? stages.find(x => x.id === stageId) || null : null;
     if (stages) {
       sec.append(el("div", { class: "chips", role: "group", "aria-label": "Stage" },
-        el("button", { type: "button", "aria-pressed": String(!st), onclick: () => A.showStage(entry.w.id, null) }, "All stages"),
+        // A stage opens Tasks filtered to it; All stages stays where it is (the overview, or Tasks for every stage).
+        el("button", { type: "button", "aria-pressed": String(!st), onclick: () => S.view.kind === "tasks" ? A.showStageTasks(entry.w.id, "") : A.showStage(entry.w.id, null) }, "All stages"),
         stages.map((x, i) => el("button", { type: "button", "data-stage": x.id, "aria-pressed": String(!!st && st.id === x.id),
-          "data-tip": stageTip(x), onclick: () => A.showStage(entry.w.id, x.id) }, (i + 1) + " " + x.name,
+          "data-tip": stageTip(x), onclick: () => A.showStageTasks(entry.w.id, x.id) }, (i + 1) + " " + x.name,
           el("span", { class: "sr" }, x.rows ? ", " + x.progress_pct + "%" : ", no active work")))));
     } else {
       sec.append(el("p", { class: "qual muted plain" }, "Stage figures are not in this progress output, so phases are shown without stages."));
@@ -307,7 +308,7 @@
           if (Array.isArray(p.data.stages)) {
             kids.push({ id: "stages:" + w.id, label: "Stages", tip: TIPS.Stage, kids: p.data.stages.map((st, i) => ({
               id: "st:" + w.id + ":" + st.id, label: (i + 1) + " " + st.name, sub: st.rows ? st.progress_pct + "%" : "—", tip: stageTip(st),
-              act: () => A.showStage(w.id, st.id),
+              act: () => A.showStageTasks(w.id, st.id),
               kids: p.data.phases.filter(ph => st.phases.includes(ph.id)).map(phase),
               cur: at("overview", () => S.view.stage === st.id) || at("tasks", () => !S.filters.phase && S.filters.stage === st.id) })) });
           } else {
