@@ -247,7 +247,7 @@
     const counts = SB.ORDER.filter(s => ph.status_counts[s]).map(s => ph.status_counts[s] + " " + s).join(", ") || "no rows";
     const bar = el("span", { class: "bar" + (active && !ph.verified ? " unverified" : "") });
     if (active) { const fill = el("span"); fill.style.width = ph.progress_pct + "%"; bar.append(fill); }
-    const pressed = (S.view.kind === "tasks" && S.filters.phase === ph.id) || (S.view.kind === "overview" && S.view.phase === ph.id);
+    const pressed = S.view.kind === "tasks" && S.filters.phase === ph.id;
     const btn = el("button", { type: "button", class: "phase", "data-phase": ph.id, "aria-pressed": String(pressed),
         "aria-label": ph.id + " " + ph.name + ": " + (active ? ph.progress_pct + "% " + (ph.verified ? "verified" : "not verified") : "no active work") +
           ". " + counts + ". Show its tasks.",
@@ -303,13 +303,13 @@
           // Phases sit under their stage when the progress output supplies stages, else under the project.
           const phase = ph => ({ id: "ph:" + w.id + ":" + ph.id, label: ph.id + " " + ph.name, sub: ph.rows ? ph.progress_pct + "%" : "—",
             tip: "Phase " + ph.id + ": " + pctText(ph) + ". Pick it to see its tasks.",
-            act: () => A.showPhase(w.id, ph.id), cur: at("tasks", () => S.filters.phase === ph.id) || at("overview", () => S.view.phase === ph.id) });
+            act: () => A.showPhase(w.id, ph.id), cur: at("tasks", () => S.filters.phase === ph.id) });
           if (Array.isArray(p.data.stages)) {
             kids.push({ id: "stages:" + w.id, label: "Stages", tip: TIPS.Stage, kids: p.data.stages.map((st, i) => ({
               id: "st:" + w.id + ":" + st.id, label: (i + 1) + " " + st.name, sub: st.rows ? st.progress_pct + "%" : "—", tip: stageTip(st),
               act: () => A.showStage(w.id, st.id),
               kids: p.data.phases.filter(ph => st.phases.includes(ph.id)).map(phase),
-              cur: at("overview", () => S.view.stage === st.id && !S.view.phase) || at("tasks", () => !S.filters.phase && S.filters.stage === st.id) })) });
+              cur: at("overview", () => S.view.stage === st.id) || at("tasks", () => !S.filters.phase && S.filters.stage === st.id) })) });
           } else {
             kids.push({ id: "phases:" + w.id, label: "Phases", tip: TIPS.Phase, kids: p.data.phases.map(phase) });
           }
@@ -416,9 +416,8 @@
     const p = progressOf(entry);
     const stages = p.state === "current" && Array.isArray(p.data.stages) ? p.data.stages : null;
     const st = stages && S.view.stage ? stages.find(x => x.id === S.view.stage) : null;
-    const ph = p.state === "current" && S.view.phase ? p.data.phases.find(x => x.id === S.view.phase) || null : null;
     const sec = el("section", { class: "stack", "aria-labelledby": "view-h" },
-      header("view-h", ph ? w.label + ": " + ph.id + " " + ph.name : st ? w.label + ": " + st.name : w.label, entry, el("span", { class: "stage-tag" }, "Overview")));
+      header("view-h", st ? w.label + ": " + st.name : w.label, entry, el("span", { class: "stage-tag" }, "Overview")));
     const plan = planState(entry);
     if (plan !== "current" && plan !== "none" && plan !== "loading") {
       sec.append(notice(plan, plan === "denied" ? "Your token cannot read the plan repository " + w.plan.repo +
@@ -428,25 +427,23 @@
     }
     sec.append(...[wholeCards(entry), scopeRow(entry), progressBlock(S, A, entry, S.view.stage)].filter(Boolean));
     sec.append(el("div", { class: "grid2" }, waitingCard(S, A, entry), repoCard(entry)));
-    sec.append(el("div", { class: "grid2 pair", "data-part": "overview-lower" }, taskListCard(S, A, entry, stages, st, ph), V.feedCard(S, A, entry, [w.plan.repo, ...w.code.map(c => c.repo)])));
+    sec.append(el("div", { class: "grid2 pair", "data-part": "overview-lower" }, taskListCard(S, A, entry, stages, st), V.feedCard(S, A, entry, [w.plan.repo, ...w.code.map(c => c.repo)])));
     return sec;
   }
 
-  // Every task of the project (All stages), or of the stage or phase picked, beside the recent activity; each opens in Tasks.
-  function taskListCard(S, A, entry, stages, st, ph) {
-    const title = ph ? "Tasks in phase " + ph.id + ": " + ph.name : st ? "Tasks in stage " + (stages.indexOf(st) + 1) + ": " + st.name : "All tasks";
+  // Every task of the project (All stages), or of the stage picked, beside the recent activity; each opens in Tasks.
+  function taskListCard(S, A, entry, stages, st) {
+    const title = st ? "Tasks in stage " + (stages.indexOf(st) + 1) + ": " + st.name : "All tasks";
     const card = el("section", { class: "card", "aria-labelledby": "all-tasks-h", "data-part": "overview-tasks" },
-      tip(el("h2", { id: "all-tasks-h", class: "label" }, title), "Every task in the plan's table" + (ph ? " in this phase" : st ? " whose phase is in this stage" : "") + ", in table order, with its status as the table says. Pick one to open it in Tasks."));
+      tip(el("h2", { id: "all-tasks-h", class: "label" }, title), "Every task in the plan's table" + (st ? " whose phase is in this stage" : "") + ", in table order, with its status as the table says. Pick one to open it in Tasks."));
     const ts = tableState(entry);
     if (ts !== "current") { card.append(ts === "none" ? el("p", { class: "muted plain" }, "No plan, so no tasks.") : notice(ts, entry.table && entry.table.error)); return card; }
-    const rows = SB.filterTasks(entry.tasks, ph ? { phase: ph.id } : st ? { stagePhases: st.phases } : {});
+    const rows = SB.filterTasks(entry.tasks, st ? { stagePhases: st.phases } : {});
     const list = rows.filter(t => !t.invalid), bad = rows.length - list.length;
     const done = list.filter(t => t.status === "Done").length;
     card.append(el("p", { class: "qual muted plain", "data-part": "overview-tasks-count" },
       list.length + (list.length === 1 ? " task" : " tasks") + ", " + done + " Done" + (bad ? "; " + bad + (bad === 1 ? " row" : " rows") + " that could not be read, shown in Tasks" : "") + "."));
-    card.append(el("div", { class: "actions" }, el("button", { type: "button", class: "btn ghost", id: "open-in-tasks",
-      onclick: () => A.showTasks(entry.w.id, st ? st.id : "", ph ? ph.id : "") }, "Open in Tasks, with filters and details")));
-    if (!list.length) { card.append(el("p", { class: "muted plain" }, ph ? "No task in this phase." : st ? "No task in this stage." : "No task in the table.")); return card; }
+    if (!list.length) { card.append(el("p", { class: "muted plain" }, st ? "No task in this stage." : "No task in the table.")); return card; }
     card.append(el("ul", { class: "feed task-list", tabindex: "0", "aria-label": title + ", in table order" }, list.map(t => el("li", { "data-task": t.id }, pill(t.status),
       el("button", { type: "button", class: "linkbtn", onclick: () => A.go(entry.w.id, { kind: "tasks" }, { phase: "", select: t.id }) }, t.id + " " + (t.title || "")),
       t.phase ? el("span", { class: "qual muted" }, t.phase.id) : null))));
