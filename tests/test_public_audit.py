@@ -186,6 +186,7 @@ class PublicAuditTest(unittest.TestCase):
         gpt = "https://" + "chatgpt" + ".com/"
         links = [host + "chat/" + "0f1e2d3c", host + "project/" + "0f1e2d3c",
                  host + "code/project/" + "chan_01AbC?thread=x", host + "share/" + "0f1e2d3c",
+                 host + "epitaxy/project/" + "chan_01AbC?thread=x", host + "a-b/c/chat/" + "0f1e",
                  host + "code/" + "session_01AbC", gpt + "c/" + "0f1e2d3c", gpt + "share/" + "0f1e",
                  "https://chat." + "openai" + ".com/c/" + "0f1e2d3c"]
         for link in links:
@@ -203,6 +204,11 @@ class PublicAuditTest(unittest.TestCase):
         self.repo.commit({"notes.md": "see " + link + "\n"}, "new note")
         kinds = [k for _, k in pa.audit(self.repo.root, self.terms, legacy_end=legacy)]
         self.assertIn("a chat session link", kinds)
+        thread = "https://" + "claude" + ".ai/epitaxy/project/" + "chan_01AbC?thread=x"
+        self.repo.commit({"more.md": "see " + thread + "\n"}, "new work\n\n" + thread)
+        findings = pa.audit(self.repo.root, self.terms, legacy_end=legacy)
+        self.assertIn(("history commit " + self.head()[:7] + " message:3", "a chat session link"), findings)
+        self.assertIn(("file more.md:1", "a chat session link"), findings)
 
     def test_log_files_are_scanned_and_redacted(self):
         self.repo.commit({"a.txt": "x\n"})
