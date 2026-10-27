@@ -533,6 +533,17 @@ class BrowserTest(unittest.TestCase):
         self.assertFalse(any("/compare/" in u for u in urls), "nothing is compared when the branch list is refused")
         self.assertFalse(any(x in u for u in urls for x in ("/merges", "/git/", "/stats/", "/contributors", "/events")))
 
+    def test_history_says_when_a_branch_has_no_lane(self):
+        la = self.r["history"]["lanes"]
+        self.assertEqual(la["laneNotes"], [
+            ["dev", "failed", "dev: this branch's commits could not be read (Couldn't load), so it has no lane for its 4 commits ahead."],
+            ["gone", "denied", "gone: this branch's commits could not be read (No access), so it has no lane for its 2 commits ahead."],
+            ["empty", "empty", "empty: 1 commit ahead, none of them in the commits read, so it has no lane."]])
+        self.assertEqual([r[0] for r in la["rows"]], ["31dc4b1"], "only the read commit is drawn")
+        table = {row[0]: row[3:] for row in la["branches"]}
+        self.assertEqual(table["dev"], ["4", "1", "Diverged"], "GitHub's counts stay in the table")
+        self.assertEqual(table["gone"], ["2", "0", "Ahead"])
+
     def test_history_counts_cover_only_the_commits_read_and_name_logins_only(self):
         d = self.r["history"]["demo"]
         self.assertEqual(d["weeks"], 12)

@@ -397,9 +397,12 @@
     return { rows, width, unread: last.filter(v => v !== null).length };
   }
 
-  const isoDay = t => new Date(t).toISOString().slice(0, 10);
+  // A UTC day as GitHub-style ISO text; years past 9999 or before 0 keep their sign and six digits.
+  const isoDay = t => new Date(t).toISOString().split("T")[0];
+  // The Monday that starts a time's week, or the earliest day a date can hold when that Monday is before it.
   const mondayOf = t => { const d = new Date(t); const back = (d.getUTCDay() + 6) % 7;
-    return isoDay(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - back)); };
+    const m = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - back);
+    return isoDay(Number.isNaN(m) ? -864e13 : m); };
 
   // Live reads for a repository's history, by what each one is read at.
   const historyKey = {
@@ -456,18 +459,24 @@
     return { state, error, end, pages, main, branches, tags, compared, graph, wanted, more: !end && !error && pages === depth && depth < SB.MAX_HISTORY_PAGES };
   }
 
-  // Commits read per week (Monday, UTC) and per day, from the oldest commit read to the newest. Weeks
-  // and days with none read inside that window count 0; outside it, nothing is said.
+  // Commits read per week (Monday, UTC) and per day, for the latest weeks and days of the window from the
+  // oldest commit read to the newest: WEEKS_SHOWN weeks and DAYS_SHOWN days, each counting 0 when none was
+  // read. Only the shown buckets are built, however far apart the dates are; weekSpan and daySpan say how
+  // many weeks and days the whole window has, so the view can say how many it did not draw.
+  const WEEKS_SHOWN = 12, DAYS_SHOWN = 26 * 7, DAY = 864e5;
   function commitTimes(commits) {
     const times = commits.map(c => c.at ? Date.parse(c.at) : NaN).filter(t => !Number.isNaN(t));
-    if (!times.length) return { weeks: [], days: [], from: null, to: null, untimed: commits.length };
-    const lo = Math.min(...times), hi = Math.max(...times);
-    const weeks = new Map(), days = new Map();
-    for (let w = Date.parse(mondayOf(lo)); w <= hi; w += 7 * 864e5) weeks.set(isoDay(w), 0);
-    for (let d = Date.parse(isoDay(lo)); d <= hi; d += 864e5) days.set(isoDay(d), 0);
-    for (const t of times) { weeks.set(mondayOf(t), weeks.get(mondayOf(t)) + 1); days.set(isoDay(t), days.get(isoDay(t)) + 1); }
-    return { weeks: [...weeks.entries()].map(([week, n]) => ({ week, n })), days: [...days.entries()].map(([day, n]) => ({ day, n })),
-             from: isoDay(lo), to: isoDay(hi), untimed: commits.length - times.length };
+    if (!times.length) return { weeks: [], days: [], weekSpan: 0, daySpan: 0, from: null, to: null, untimed: commits.length };
+    const lo = times.reduce((a, b) => Math.min(a, b)), hi = times.reduce((a, b) => Math.max(a, b));
+    const byWeek = new Map(), byDay = new Map();
+    for (const t of times) { const w = mondayOf(t), d = isoDay(t); byWeek.set(w, (byWeek.get(w) || 0) + 1); byDay.set(d, (byDay.get(d) || 0) + 1); }
+    const span = (first, last, step) => Math.round((Date.parse(last) - Date.parse(first)) / step) + 1;
+    const fill = (last, n, step, counts, key) => Array.from({ length: n }, (_, i) => {
+      const at = isoDay(Date.parse(last) - (n - 1 - i) * step); return { [key]: at, n: counts.get(at) || 0 }; });
+    const weekSpan = span(mondayOf(lo), mondayOf(hi), 7 * DAY), daySpan = span(isoDay(lo), isoDay(hi), DAY);
+    return { weeks: fill(mondayOf(hi), Math.min(weekSpan, WEEKS_SHOWN), 7 * DAY, byWeek, "week"),
+             days: fill(isoDay(hi), Math.min(daySpan, DAYS_SHOWN), DAY, byDay, "day"),
+             weekSpan, daySpan, from: isoDay(lo), to: isoDay(hi), untimed: commits.length - times.length };
   }
 
   // Commits read per GitHub login, most first. A commit not linked to a GitHub account is counted, never named.
@@ -477,7 +486,7 @@
   }
 
   Object.assign(SB, { SORTS, portfolio, filterPortfolio, sortPortfolio, portfolioOptions, tally, analytics, languageBytes, repoHref, feedEvents, feedKey, typeOf,
-                      historyOrder, historyGraph, commitTimes, contributors, historyKey, COMPARE_FIRST, comparedBranches, historyView,
+                      historyOrder, historyGraph, commitTimes, WEEKS_SHOWN, DAYS_SHOWN, contributors, historyKey, COMPARE_FIRST, comparedBranches, historyView,
                       ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
                       approvals, resultHref, tabKey, stageOfPhase, short,
                       HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs });

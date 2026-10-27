@@ -41,8 +41,9 @@
     parts.push(branchCard(A, name, d, h));
     parts.push(tagCard(h));
     const grid = el("div", { class: "grid2" });
-    grid.append(weeksCard(h, d), contributorsCard(h, d));
-    parts.push(grid, daysCard(h, d));
+    const times = SB.commitTimes(h.main);
+    grid.append(weeksCard(h, d, times), contributorsCard(h, d));
+    parts.push(grid, daysCard(h, d, times));
     return parts;
   }
 
@@ -89,8 +90,16 @@
     const notes = [el("p", { class: "qual muted plain", id: "g-end", tabindex: "-1", "data-part": "history-coverage" }, pageNote +
       (extra ? " The other " + plural(extra, "row is a compared branch's own commit", "rows are compared branches' own commits") + "." : ""))];
     if (g.unread) notes.push(el("p", { class: "qual muted plain", "data-part": "history-open" }, plural(g.unread, "line continues", "lines continue") + " past the last row into commits not read (dashed)."));
-    const lanes = h.compared.filter(x => x.commits && x.commits.length);
-    for (const x of lanes) if (x.unread) notes.push(el("p", { class: "qual muted plain", "data-part": "lane-unread" }, x.branch.name + ": " + plural(x.unread, "more commit") + " on this branch not read."));
+    // Every branch ahead of the read commit says what its lane shows, also when its commits could not be
+    // read or none of them is the branch's own: the counts in the branch table stay GitHub's.
+    for (const x of h.compared.filter(x => x.lane)) {
+      const at = { class: "qual muted plain", "data-part": "lane-unread", "data-branch": x.branch.name, "data-state": x.lane.state };
+      const ahead = plural(x.cmp.data.ahead, "commit") + " ahead";
+      if (x.lane.state === "loading") notes.push(el("p", at, x.branch.name + ": reading this branch's own commits."));
+      else if (!x.lane.data) notes.push(el("p", at, x.branch.name + ": this branch's commits could not be read (" + stateName(x.lane) + "), so it has no lane for its " + ahead + "."));
+      else if (!x.commits.length) notes.push(el("p", at, x.branch.name + ": " + ahead + ", none of them in the commits read, so it has no lane."));
+      else if (x.unread) notes.push(el("p", at, x.branch.name + ": " + plural(x.unread, "more commit") + " on this branch not read."));
+    }
     const card = el("section", { class: "card", "aria-labelledby": "graph-h", "data-part": "history-graph" },
       tip(el("h2", { id: "graph-h", class: "label" }, "Branches, merges and tags"), "History"), tools, box, ...notes);
     // Drawn once the rows are laid out, so each node sits beside its own row.
@@ -189,19 +198,17 @@
     return "From the " + plural(h.main.length, "commit") + " read behind " + short(d.commit) + (h.end ? " (the whole history)" : " (not the whole history)") + ". GitHub activity, not progress.";
   }
 
-  function weeksCard(h, d) {
-    const t = SB.commitTimes(h.main);
-    const shown = t.weeks.slice(-12);
+  function weeksCard(h, d, t) {
+    const shown = t.weeks;
     const body = shown.length ? V.bars(shown.map(w => ({ name: w.week, value: w.n, text: String(w.n), tip: "Week of " + w.week + ": " + plural(w.n, "commit") })), "Commits per week")
       : el("p", { class: "muted plain" }, "No commit read gives a time.");
     return V.chartCard("Commits per week", coverage(h, d), body, [
-      t.weeks.length > shown.length ? el("p", { class: "qual muted plain" }, (t.weeks.length - shown.length) + " earlier weeks read and not drawn.") : null,
+      t.weekSpan > shown.length ? el("p", { class: "qual muted plain" }, plural(t.weekSpan - shown.length, "earlier week") + " read and not drawn.") : null,
       t.untimed ? el("p", { class: "qual muted plain" }, plural(t.untimed, "commit") + " with no readable time not counted.") : null], "Commits per week");
   }
 
-  function daysCard(h, d) {
-    const t = SB.commitTimes(h.main);
-    const days = t.days.slice(-26 * 7);
+  function daysCard(h, d, t) {
+    const days = t.days;
     if (!days.length) return V.chartCard("Commits by day", coverage(h, d), el("p", { class: "muted plain" }, "No commit read gives a time."), null, "Commits by day");
     const level = n => n === 0 ? 0 : n === 1 ? 1 : n <= 3 ? 2 : n <= 6 ? 3 : 4;
     const lead = (new Date(days[0].day + "T00:00:00Z").getUTCDay() + 6) % 7;
@@ -214,7 +221,7 @@
       el("tbody", {}, busy.map(x => el("tr", {}, el("th", { scope: "row", class: "num" }, x.day), el("td", { class: "num" }, String(x.n))))))));
     const legend = el("p", { class: "legend qual muted plain" }, "Fewer ", ...[0, 1, 2, 3, 4].map(l => el("span", { class: "sw h" + l, "aria-hidden": "true" })), " more (0, 1, 2–3, 4–6, 7 or more)");
     return V.chartCard("Commits by day", coverage(h, d) + " Not GitHub's contribution calendar.", el("div", { class: "stack tight" }, grid, legend, tbl),
-      t.days.length > days.length ? el("p", { class: "qual muted plain" }, "Days before " + days[0].day + " read and not drawn.") : null, "Commits by day");
+      t.daySpan > days.length ? el("p", { class: "qual muted plain" }, "Days before " + days[0].day + " read and not drawn.") : null, "Commits by day");
   }
 
   function contributorsCard(h, d) {

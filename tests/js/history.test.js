@@ -152,6 +152,55 @@ test("the history view asks for what it still needs and says where history stops
   assert.equal(h.main.length, 107);
 });
 
+test("a branch ahead whose own commits fail, are refused or come back empty keeps its counts and says why it has no lane", () => {
+  const K = SB.historyKey;
+  const base = () => {
+    const live = new Map();
+    live.set(K.page(REPO, HEAD, 1), SB.result("current", { commits: [row("head", [])].map(c => Object.assign(c, { sha: HEAD })), end: true }, {}));
+    live.set(K.refs(REPO, "branches"), SB.result("current", { refs: [{ name: "dev", sha: sha("dev2"), protected: false }] }, {}));
+    live.set(K.refs(REPO, "tags"), SB.result("empty", null, {}));
+    live.set(K.compare(REPO, HEAD, sha("dev2")), SB.result("current", { status: "diverged", ahead: 4, behind: 1, base: sha("base") }, {}));
+    return live;
+  };
+  for (const state of ["failed", "denied", "rate-limited", "invalid"]) {
+    const live = base();
+    live.set(K.lane(REPO, sha("dev2")), SB.result(state, null, {}, { error: "synthetic" }));
+    const h = SB.historyView(k => live.get(k), REPO, HEAD, 1, new Set());
+    const x = h.compared[0];
+    assert.equal(x.lane.state, state);
+    assert.deepEqual(x.cmp.data, { status: "diverged", ahead: 4, behind: 1, base: sha("base") }, state + ": the comparison is kept");
+    assert.deepEqual([x.commits, x.unread], [[], 4], state + ": none of its commits read");
+    assert.equal(h.graph.rows.length, 1, state + ": no lane is drawn for it");
+    assert.deepEqual(h.wanted, [], state + ": a finished read is not asked for again");
+  }
+  // Zero rows: the read succeeds but has none of the branch's own commits.
+  for (const lane of [SB.result("empty", { commits: [], end: true }, {}), SB.result("current", { commits: [row("base", [])], end: true }, {})]) {
+    const live = base();
+    live.set(K.lane(REPO, sha("dev2")), lane);
+    const x = SB.historyView(k => live.get(k), REPO, HEAD, 1, new Set()).compared[0];
+    assert.deepEqual([x.lane.state, x.commits.length, x.unread], [lane.state, 0, 4]);
+  }
+  const live = base();
+  assert.equal(SB.historyView(k => live.get(k), REPO, HEAD, 1, new Set()).compared[0].lane.state, "loading", "a lane not read yet says it is loading");
+});
+
+test("the weekly and daily counts build only the weeks and days shown, however far apart the dates are", () => {
+  for (const [a, b] of [["1900-01-01T00:00:00Z", "2100-12-31T00:00:00Z"], ["1970-01-01T00:00:00Z", "9999-12-31T23:59:59Z"],
+                        ["-271821-04-20T00:00:00Z", "+275760-09-13T00:00:00Z"]]) {
+    const t = SB.commitTimes([row("new", [], b), row("old", [], a)]);
+    assert.equal(t.weeks.length, SB.WEEKS_SHOWN, a + " to " + b);
+    assert.equal(t.days.length, SB.DAYS_SHOWN);
+    assert.equal(t.weeks.reduce((n, w) => n + w.n, 0) + t.days.reduce((n, d) => n + d.n, 0), 2, "only the newest commit is inside both windows");
+    assert.equal(t.days[t.days.length - 1].day, t.to);
+    assert.ok(t.weekSpan > 10000 && t.daySpan > 70000, "the whole window is still counted, not built");
+    assert.deepEqual([t.from, t.to], [SB.commitTimes([row("x", [], a)]).from, SB.commitTimes([row("x", [], b)]).to]);
+  }
+  const t = SB.commitTimes([row("a", [], "2026-01-07T10:00:00Z"), row("b", [], "2025-01-07T10:00:00Z")]);
+  assert.deepEqual(t.weeks.map(w => w.n), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], "weeks with none read count 0 inside the window");
+  assert.equal(t.weekSpan, 53);
+  assert.equal(t.daySpan, 366);
+});
+
 test("only the first branches are compared until the owner asks for another", () => {
   const branches = Array.from({ length: 12 }, (_, i) => ({ name: "b" + i, sha: sha(i), protected: false }));
   assert.equal(SB.comparedBranches(REPO, branches, new Set()).length, SB.COMPARE_FIRST);
@@ -166,6 +215,7 @@ test("weeks start on Monday and count only inside the commits read; logins are c
   assert.equal(t.days.length, 11);
   assert.equal(t.untimed, 1);
   assert.deepEqual([t.from, t.to], ["2025-12-28", "2026-01-07"]);
+  assert.deepEqual([t.weekSpan, t.daySpan], [3, 11]);
   assert.deepEqual(SB.commitTimes([]).weeks, []);
   const c = SB.contributors([row("a", [], null, "agent-b"), row("b", [], null, "agent-a"), row("c", [], null, "agent-b"), row("d", [])]);
   assert.deepEqual(c.logins, [{ login: "agent-b", n: 2 }, { login: "agent-a", n: 1 }]);

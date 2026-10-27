@@ -755,6 +755,30 @@ function privateRepos() {
   hi.private.second = await histNow();
   hi.private.urls = hurls;
   await p.close();
+  // Branches ahead of the read commit whose own commits fail, are refused or come back empty: each says so,
+  // with GitHub's counts kept in the branch table.
+  const lrepos = F.planRepos();
+  const lhead = { sha: F.CODE_COMMIT, commit: { message: "Read here", committer: { date: "2026-01-20T00:00:00Z" } }, parents: [], author: null };
+  lrepos["acme/garden"].history = { [F.CODE_COMMIT]: [[lhead]], [sha("dev-head")]: [500], [sha("gone-head")]: [403], [sha("empty-head")]: [[]] };
+  lrepos["acme/garden"].branchList = [{ name: "main", commit: { sha: F.CODE_COMMIT }, protected: true }, { name: "dev", commit: { sha: sha("dev-head") }, protected: false },
+                                      { name: "gone", commit: { sha: sha("gone-head") }, protected: false }, { name: "empty", commit: { sha: sha("empty-head") }, protected: false }];
+  lrepos["acme/garden"].tagList = [];
+  lrepos["acme/garden"].compare = { [sha("dev-head")]: { status: "diverged", ahead_by: 4, behind_by: 1, merge_base_commit: { sha: sha("base") } },
+                                    [sha("gone-head")]: { status: "ahead", ahead_by: 2, behind_by: 0 }, [sha("empty-head")]: { status: "ahead", ahead_by: 1, behind_by: 0 } };
+  const lgh = mockGitHub(lrepos);
+  p = await open();
+  await p.route("https://api.github.com/**", async route => {
+    const req = route.request();
+    const res = await lgh.fetch(req.url(), { method: req.method() });
+    await route.fulfill({ status: res.status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }, body: await res.text() });
+  });
+  await p.fill("#plan-repo", "acme/garden-plan"); await p.fill("#token", "synthetic-token"); await p.click("#connect button[type=submit]");
+  await finished(); await p.waitForTimeout(400);
+  await garden();
+  await p.click("#rs-history"); await p.waitForTimeout(1200);
+  hi.lanes = Object.assign(await histNow(), await p.evaluate(() => ({
+    laneNotes: [...document.querySelectorAll("[data-part=lane-unread]")].map(n => [n.dataset.branch, n.dataset.state, n.textContent]) })));
+  await p.close();
 
   // 7. Framed: the page refuses to show.
   p = await open();
