@@ -517,6 +517,11 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(f["emptyList"], ["p:~found-acme/found-code", "p:~found-acme/found-plan"], "an empty list is filled by what the token finds")
         self.assertTrue(f["emptyHead"])
         self.assertIn("the token finds no other repository", f["nothing"])
+        for status, state in (("403", "denied"), ("500", "failed"), ("429", "rate-limited")):
+            got = f["unread"][status]
+            self.assertEqual(got[0], state, status)
+            self.assertIn("could not be read (HTTP " + status + ")", got[1])
+            self.assertNotIn("finds no other repository", got[1])
         self.assertTrue(all(u.startswith("GET ") for u in f["urls"]))
         self.assertFalse(any("/users/" in u or "/events" in u or "/notifications" in u for u in f["urls"]))
 

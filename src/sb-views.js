@@ -989,6 +989,8 @@
     if (!S.signedIn) { box.replaceChildren(); return; }
     if (S.list.state !== "current" && !(S.list.state === "empty" && S.entries.length)) {
       box.replaceChildren(S.list.state === "loading" ? notice("loading", "Reading the workspace list from " + S.planRepo + ".")
+        : S.list.state === "empty" && S.found && !["current", "empty", "partial"].includes(S.found.state)
+          ? notice(S.found.state, "The workspace list names no projects, and the token's list of repositories could not be read (" + (S.found.error || (STATE[S.found.state] || STATE.failed)[2]) + "), so no other repository can be shown.")
         : S.list.state === "empty" ? notice("empty", "The workspace list names no projects, and the token finds no other repository.", "No projects yet")
         : notice(S.list.state, "Workspace list (" + SB.WORKSPACES_FILE + ") in " + S.planRepo + ": " + (S.list.error || (STATE[S.list.state] || STATE.failed)[3])));
       return;

@@ -1077,6 +1077,13 @@ function privateRepos() {
   tokenRepos = () => json([]);
   await p.click("#refresh"); await finished(); await p.waitForTimeout(400);
   found.nothing = await p.$eval("#workspace .notice[data-state=empty]", n => n.textContent).catch(() => "");
+  // An empty list with a token list that cannot be read says why, never that nothing was found.
+  found.unread = {};
+  for (const [status, headers] of [[403, {}], [500, {}], [429, { "retry-after": "60" }]]) {
+    tokenRepos = () => json({ message: "no" }, status, headers);
+    await p.click("#refresh"); await finished(); await p.waitForTimeout(300);
+    found.unread[status] = await p.$eval("#workspace .notice", n => [n.dataset.state, n.textContent]).catch(() => null);
+  }
   found.urls = nurls;
   await p.close();
 
