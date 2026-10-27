@@ -696,6 +696,18 @@
   }
 
   // Releases, newest first, with their assets' names and sizes only: no asset is fetched.
+  // A release asset's download address, only when it is GitHub's own download address for this
+  // repository's releases; anything else is shown as text and never linked.
+  function assetLink(value, repo) {
+    if (typeof value !== "string" || value.length > 2000) return null;
+    let url;
+    try { url = new URL(value); } catch (e) { return null; }
+    const base = "/" + String(repo).toLowerCase() + "/releases/download/";
+    if (url.protocol.slice(0, -1) !== "https" || url.host !== "github.com" || url.username || url.password || url.search || url.hash ||
+        !url.pathname.toLowerCase().startsWith(base) || url.pathname.length === base.length) return null;
+    return url.href;
+  }
+
   function readReleasePage(ctx, client, repo, page) {
     return SB.guard(readReleasePageUnguarded(ctx, client, repo, page), { repo, page });
   }
@@ -716,7 +728,8 @@
             !(a.download_count === undefined || (Number.isSafeInteger(a.download_count) && a.download_count >= 0))) {
           return result("invalid", null, source, { error: "malformed release asset" });
         }
-        assets.push({ name: a.name.slice(0, 200), size: a.size, downloads: a.download_count === undefined ? null : a.download_count });
+        assets.push({ name: a.name.slice(0, 200), size: a.size, downloads: a.download_count === undefined ? null : a.download_count,
+                      url: assetLink(a.browser_download_url, repo) });
       }
       releases.push({ id: r.id, tag: r.tag_name, name: r.name ? r.name.slice(0, 200) : null, draft: r.draft, prerelease: r.prerelease,
                       created: time(r.created_at), published: time(r.published_at), author: loginOf(r.author), assets });
@@ -724,9 +737,118 @@
     return pageResult(releases, { releases }, source);
   }
 
+  // ---- Code inspection: a repository's file tree and a file's text at a pinned commit, and the
+  // changes of one commit or between two. Every read names its commit by full ID, and what it holds is
+  // data: shown as text only, never run, rendered as HTML or followed. Nothing is edited or committed.
+
+  const TREE_KINDS = { blob: "file", tree: "dir", commit: "submodule" };
+  const MAX_DIFF_FILES = 300;
+  const FILE_STATUSES = ["added", "removed", "modified", "renamed", "copied", "changed", "unchanged"];
+  const isGitPath = v => typeof v === "string" && v.length <= 4096 && /^[^\u0000/][^\u0000]*$/.test(v) &&
+    !v.split("/").some(part => part === "" || part === "." || part === "..");
+  const isCount = v => Number.isSafeInteger(v) && v >= 0;
+
+  // The whole tree at a commit as GitHub lists it in one reply; a list GitHub cut short is partial.
+  function readTree(ctx, client, repo, commit) {
+    return SB.guard(readTreeUnguarded(ctx, client, repo, commit), { repo, commit });
+  }
+
+  async function readTreeUnguarded(ctx, client, repo, commit) {
+    const source = { repo, commit };
+    if (!SB.validRepo(repo) || !isSha(commit)) return result("invalid", null, source, { error: "not a valid repository or commit" });
+    const res = await client.get(ctx, "/repos/" + repo + "/git/trees/" + commit + "?recursive=1");
+    if (!res.ok) return result(client.stateFor(res), null, source, { error: "HTTP " + res.status });
+    const body = await client.json(ctx, res);
+    if (!isObject(body) || !Array.isArray(body.tree) || typeof body.truncated !== "boolean") return result("invalid", null, source, { error: "unexpected file tree" });
+    const entries = [];
+    for (const e of body.tree) {
+      if (!isObject(e) || !isGitPath(e.path) || !Object.prototype.hasOwnProperty.call(TREE_KINDS, e.type) || typeof e.mode !== "string" || !isSha(e.sha) ||
+          !(e.size === undefined || isCount(e.size))) return result("invalid", null, source, { error: "malformed file tree entry" });
+      entries.push({ path: e.path, kind: e.type === "blob" && e.mode === "120000" ? "symlink" : TREE_KINDS[e.type], sha: e.sha,
+                     size: e.type === "blob" && e.size !== undefined ? e.size : null });
+    }
+    if (body.truncated) return result("partial", { entries, truncated: true }, source, { coverage: { shown: entries.length, total: null } });
+    return result(entries.length ? "current" : "empty", { entries, truncated: false }, source);
+  }
+
+  // One file's text at a commit, after readFile has matched its bytes to GitHub's blob ID. Bytes that are
+  // not UTF-8 text, or hold a NUL, are kept as binary: their size and ID are given, never their content.
+  function readCodeFile(ctx, client, repo, commit, path) {
+    return SB.guard(readCodeFileUnguarded(ctx, client, repo, commit, path), { repo, commit, path });
+  }
+
+  async function readCodeFileUnguarded(ctx, client, repo, commit, path) {
+    const source = { repo, commit, path };
+    if (!SB.validRepo(repo) || !isSha(commit)) return result("invalid", null, source, { error: "not a valid repository or commit" });
+    if (!isPath(path)) return result("unavailable", null, source, { error: "this app opens only paths made of letters, digits, dots, dashes, underscores and slashes" });
+    const file = await client.readFile(ctx, repo, commit, path);
+    if (file.state !== "current") return file;
+    const { bytes, sha } = file.data;
+    const text = bytes.includes(0) ? null : decode(bytes);
+    if (text === null) return result("current", { binary: true, text: null, size: bytes.length, sha }, file.source);
+    return result(text ? "current" : "empty", { binary: false, text, size: bytes.length, sha }, file.source);
+  }
+
+  // A changed file as the commit and compare replies give it, or null when it is not in that form.
+  function changedFile(f) {
+    if (!isObject(f) || !isGitPath(f.filename) || !FILE_STATUSES.includes(f.status) || !isCount(f.additions) || !isCount(f.deletions) ||
+        !(f.patch === undefined || typeof f.patch === "string") || !(f.previous_filename === undefined || isGitPath(f.previous_filename))) return null;
+    return { path: f.filename, status: f.status, from: f.previous_filename || null, added: f.additions, removed: f.deletions,
+             patch: f.patch === undefined ? null : f.patch };
+  }
+
+  // GitHub lists at most 300 changed files in one reply; a list that reaches that, or says it goes on, is partial.
+  function changesResult(files, res, data, source) {
+    const more = files.length >= MAX_DIFF_FILES || /rel="next"/.test(res.headers.get("link") || "");
+    if (more) return result("partial", data, source, { coverage: { shown: files.length, total: null } });
+    return result(files.length ? "current" : "empty", data, source);
+  }
+
+  // A commit, named by its ID or by a branch or tag (resolved by GitHub now), with the files it changed
+  // against its first parent.
+  function readCommitChanges(ctx, client, repo, ref) {
+    return SB.guard(readCommitChangesUnguarded(ctx, client, repo, ref), { repo, ref });
+  }
+
+  async function readCommitChangesUnguarded(ctx, client, repo, ref) {
+    const source = { repo, ref };
+    if (!SB.validRepo(repo) || typeof ref !== "string" || !/^[A-Za-z0-9_./-]{1,200}$/.test(ref) || ref.split("/").some(part => part === "." || part === "..")) {
+      return result("invalid", null, source, { error: "not a valid repository, branch, tag or commit" });
+    }
+    const res = await client.get(ctx, "/repos/" + repo + "/commits/" + encodeURIComponent(ref));
+    if (!res.ok) return result(client.stateFor(res), null, source, { error: "HTTP " + res.status });
+    const body = await client.json(ctx, res);
+    const c = historyCommit(body);
+    if (!c || !(body.files === undefined || Array.isArray(body.files))) return result("invalid", null, source, { error: "unexpected commit reply" });
+    const files = (body.files || []).map(changedFile);
+    if (files.some(f => !f)) return result("invalid", null, source, { error: "malformed changed file" });
+    return changesResult(files, res, { commit: c, files }, Object.assign({ commit: c.sha }, source));
+  }
+
+  // The changes from one commit to another since their common ancestor, as GitHub compares them now.
+  function readCompareChanges(ctx, client, repo, base, head) {
+    return SB.guard(readCompareChangesUnguarded(ctx, client, repo, base, head), { repo, base, head });
+  }
+
+  async function readCompareChangesUnguarded(ctx, client, repo, base, head) {
+    const source = { repo, base, head };
+    if (!SB.validRepo(repo) || !isSha(base) || !isSha(head)) return result("invalid", null, source, { error: "not a valid repository or commit" });
+    const res = await client.get(ctx, "/repos/" + repo + "/compare/" + base + "..." + head + "?per_page=1");
+    if (!res.ok) return result(client.stateFor(res), null, source, { error: "HTTP " + res.status });
+    const b = await client.json(ctx, res);
+    if (!isObject(b) || !COMPARE_STATES.includes(b.status) || !isCount(b.ahead_by) || !isCount(b.behind_by) ||
+        !(b.merge_base_commit === undefined || b.merge_base_commit === null || (isObject(b.merge_base_commit) && isSha(b.merge_base_commit.sha))) ||
+        !(b.files === undefined || Array.isArray(b.files))) return result("invalid", null, source, { error: "unexpected comparison" });
+    const files = (b.files || []).map(changedFile);
+    if (files.some(f => !f)) return result("invalid", null, source, { error: "malformed changed file" });
+    return changesResult(files, res, { status: b.status, ahead: b.ahead_by, behind: b.behind_by,
+                                       mergeBase: b.merge_base_commit && b.merge_base_commit.sha ? b.merge_base_commit.sha : null, files }, source);
+  }
+
   Object.assign(SB, { WORKSPACES_FILE, STATUSES, SCOPES, readWorkspace, readTaskFile, isPath, validateWorkspaces, readWorkspaces, splitRow, parsePlanTables, readPlan,
                       validateProgress, readProgress, readCheckRuns, readPulls, readComments,
                       COMMIT_LIMIT, REPO_COMMENT_LIMIT, readLanguages, readCommits, readRepoComments, readUser,
                       HISTORY_PAGE, MAX_HISTORY_PAGES, historyCommit, readHistoryPage, readRefs, readCompare,
-                      WORK_PAGE, MAX_WORK_PAGES, readPullPage, readReviews, readIssuePage, readRunPage, readReleasePage });
+                      WORK_PAGE, MAX_WORK_PAGES, readPullPage, readReviews, readIssuePage, readRunPage, readReleasePage, assetLink,
+                      MAX_DIFF_FILES, readTree, readCodeFile, readCommitChanges, readCompareChanges });
 })(typeof window !== "undefined" ? window : globalThis);

@@ -49,6 +49,9 @@
       // Work evidence: each list's state filter (open, closed or all) and how many pages it goes back,
       // and the pull requests whose reviews and checks are shown.
       workState: new Map(), workDepth: new Map(), workOpen: new Set(),
+      // Files: per repository, files or changes, the open file and folders, the path search, and the
+      // branch, tag or commit its changes are compared with.
+      code: new Map(),
     };
   }
   let S = freshState();
@@ -74,7 +77,7 @@
   }
 
   // Views are rebuilt on every change; keep keyboard focus on the same item when it is still there.
-  const MARKS = ["id", "data-id", "data-key", "data-phase", "data-stage", "data-copy", "data-sub", "data-open", "data-evidence"];
+  const MARKS = ["id", "data-id", "data-key", "data-phase", "data-stage", "data-copy", "data-sub", "data-open", "data-evidence", "data-path", "data-diff"];
   function focusMark() {
     const a = document.activeElement;
     if (!a || !(a.closest("#workspace") || a.closest("#tree"))) return null;
@@ -220,6 +223,7 @@
       if (!r) return;
       if (S.view.sub === "history") return historyReads(r.repo, r.pinned.data.commit);
       if (V.WORK_SUBS.includes(S.view.sub)) return workReads(r.repo, S.view.sub);
+      if (S.view.sub === "files") return codeReads(r.repo, r.pinned.data.commit);
       loadLive("lang|" + r.repo, ctx => SB.readLanguages(ctx, client, r.repo)); feed(r);
     } else if (S.view.kind === "overview") {
       for (const r of mine) feed(r);
@@ -261,6 +265,27 @@
       loadLive(SB.workKey.reviews(repo, pr.number), ctx => SB.readReviews(ctx, client, repo, pr.number));
       loadLive(SB.workKey.checks(repo, pr.head), ctx => SB.readCheckRuns(ctx, client, repo, pr.head));
     }
+  }
+
+  // Files read the tree at the pinned commit and the open file in it, or the changes of that commit, or
+  // the branch, tag or commit it is compared with and then the comparison of those two commits.
+  const codeView = repo => {
+    if (!S.code.has(repo)) S.code.set(repo, { mode: "files", path: null, open: new Set(), query: "", against: "", typed: "", againstError: "", diff: null });
+    return S.code.get(repo);
+  };
+  function codeReads(repo, commit) {
+    const K = SB.codeKey, c = codeView(repo);
+    if (c.mode === "changes") {
+      if (!c.against) { loadLive(K.commit(repo, commit), ctx => SB.readCommitChanges(ctx, client, repo, commit)); return; }
+      loadLive(K.commit(repo, c.against), ctx => SB.readCommitChanges(ctx, client, repo, c.against));
+      const base = S.live.get(K.commit(repo, c.against));
+      if (base && base.data) loadLive(K.compare(repo, base.data.commit.sha, commit), ctx => SB.readCompareChanges(ctx, client, repo, base.data.commit.sha, commit));
+      return;
+    }
+    loadLive(K.tree(repo, commit), ctx => SB.readTree(ctx, client, repo, commit));
+    const tree = S.live.get(K.tree(repo, commit));
+    const e = c.path && tree && tree.data ? tree.data.entries.find(x => x.path === c.path) : null;
+    if (SB.codeOpenable(e).ok) loadLive(K.text(repo, commit, c.path), ctx => SB.readCodeFile(ctx, client, repo, commit, c.path));
   }
 
   // Tabs and documents belong to a project's plan repository. When the refreshed workspace list no
@@ -491,6 +516,52 @@
       const n = $("w-older") || $("w-end");
       if (n) n.focus();
     },
+    codeView,
+    setCodeMode(repo, mode) {
+      codeView(repo).mode = mode;
+      render();
+      const n = $("cm-" + mode);
+      if (n) n.focus();
+    },
+    toggleCodeDir(repo, path) {
+      const open = codeView(repo).open;
+      if (open.has(path)) open.delete(path); else open.add(path);
+      render();
+      focusData("data-path", path);
+    },
+    // A file picked from the tree or the path search; its folders open so the tree shows where it is.
+    openCodeFile(repo, path) {
+      const c = codeView(repo);
+      c.path = path;
+      for (let i = path.indexOf("/"); i > 0; i = path.indexOf("/", i + 1)) c.open.add(path.slice(0, i));
+      render();
+      focusData("data-path", path);
+    },
+    setCodeQuery(repo, q) {
+      codeView(repo).query = q;
+      const caret = $("code-q").selectionStart;
+      render();
+      const n = $("code-q");
+      if (n) { n.focus(); n.setSelectionRange(caret, caret); }
+    },
+    // Changes against another branch, tag or commit typed by the owner; only a name of the plain form is
+    // read, and an empty one goes back to the commit's own changes.
+    setCodeAgainst(repo, text) {
+      const c = codeView(repo), ref = String(text || "").trim();
+      const plain = /^[A-Za-z0-9_./-]{1,200}$/.test(ref) && !ref.split("/").some(part => part === "." || part === "..");
+      c.againstError = ref && !plain ? "Type a branch, tag or commit made of letters, digits, dots, dashes, underscores and slashes." : "";
+      c.typed = ref;
+      if (!ref || plain) { c.against = ref; c.diff = null; }
+      render();
+      const n = $(ref && plain ? "code-own" : "code-against") || $("code-against");
+      if (n) n.focus();
+      if (ref && plain) announce("Comparing with " + ref + ".");
+    },
+    showCodeDiff(repo, path) {
+      codeView(repo).diff = path;
+      render();
+      focusData("data-diff", path);
+    },
     evidenceOpen: (repo, number) => S.workOpen.has(repo + "#" + number),
     toggleEvidence(repo, number) {
       const k = repo + "#" + number;
@@ -644,6 +715,9 @@
     },
   };
 
+  function focusData(attr, value) {
+    for (const n of document.querySelectorAll("[" + attr + "]")) if (n.getAttribute(attr) === value) { n.focus(); return; }
+  }
   function focusRow(id) {
     for (const n of document.querySelectorAll("#task-list .row")) if (n.dataset.id === id) { n.focus(); return; }
   }
@@ -682,7 +756,7 @@
       for (const r of [w.plan && w.plan.repo, ...w.code.map(c => c.repo)].filter(Boolean)) {
         out.push([r + " (" + w.label + ")", "Repository", () => A.go(w.id, { kind: "repo", repo: r })]);
         out.push([r + " history (" + w.label + ")", "Repository", () => A.go(w.id, { kind: "repo", repo: r, sub: "history" })]);
-        for (const [sub, label] of [["pulls", "pull requests"], ["issues", "issues"], ["runs", "Actions"], ["releases", "releases"]]) {
+        for (const [sub, label] of [["pulls", "pull requests"], ["issues", "issues"], ["runs", "Actions"], ["releases", "releases"], ["files", "files"]]) {
           out.push([r + " " + label + " (" + w.label + ")", "Repository", () => A.go(w.id, { kind: "repo", repo: r, sub })]);
         }
       }

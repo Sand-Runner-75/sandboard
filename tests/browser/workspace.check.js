@@ -849,7 +849,8 @@ function privateRepos() {
     "/issues?state=open&per_page=100&page=1": [{ number: 300, title: "Assigned to you", state: "open", user: { login: "agent-1" }, labels: [],
       assignees: [{ login: "synthetic-user" }], comments: 0, created_at: "2026-01-03T00:00:00Z", closed_at: null }],
     "/releases?per_page=100&page=1": [{ id: 1, tag_name: "v1.0", name: "One", draft: false, prerelease: false, created_at: "2026-01-01T00:00:00Z",
-      published_at: "2026-01-01T00:00:00Z", author: { login: "agent-1" }, assets: [{ name: "a.zip", size: 10, download_count: 1, browser_download_url: "https://example.invalid/a.zip" }] }],
+      published_at: "2026-01-01T00:00:00Z", author: { login: "agent-1" }, assets: [{ name: "a.zip", size: 10, download_count: 1, browser_download_url: "https://example.invalid/a.zip" },
+        { name: "b.zip", size: 20, download_count: 2, browser_download_url: "https://github.com/acme/garden/releases/download/v1.0/b.zip" }] }],
   };
   wrepos["acme/garden"].checks[HEAD2] = [{ name: "pending", status: "in_progress", conclusion: null }];
   // GitHub's issue list can fill a page with pull requests only; the issue is on page 2.
@@ -895,6 +896,123 @@ function privateRepos() {
   await tree(p, "a:inbox"); await p.waitForTimeout(1500);
   wo.private.inbox = await inboxNow();
   wo.private.urls = wurls;
+  await p.close();
+
+  // 12. Files: the tree and a file's text at the pinned commit, every hostile line as text with hidden
+  // characters shown by their code, links, submodules, large, binary and unusual paths never read as text,
+  // and the changes of the commit or against another ref; then, on a mocked private run, links at the
+  // repository's web address, a refused tree, a branch resolved by GitHub, and reads only.
+  const co = out.code = {};
+  p = await open();
+  await demo(p);
+  const startTitle = await p.title();
+  await tree(p, "repos:demo"); await p.waitForTimeout(150);
+  await tree(p, "r:demo:example-org/demo-app"); await p.waitForTimeout(400);
+  const codeNow = () => p.evaluate(() => {
+    const q = sel => document.querySelector(sel);
+    const pre = q("[data-part=file-text]") || q("[data-part=diff-text]");
+    return { tabs: [...document.querySelectorAll(".subtabs [role=tab]")].map(n => n.textContent), selected: (q(".subtabs [aria-selected=true]") || {}).id || "",
+      notice: (q("[data-state=code]") || {}).textContent || "", tree: [...document.querySelectorAll("[data-part=code-tree] .fnode")].map(n => [n.dataset.path, n.getAttribute("aria-expanded"), n.getAttribute("aria-current")]),
+      coverage: (q("[data-part=tree-coverage]") || {}).textContent || "", viewer: (q("[data-part=code-viewer]") || {}).textContent || "",
+      treeState: (q("[data-part=code-tree] .notice") || { dataset: {} }).dataset.state || "", changeCoverage: (q("[data-part=change-coverage]") || {}).textContent || "",
+      state: (q("[data-part=code-viewer] .notice, [data-part=code-changes] .notice") || {}).dataset ? q("[data-part=code-viewer] .notice, [data-part=code-changes] .notice").dataset.state : "",
+      lines: pre ? [...pre.children].map(r => r.lastElementChild.textContent) : [], kinds: pre ? [...pre.children].map(r => r.dataset.kind || "") : [],
+      hidden: pre ? [...pre.querySelectorAll(".hid")].map(n => n.textContent) : [], hiddenNote: (q("[data-part=hidden-chars]") || {}).textContent || "",
+      preTags: pre ? [...new Set([...pre.querySelectorAll("*")].map(n => n.tagName))].sort() : [],
+      active: [...document.querySelectorAll("#rs-panel img, #rs-panel iframe, #rs-panel script, #rs-panel object, #rs-panel embed, #rs-panel pre a")].length,
+      meta: (q("[data-part=file-meta]") || {}).textContent || "", files: [...document.querySelectorAll("tr[data-file]")].map(r => [...r.children].map(x => x.textContent)),
+      pressed: (q("[data-diff][aria-pressed=true]") || {}).textContent || "", changes: (q("[data-part=code-changes]") || {}).textContent || "",
+      source: (q("[data-part=change-source]") || {}).textContent || "", status: (q("#code-status") || {}).textContent || "", against: (q("#code-against") || {}).value,
+      found: [...document.querySelectorAll(".found .fnode")].map(n => n.dataset.path), focus: document.activeElement.id || document.activeElement.dataset.path || document.activeElement.dataset.diff || "",
+      links: [...document.querySelectorAll("#rs-panel a")].map(a => [a.getAttribute("href"), a.target, a.rel]), title: document.title }; });
+  await p.focus("#rs-releases"); await p.keyboard.press("ArrowRight"); await p.waitForTimeout(800);
+  co.tree = await codeNow();
+  await p.focus('[data-path="src"]'); await p.keyboard.press("Enter"); await p.waitForTimeout(200);
+  co.opened = await codeNow();
+  await p.click('[data-path="src/access.js"]'); await p.waitForTimeout(600);
+  co.access = await codeNow();
+  await p.click('[data-path="docs"]'); await p.waitForTimeout(200);
+  await p.click('[data-path="docs/untrusted.html"]'); await p.waitForTimeout(600);
+  co.html = await codeNow();
+  await p.click('[data-path="docs/links.md"]'); await p.waitForTimeout(600);
+  co.links = await codeNow();
+  co.kinds = {};
+  await p.click('[data-path="assets"]'); await p.click('[data-path="vendor"]'); await p.waitForTimeout(200);
+  for (const path of ["docs/latest.md", "docs/Meeting notes.txt", "vendor/ui-kit", "assets/intro.mp4", "assets/data.bin"]) {
+    await p.click(`[data-path="${path}"]`); await p.waitForTimeout(500);
+    co.kinds[path] = await codeNow();
+  }
+  await p.fill("#code-q", "list"); await p.waitForTimeout(300);
+  co.find = await codeNow();
+  await p.click('.found [data-path="src/list.js"]'); await p.waitForTimeout(600);
+  co.found = await codeNow();
+  await p.fill("#code-q", ""); await p.waitForTimeout(200);
+  await p.click("#cm-changes"); await p.waitForTimeout(800);
+  co.changes = await codeNow();
+  await p.click('[data-diff="src/access.js"]'); await p.waitForTimeout(300);
+  co.diff = await codeNow();
+  await p.click('[data-diff="docs/untrusted.html"]'); await p.waitForTimeout(300);
+  co.diffHtml = await codeNow();
+  await p.click('[data-diff="assets/data.bin"]'); await p.waitForTimeout(300);
+  co.diffBin = await codeNow();
+  await p.fill("#code-against", "v0.2.0"); await p.press("#code-against", "Enter"); await p.waitForTimeout(900);
+  co.compare = await codeNow();
+  await p.fill("#code-against", "no-such-ref"); await p.click("#code-compare"); await p.waitForTimeout(900);
+  co.missing = await codeNow();
+  await p.fill("#code-against", "a b"); await p.click("#code-compare"); await p.waitForTimeout(300);
+  co.badRef = await codeNow();
+  await p.click("#code-own"); await p.waitForTimeout(600);
+  co.own = await codeNow();
+  co.titleAfter = await p.title();
+  co.startTitle = startTitle;
+  await p.keyboard.press("Control+k"); await p.keyboard.type("demo-app files"); await p.waitForTimeout(200);
+  co.goto = await p.$$eval("#goto-list li", n => n.map(x => x.textContent).slice(0, 3));
+  await p.keyboard.press("Escape");
+  await p.setViewportSize({ width: 320, height: 800 }); await p.waitForTimeout(200);
+  co.narrowChanges = await p.evaluate(() => document.documentElement.scrollWidth);
+  await p.click("#cm-files"); await p.waitForTimeout(300);
+  co.narrowFiles = await p.evaluate(() => document.documentElement.scrollWidth);
+  await p.close();
+  const frepos = F.planRepos();
+  const FC = F.CODE_COMMIT, FBASE = sha("garden-release");
+  const ftext = "Visit https://example.invalid/phish and <a href=\"javascript:alert(1)\">this</a>\n";
+  frepos["acme/garden"].files[FC] = { "src/main.js": ftext };
+  const fblob = (path, size) => ({ path, mode: "100644", type: "blob", sha: sha(path), size });
+  const freply = (body, status = 200) => json(body, status);
+  const fgh = mockGitHub(frepos, [
+    [new RegExp("^/repos/acme/garden/git/trees/" + FC + "\\?recursive=1$"), () => freply({ sha: sha("t"), truncated: true,
+      tree: [{ path: "src", mode: "040000", type: "tree", sha: sha("src") }, fblob("src/main.js", ftext.length), fblob("deep/cut/file.txt", 3)] })],
+    [new RegExp("^/repos/acme/garden-plan/git/trees/"), () => freply({ message: "no" }, 403)],
+    [new RegExp("^/repos/acme/garden/commits/" + FC + "$"), () => freply({ sha: FC, commit: { message: "Merge the list", committer: { date: "2026-01-02T00:00:00Z" } },
+      parents: [{ sha: FBASE }, { sha: sha("other") }], files: Array.from({ length: 300 }, (_, i) => ({ filename: "gen/f" + i + ".txt", status: "added", additions: 1, deletions: 0, patch: "@@ -0,0 +1 @@\n+x" })) })],
+    [new RegExp("^/repos/acme/garden/commits/release$"), () => freply({ sha: FBASE, commit: { message: "Release", committer: { date: "2026-01-01T00:00:00Z" } }, parents: [], files: [] })],
+    [new RegExp("^/repos/acme/garden/compare/" + FBASE + "\\.\\.\\." + FC + "\\?per_page=1$"), () => freply({ status: "ahead", ahead_by: 3, behind_by: 0,
+      merge_base_commit: { sha: FBASE }, files: [{ filename: "src/main.js", status: "modified", additions: 1, deletions: 0, patch: "@@ -1 +1,2 @@\n x\n+https://example.invalid/more" }] })],
+  ]);
+  const furls = [];
+  p = await open();
+  await p.route("https://api.github.com/**", async route => {
+    const req = route.request();
+    furls.push(req.method() + " " + req.url());
+    const res = await fgh.fetch(req.url(), { method: req.method() });
+    await route.fulfill({ status: res.status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }, body: await res.text() });
+  });
+  await p.fill("#plan-repo", "acme/garden-plan"); await p.fill("#token", "synthetic-token"); await p.click("#connect button[type=submit]");
+  await finished(); await p.waitForTimeout(400);
+  await garden();
+  await p.click("#rs-files"); await p.waitForTimeout(800);
+  co.private = { tree: await codeNow() };
+  await p.click('[data-path="src"]'); await p.waitForTimeout(150);
+  await p.click('[data-path="src/main.js"]'); await p.waitForTimeout(700);
+  co.private.file = await codeNow();
+  await p.click("#cm-changes"); await p.waitForTimeout(800);
+  co.private.changes = await codeNow();
+  await p.fill("#code-against", "release"); await p.click("#code-compare"); await p.waitForTimeout(1000);
+  co.private.compare = await codeNow();
+  await tree(p, "r:garden:acme/garden-plan"); await p.waitForTimeout(400);
+  await p.click("#rs-files"); await p.waitForTimeout(800);
+  co.private.denied = await codeNow();
+  co.private.urls = furls;
   await p.close();
 
   // 7. Framed: the page refuses to show.

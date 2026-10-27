@@ -574,10 +574,120 @@
     return out;
   }
 
+  // ---- Code inspection: the file tree as folders, a file's lines and a change's diff lines, with every
+  // invisible or direction-changing character made visible. Text is only cut, never changed.
+
+  const codeKey = {
+    tree: (repo, commit) => "tree|" + repo + "@" + commit,
+    text: (repo, commit, path) => "text|" + repo + "@" + commit + "|" + path,
+    commit: (repo, ref) => "change|" + repo + "|" + ref,
+    compare: (repo, base, head) => "cmpfiles|" + repo + "|" + base + "..." + head,
+  };
+  const MAX_TEXT_LINES = 10000;
+  const BACKSLASH = String.fromCharCode(92);
+  const MAX_DIFF_LINES = 5000;
+  const MAX_FOUND = 200;
+  // Files larger than this are not read: GitHub's contents reply holds no text for them.
+  const MAX_READ_BYTES = 1000000;
+  const PLAIN_PATH = /^[A-Za-z0-9_.-]+([/][A-Za-z0-9_.-]+)*$/;
+
+  // Folders from the tree's flat list, each with its folders first and then its files, by name. A path whose
+  // folder GitHub did not list (a cut list) still gets that folder, marked as not listed.
+  const trees = new WeakMap();
+  function codeTree(data) {
+    if (trees.has(data)) return trees.get(data);
+    const root = { path: "", name: "", kind: "dir", kids: [], listed: true };
+    const dirs = new Map([["", root]]);
+    const dirOf = path => {
+      if (dirs.has(path)) return dirs.get(path);
+      const cut = path.lastIndexOf("/");
+      const node = { path, name: path.slice(cut + 1), kind: "dir", kids: [], listed: false };
+      dirOf(cut < 0 ? "" : path.slice(0, cut)).kids.push(node);
+      dirs.set(path, node);
+      return node;
+    };
+    for (const e of data.entries) {
+      const cut = e.path.lastIndexOf("/");
+      if (e.kind === "dir") {
+        const node = dirOf(e.path);
+        Object.assign(node, { sha: e.sha, listed: true });
+        continue;
+      }
+      dirOf(cut < 0 ? "" : e.path.slice(0, cut)).kids.push(Object.assign({ name: e.path.slice(cut + 1) }, e));
+    }
+    const order = (a, b) => (a.kind === "dir") === (b.kind === "dir") ? (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) : a.kind === "dir" ? -1 : 1;
+    for (const d of dirs.values()) d.kids.sort(order);
+    const out = { root, files: data.entries.filter(e => e.kind !== "dir").length, dirs: dirs.size - 1 };
+    trees.set(data, out);
+    return out;
+  }
+
+  // Files and links whose path holds the words typed, in tree order, at most MAX_FOUND.
+  function codeFind(data, query) {
+    const words = String(query || "").toLowerCase().split(/[\s]+/).filter(Boolean);
+    const all = data.entries.filter(e => e.kind !== "dir" && words.every(w => e.path.toLowerCase().includes(w)));
+    return { found: all.slice(0, MAX_FOUND), total: all.length };
+  }
+
+  // Whether a tree entry's text can be read here, and if not, why not.
+  function codeOpenable(e) {
+    if (!e) return { ok: false, why: "missing" };
+    if (e.kind === "symlink") return { ok: false, why: "symlink" };
+    if (e.kind === "submodule") return { ok: false, why: "submodule" };
+    if (e.kind !== "file") return { ok: false, why: "dir" };
+    if (!PLAIN_PATH.test(e.path) || e.path.split("/").some(part => part === "." || part === "..")) return { ok: false, why: "path" };
+    if (e.size !== null && e.size > MAX_READ_BYTES) return { ok: false, why: "large" };
+    return { ok: true };
+  }
+
+  // A text's lines, at most MAX_TEXT_LINES of them, with Windows line ends noted rather than shown.
+  function textLines(text) {
+    const all = text.split("\n");
+    if (all.length > 1 && all[all.length - 1] === "") all.pop();
+    const crlf = all.some(l => l.endsWith("\r"));
+    return { lines: all.slice(0, MAX_TEXT_LINES).map(l => crlf && l.endsWith("\r") ? l.slice(0, -1) : l), total: all.length, crlf };
+  }
+
+  // Characters that print nothing or change the direction of the text around them, so a line could read
+  // differently from what it holds. Each is shown by its code instead; tabs stay as they are.
+  const HIDDEN = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]/g;
+  function textPieces(line) {
+    const out = [];
+    let at = 0;
+    for (const m of line.matchAll(HIDDEN)) {
+      if (m.index > at) out.push({ text: line.slice(at, m.index) });
+      out.push({ hidden: "U+" + m[0].codePointAt(0).toString(16).toUpperCase().padStart(4, "0") });
+      at = m.index + 1;
+    }
+    if (at < line.length || !out.length) out.push({ text: line.slice(at) });
+    return out;
+  }
+
+  // A file's patch as GitHub gives it, line by line with old and new line numbers, at most
+  // MAX_DIFF_LINES. A line that is not in the unified diff form makes the whole patch plain text.
+  function diffLines(patch) {
+    const raw = patch.split("\n");
+    if (raw.length > 1 && raw[raw.length - 1] === "") raw.pop();
+    const lines = [];
+    let oldN = 0, newN = 0, hunk = false;
+    for (const line of raw) {
+      const h = /^@@ -(\d+)(?:,\d+)? [+](\d+)(?:,\d+)? @@/.exec(line);
+      if (h) { oldN = Number(h[1]); newN = Number(h[2]); hunk = true; lines.push({ kind: "hunk", text: line }); continue; }
+      const c = line[0];
+      if (!hunk || !(c === " " || c === "-" || c === "+" || c === BACKSLASH)) return { ok: false, lines: raw.slice(0, MAX_DIFF_LINES).map(text => ({ kind: "plain", text })), total: raw.length };
+      if (c === " ") lines.push({ kind: "ctx", old: oldN++, new: newN++, text: line.slice(1) });
+      else if (c === "-") lines.push({ kind: "del", old: oldN++, new: null, text: line.slice(1) });
+      else if (c === "+") lines.push({ kind: "add", old: null, new: newN++, text: line.slice(1) });
+      else lines.push({ kind: "note", text: line.slice(1).trim() });
+    }
+    return { ok: true, lines: lines.slice(0, MAX_DIFF_LINES), total: lines.length };
+  }
+
   Object.assign(SB, { SORTS, portfolio, filterPortfolio, sortPortfolio, portfolioOptions, tally, analytics, languageBytes, repoHref, feedEvents, feedKey, typeOf,
                       historyOrder, historyGraph, commitTimes, WEEKS_SHOWN, DAYS_SHOWN, contributors,
                       workKey, workList, pullState, reviewEvidence, runOutcome, inboxScope, inbox, historyKey, COMPARE_FIRST, comparedBranches, historyView,
                       ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
                       approvals, resultHref, tabKey, stageOfPhase, short,
-                      HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs });
+                      HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs,
+                      codeKey, MAX_TEXT_LINES, MAX_DIFF_LINES, MAX_FOUND, MAX_READ_BYTES, codeTree, codeFind, codeOpenable, textLines, textPieces, diffLines });
 })(typeof window !== "undefined" ? window : globalThis);

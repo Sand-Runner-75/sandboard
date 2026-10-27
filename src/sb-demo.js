@@ -29,7 +29,8 @@
   }
 
   // demo: {repos: {"owner/name": {status?, private, default_branch, commit, date, files: {path: text}, checks?, pulls?,
-  //         issues?, runs?, releases? (a list in the API's shape, or {status} for a refusal)}}}
+  //         issues?, runs?, releases? (a list in the API's shape, or {status} for a refusal),
+  //         changes? (the demo commit's changed files), tree_extra? (tree entries with no file text: links, submodules, large files)}}}
   // Returns the request function SB.createClient takes, answering from memory.
   function demoServer(demo) {
     const repos = (demo && demo.repos) || {};
@@ -67,7 +68,21 @@
         const ahead = head.filter(c => !inBase.has(c.sha)).length, back = base.filter(c => !inHead.has(c.sha)).length;
         const common = head.find(c => inBase.has(c.sha));
         return reply({ status: ahead && back ? "diverged" : ahead ? "ahead" : back ? "behind" : "identical", ahead_by: ahead, behind_by: back,
-                       merge_base_commit: common ? { sha: common.sha } : null, commits: head.filter(c => !inBase.has(c.sha)).slice(-1) });
+                       merge_base_commit: common ? { sha: common.sha } : null, commits: head.filter(c => !inBase.has(c.sha)).slice(-1),
+                       files: m[2] === r.commit && ahead ? r.changes || [] : [] });
+      }
+      // Files: the tree at the demo commit, with a folder entry for every folder a path is in.
+      if ((m = /^[/]git[/]trees[/]([0-9a-f]{40})[?]recursive=1$/.exec(rest))) {
+        if (m[1] !== r.commit) return reply({ message: "Not Found" }, 404);
+        const entries = [];
+        for (const [path, text] of Object.entries(r.files || {})) {
+          entries.push({ path, mode: "100644", type: "blob", sha: await blobSha(text), size: new TextEncoder().encode(text).length });
+        }
+        entries.push(...(r.tree_extra || []));
+        const dirs = new Set();
+        for (const e of entries) for (let i = e.path.indexOf("/"); i > 0; i = e.path.indexOf("/", i + 1)) dirs.add(e.path.slice(0, i));
+        for (const path of dirs) entries.push({ path, mode: "040000", type: "tree", sha: await blobSha("tree " + path) });
+        return reply({ sha: r.commit, truncated: false, tree: entries.sort((a, b) => a.path < b.path ? -1 : 1) });
       }
       if (rest === "/issues/comments?sort=created&direction=desc&per_page=50") {
         const all = (r.pulls || []).flatMap(p => (p.comments || []).map(c => Object.assign({ issue_url: SB.API + "/repos/" + name + "/issues/" + p.number }, c)));
@@ -111,10 +126,15 @@
         const page = Number(m[2]);
         return reply(pr.comments.slice((page - 1) * 100, page * 100));
       }
+      // A commit by branch, tag or ID, with the files it changed (only the demo commit has any).
       if ((m = /^[/]commits[/]([^/?]+)$/.exec(rest))) {
         const ref = decodeURIComponent(m[1]);
-        if (ref !== (r.default_branch || "main") && ref !== r.commit) return reply({ message: "No commit found" }, 404);
-        return reply({ sha: r.commit, commit: { committer: { date: r.date || null } } });
+        const named = [...(r.branches || []), ...(r.tags || [])].find(x => x.name === ref);
+        const sha = ref === (r.default_branch || "main") ? r.commit : named ? named.commit.sha : ref;
+        const c = all.find(x => x.sha === sha);
+        if (!c) return reply({ message: "No commit found" }, 404);
+        return reply(Object.assign({}, c, { commit: { message: c.commit.message, committer: { date: c.commit.committer.date || r.date || null } },
+                                            files: sha === r.commit ? r.changes || [] : [] }));
       }
       if ((m = /^[/]contents[/](.+)[?]ref=([0-9a-f]{40})$/.exec(rest))) {
         const files = r.files || {};

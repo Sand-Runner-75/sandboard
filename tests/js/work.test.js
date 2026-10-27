@@ -125,15 +125,22 @@ test("a run not finished is never a success, and a token without Actions access 
   assert.equal((await SB.readRunPage(s.ctx, s.client, REPO, 1)).state, "invalid");
 });
 
-test("releases keep their assets' names and sizes only", async () => {
+test("a release asset links only to GitHub's own download address for its repository", async () => {
+  const asset = (name, url) => ({ name, size: 2048, download_count: 3, browser_download_url: url });
   const s = setup({ work: { "/releases?per_page=100&page=1": [
     { id: 2, tag_name: "v2", name: "Two", draft: true, prerelease: false, created_at: "2026-01-02T00:00:00Z", published_at: null, author: { login: "agent-a" },
-      assets: [{ name: "app.zip", size: 2048, download_count: 3, browser_download_url: "https://example.invalid/app.zip" }] },
+      assets: [asset("app.zip", "https://example.invalid/app.zip"), asset("ok.zip", "https://github.com/acme/garden/releases/download/v2/ok.zip"),
+               asset("other.zip", "https://github.com/acme/other/releases/download/v2/other.zip"), asset("http.zip", "http://github.com/acme/garden/releases/download/v2/http.zip"),
+               asset("query.zip", "https://github.com/acme/garden/releases/download/v2/q.zip?token=x"), asset("user.zip", "https://x" + String.fromCharCode(64) + "github.com/acme/garden/releases/download/v2/u.zip"),
+               asset("script.zip", "javascript:alert(1)"), asset("bare.zip", "https://github.com/acme/garden/releases/download/"), { name: "none.zip", size: 1 }] },
     { id: 1, tag_name: "v1", name: null, draft: false, prerelease: false, created_at: "2026-01-01T00:00:00Z", published_at: "2026-01-01T00:00:00Z", author: null }] } });
   const r = await SB.readReleasePage(s.ctx, s.client, REPO, 1);
   assert.equal(r.state, "current");
-  assert.deepEqual(r.data.releases[0].assets, [{ name: "app.zip", size: 2048, downloads: 3 }]);
-  assert.ok(!JSON.stringify(r).includes("example.invalid"), "no asset address is kept");
+  assert.deepEqual(r.data.releases[0].assets[0], { name: "app.zip", size: 2048, downloads: 3, url: null });
+  assert.deepEqual(r.data.releases[0].assets.filter(a => a.url).map(a => [a.name, a.url]),
+    [["ok.zip", "https://github.com/acme/garden/releases/download/v2/ok.zip"]], "only this repository's GitHub download address, plain https");
+  assert.ok(!JSON.stringify(r).includes("example.invalid"), "no other address is kept");
+  assert.equal(r.data.releases[0].assets.at(-1).downloads, null);
   assert.equal(r.data.releases[1].author, null);
   const t = setup({ work: { "/releases?per_page=100&page=1": [{ id: 1, tag_name: "v1", draft: "no", prerelease: false }] } });
   assert.equal((await SB.readReleasePage(t.ctx, t.client, REPO, 1)).state, "invalid");

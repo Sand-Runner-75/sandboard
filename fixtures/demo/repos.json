@@ -187,7 +187,10 @@
    }
   },
   "example-org/demo-app": {
-   "files": null,
+   "files": "demo-app",
+   "inline_files": {
+    "assets/data.bin": "SBDEMO\u0000\u0001\u0002 synthetic bytes\u0000\n"
+   },
    "checks": [
     {
      "name": "Tests",
@@ -688,6 +691,72 @@
       "login": "demo-owner"
      },
      "assets": []
+    }
+   ],
+   "changes": [
+    {
+     "filename": "src/list.js",
+     "status": "modified",
+     "additions": 4,
+     "deletions": 1,
+     "patch": "@@ -1,2 +1,5 @@\n // The task list, read from the plan's progress file.\n-export function readList(doc) { return doc.tasks; }\n+export function readList(doc) {\n+  if (!doc || !Array.isArray(doc.tasks)) return [];\n+  return doc.tasks.filter(task => task.status !== \"Removed\");\n+}"
+    },
+    {
+     "filename": "src/access.js",
+     "status": "added",
+     "additions": 7,
+     "deletions": 0,
+     "patch": "@@ -0,0 +1,7 @@\n+// Synthetic check with hidden direction marks: the comment hides part of the condition.\n+export function canEdit(role) {\n+  if (role !== \"owner\u202e \u2066// owner only\u2069 \u2066\") {\n+    return false;\n+  }\n+  return true;\n+}"
+    },
+    {
+     "filename": "docs/untrusted.html",
+     "status": "added",
+     "additions": 5,
+     "deletions": 0,
+     "patch": "@@ -0,0 +1,5 @@\n+<!-- Synthetic test page: every line must show as text. -->\n+<script>document.title = \"ran\";</script>\n+<img src=\"x\" onerror=\"document.title = 'ran'\">\n+<a href=\"javascript:alert(1)\">Open the plan</a>\n+<iframe srcdoc=\"<b>framed</b>\"></iframe>"
+    },
+    {
+     "filename": "docs/links.md",
+     "previous_filename": "docs/old-links.md",
+     "status": "renamed",
+     "additions": 1,
+     "deletions": 1,
+     "patch": "@@ -3 +3 @@\n-[Open the plan](plan.md)\n+[Open the plan](javascript:alert(1))"
+    },
+    {
+     "filename": "assets/data.bin",
+     "status": "added",
+     "additions": 0,
+     "deletions": 0
+    }
+   ],
+   "tree_extra": [
+    {
+     "path": "vendor/ui-kit",
+     "mode": "160000",
+     "type": "commit",
+     "sha": "{sha:demo-ui-kit}"
+    },
+    {
+     "path": "docs/latest.md",
+     "mode": "120000",
+     "type": "blob",
+     "sha": "{sha:demo-latest-link}",
+     "size": 7
+    },
+    {
+     "path": "assets/intro.mp4",
+     "mode": "100644",
+     "type": "blob",
+     "sha": "{sha:demo-intro-video}",
+     "size": 52428800
+    },
+    {
+     "path": "docs/Meeting notes.txt",
+     "mode": "100644",
+     "type": "blob",
+     "sha": "{sha:demo-meeting-notes}",
+     "size": 120
     }
    ]
   },

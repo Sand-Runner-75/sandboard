@@ -471,7 +471,7 @@
       !c.pinned ? el("span", { class: "muted" }, "Loading") : c.pinned.state === "current"
         ? [el("span", { class: "mono", title: c.pinned.data.commit }, c.pinned.data.ref + " → " + short(c.pinned.data.commit)), checksSummary(c.checks)]
         : el("span", {}, (STATE[c.pinned.state] || STATE.failed)[2])))));
-    card.append(el("p", { class: "qual muted plain" }, "Recent commits and pull requests are under Recent activity; each repository has History, Pull requests, Issues, Actions and Releases tabs, and files come in a later slice. Activity is never progress."));
+    card.append(el("p", { class: "qual muted plain" }, "Recent commits and pull requests are under Recent activity; each repository has History, Pull requests, Issues, Actions, Releases and Files tabs. Activity is never progress."));
     return card;
   }
 
@@ -944,8 +944,8 @@
       code.checks && code.checks.data && code.checks.data.runs.length ? el("ul", { class: "feed" }, code.checks.data.runs.map(r =>
         el("li", {}, el("b", {}, r.name), r.status === "completed" ? (r.conclusion || "no conclusion") : r.status))) : null,
       el("p", { class: "qual muted plain" }, "Checks passing is not owner approval.")));
-    // Overview, History and the work evidence as tabs of the repository; Left and Right move between them.
-    const SUBS = [["overview", "Overview"], ["history", "History"], ["pulls", "Pull requests"], ["issues", "Issues"], ["runs", "Actions"], ["releases", "Releases"]];
+    // Overview, History, the work evidence and Files as tabs of the repository; Left and Right move between them.
+    const SUBS = [["overview", "Overview"], ["history", "History"], ["pulls", "Pull requests"], ["issues", "Issues"], ["runs", "Actions"], ["releases", "Releases"], ["files", "Files"]];
     const sub = SUBS.some(x => x[0] === S.view.sub) ? S.view.sub : "overview";
     const pick = k => A.go(entry.w.id, { kind: "repo", repo: name, sub: k }, { focus: "rs-" + k });
     sec.append(el("div", { class: "subtabs", role: "tablist", "aria-label": "Repository views" }, SUBS.map(([k, l], i) =>
@@ -956,9 +956,9 @@
     const panel = el("div", { class: "stack", role: "tabpanel", id: "rs-panel", "aria-labelledby": "rs-" + sub });
     if (sub === "history") panel.append(...V.history(S, A, entry, name, pinned));
     else if (V.WORK_SUBS.includes(sub)) panel.append(...V.work(S, A, entry, name, pinned, sub));
+    else if (sub === "files") panel.append(...V.code(S, A, entry, name, pinned));
     else panel.append(...V.repoDetails(S, A, entry, name, pinned, role));
     sec.append(panel);
-    sec.append(el("p", { class: "qual muted plain" }, "Files come in a later slice."));
     return sec;
   }
 

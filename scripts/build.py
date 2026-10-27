@@ -81,6 +81,8 @@ def demo_repos(fixture_dir):
                     full = os.path.join(d, n)
                     with open(full, encoding="utf-8", newline="") as f:
                         files[os.path.relpath(full, top).replace(os.sep, "/")] = f.read()
+        # Files kept in repos.json itself, such as bytes a text file in this repository may not hold.
+        files.update(r.get("inline_files", {}))
         seed = json.dumps([name, files], sort_keys=True).encode()
         repos[name] = {"private": r.get("private", True), "default_branch": "main",
                        "commit": hashlib.sha1(seed).hexdigest(), "date": spec["date"],
@@ -89,7 +91,7 @@ def demo_repos(fixture_dir):
             repos[name]["checks"] = r["checks"]
         if "pulls" in r:
             repos[name]["pulls"] = demo_pulls(r["pulls"], repos[name]["commit"])
-        for key in ("issues", "runs", "releases"):
+        for key in ("issues", "runs", "releases", "changes", "tree_extra"):
             if key in r:
                 repos[name][key] = demo_work(r[key], repos[name]["commit"])
         if "meta" in r:
@@ -173,7 +175,7 @@ def demo_pulls(pulls, commit):
 
 
 def demo_work(items, commit):
-    """Issues, workflow runs or releases already in the API's shape, with "{commit}" and
+    """Issues, workflow runs, releases, a commit's changed files or extra file tree entries already in the API's shape, with "{commit}" and
     "{sha:seed}" filled in; a refusal ({"status": n}) is kept as it is."""
     if isinstance(items, dict):
         return items

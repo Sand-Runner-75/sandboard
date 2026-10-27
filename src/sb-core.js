@@ -93,6 +93,9 @@
     new RegExp("^/repos/" + NAME + "/" + NAME + "/pulls/[1-9][0-9]{0,8}/reviews[?]per_page=100&page=[1-3]$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/issues[?]state=(?:open|closed|all)&per_page=100&page=[1-9]$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/(?:actions/runs|releases)[?]per_page=100&page=[1-9]$"),
+    // Code inspection: the whole file tree at a pinned commit. A file's text is read by readFile above,
+    // and a commit's changes, or the changes between two commits, by the commit and compare reads above.
+    new RegExp("^/repos/" + NAME + "/" + NAME + "/git/trees/" + SHA + "[?]recursive=1$"),
   ];
 
   function allowed(path) {
