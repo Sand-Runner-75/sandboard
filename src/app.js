@@ -862,6 +862,8 @@
 
   function tipNode(node, focus) {
     if (!(node instanceof Element) || !node.closest("#workspace, #tree, .top")) return null;
+    // The tree shows no bubble on hover or click, only when the keyboard moves to an item.
+    if (node.closest("#tree") && !(focus && node.matches(":focus-visible"))) return null;
     if (focus && node.getAttribute("role") === "treeitem") return node.querySelector(":scope > .ti[data-tip]");
     return node.closest("[data-tip]");
   }

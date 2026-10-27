@@ -392,6 +392,9 @@ class BrowserTest(unittest.TestCase):
         self.assertTrue(f["escHides"])
         self.assertEqual(f["detailsStillOpen"], 1, "the first Esc only hides the bubble")
         self.assertEqual(f["focusTip"], [False, "tip"])
+        self.assertTrue(f["treeHover"], "the tree shows no bubble on hover")
+        self.assertTrue(f["treeClick"], "the tree shows no bubble on click")
+        self.assertEqual(f["treeKey"], [False, "treeitem"], "the keyboard still gets the tree's bubble")
         for word in ("Removed", "Verified", "To be estimated", "Original plan notes", "Cross-references"):
             self.assertIn(word, f["glossary"])
 

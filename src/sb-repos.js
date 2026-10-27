@@ -68,8 +68,10 @@
 
   function sourceNote(rows) {
     const read = rows.filter(r => r.meta).length;
-    return tip(el("p", { class: "plain muted" }, "The workspace list names ", el("b", {}, plural(rows.length, "repository", "repositories")),
-      "; ", read === rows.length ? "all were read." : read + " could be read.", " Each was read once, at its pinned commit. Nothing else in the account is listed."), "All repositories");
+    const found = rows.filter(r => r.projects.length && r.projects.every(p => p.found)).length;
+    return tip(el("p", { class: "plain muted" }, "The workspace list names ", el("b", {}, plural(rows.length - found, "repository", "repositories")),
+      found ? [" and the token finds ", el("b", {}, String(found)), " more"] : [], "; ", read === rows.length ? "all were read." : read + " could be read.",
+      " Each was read once, at its pinned commit."), "All repositories");
   }
 
   function openForm(A) {
@@ -111,7 +113,7 @@
       el("label", {}, "Sort by", sort),
       el("label", { class: "check" }, group, "Group by project")));
     const list = SB.sortPortfolio(SB.filterPortfolio(rows, f), f.sort);
-    if (!rows.length) { sec.append(notice("empty", "The workspace list names no repositories.")); return sec; }
+    if (!rows.length) { sec.append(notice("empty", "The workspace list names no repositories, and the token finds no other.")); return sec; }
     if (!list.length) { sec.append(notice("no-match", "Change the search or filters. Nothing was changed by filtering.", "No repositories match")); return sec; }
     if (!f.group) sec.append(table(A, list));
     else {

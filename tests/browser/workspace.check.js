@@ -429,6 +429,14 @@ function privateRepos() {
   await p.keyboard.press("Escape"); await p.waitForTimeout(50);
   fu.escHides = await p.$eval("#tip", n => n.hidden);
   fu.detailsStillOpen = await p.$$eval("#inspector", n => n.length);
+  // The tree shows no bubble on hover or click; the keyboard still gets one.
+  await p.hover("#tree .ti[data-tip]"); await p.waitForTimeout(1500);
+  fu.treeHover = await p.$eval("#tip", n => n.hidden);
+  await p.click("#tree [role='treeitem'] > .ti[data-tip]"); await p.waitForTimeout(1500);
+  fu.treeClick = await p.$eval("#tip", n => n.hidden);
+  await p.focus("#tree [role='treeitem']:has(> .ti[data-tip])");
+  await p.keyboard.press("ArrowDown"); await p.keyboard.press("ArrowUp"); await p.waitForTimeout(100);
+  fu.treeKey = await p.evaluate(() => [document.getElementById("tip").hidden, document.activeElement.getAttribute("role")]);
   await p.focus(".phase[data-phase='P1']"); await p.waitForTimeout(100);
   fu.focusTip = await p.evaluate(() => [document.getElementById("tip").hidden, document.activeElement.getAttribute("aria-describedby")]);
   await p.keyboard.press("?"); await p.waitForTimeout(100);
