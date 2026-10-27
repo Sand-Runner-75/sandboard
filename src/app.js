@@ -655,7 +655,7 @@
       S.activeTab = null;
       // A phase picked from the tree or a phase card brings its stage with it, as the filters show it.
       if (opts && opts.phase !== undefined) S.filters = Object.assign(noFilters(), { stage: V.stageIdOf(entryOf(project), opts.phase), phase: opts.phase });
-      // A stage picked from the tree opens its tasks with the filters, like a phase; only the overview's chips keep the overview.
+      // A stage picked from the tree or a stage chip opens its tasks with the filters, like a phase.
       if (opts && opts.stage !== undefined) S.filters = Object.assign(noFilters(), { stage: opts.stage });
       if (opts && opts.select !== undefined) S.selected = opts.select;
       render();
