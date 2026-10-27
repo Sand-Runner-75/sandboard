@@ -943,8 +943,19 @@
       code.checks && code.checks.data && code.checks.data.runs.length ? el("ul", { class: "feed" }, code.checks.data.runs.map(r =>
         el("li", {}, el("b", {}, r.name), r.status === "completed" ? (r.conclusion || "no conclusion") : r.status))) : null,
       el("p", { class: "qual muted plain" }, "Checks passing is not owner approval.")));
-    sec.append(...V.repoDetails(S, A, entry, name, pinned, role));
-    sec.append(el("p", { class: "qual muted plain" }, "Branch history, pull request details, Actions, releases and files come in later slices."));
+    // Overview and History as tabs of the repository; Left and Right move between them.
+    const SUBS = [["overview", "Overview"], ["history", "History"]];
+    const sub = S.view.sub === "history" ? "history" : "overview";
+    const pick = k => A.go(entry.w.id, { kind: "repo", repo: name, sub: k }, { focus: "rs-" + k });
+    sec.append(el("div", { class: "subtabs", role: "tablist", "aria-label": "Repository views" }, SUBS.map(([k, l], i) =>
+      el("button", { type: "button", role: "tab", id: "rs-" + k, "aria-selected": String(sub === k), "aria-controls": "rs-panel", tabindex: sub === k ? "0" : "-1",
+        onclick: () => pick(k),
+        onkeydown: e => { if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return; e.preventDefault(); pick(SUBS[(i + 1) % SUBS.length][0]); } }, l))));
+    const panel = el("div", { class: "stack", role: "tabpanel", id: "rs-panel", "aria-labelledby": "rs-" + sub });
+    if (sub === "history") panel.append(...V.history(S, A, entry, name, pinned));
+    else panel.append(...V.repoDetails(S, A, entry, name, pinned, role));
+    sec.append(panel);
+    sec.append(el("p", { class: "qual muted plain" }, "Pull request details, Actions, releases and files come in later slices."));
     return sec;
   }
 

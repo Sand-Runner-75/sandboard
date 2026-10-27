@@ -341,5 +341,5 @@
     return card;
   }
 
-  Object.assign(V, { portfolio, activity, repoDetails, feedCard });
+  Object.assign(V, { portfolio, activity, repoDetails, feedCard, bars, chartCard });
 })(typeof window !== "undefined" ? window : globalThis);

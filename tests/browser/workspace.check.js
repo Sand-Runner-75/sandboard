@@ -690,6 +690,72 @@ function privateRepos() {
   ro.private.urls = ourls;
   await p.close();
 
+  // 9. History: the read commit's history in lanes with branches compared against it and tags; zoom,
+  // fit and older commits; counts from the commits read; and, on a mocked private plan, a refused
+  // branch list, a tag outside the commits read and an older page that fails. Reads only.
+  const hi = out.history = {};
+  p = await open();
+  await demo(p);
+  await tree(p, "repos:demo"); await p.waitForTimeout(150);
+  await tree(p, "r:demo:example-org/demo-app"); await p.waitForTimeout(400);
+  await p.focus("#rs-overview"); await p.keyboard.press("ArrowRight"); await p.waitForTimeout(1500);
+  const histNow = () => p.evaluate(() => ({
+    rows: [...document.querySelectorAll(".hist-rows li")].map(n => [n.querySelector(".mono").textContent, n.dataset.lane, n.dataset.kind,
+      [...n.querySelectorAll(".ref")].map(r => r.textContent)]),
+    titles: [...document.querySelectorAll(".hist-rows .ev-title")].map(n => n.textContent), bold: document.querySelectorAll(".hist-rows b").length,
+    coverage: (document.querySelector("[data-part=history-coverage]") || {}).textContent || "",
+    open: (document.querySelector("[data-part=history-open]") || {}).textContent || "",
+    branches: [...document.querySelectorAll("[data-part=branches] tbody tr")].map(r => [...r.children].map(c => c.textContent)),
+    branchesText: (document.querySelector("[data-part=branches]") || {}).textContent || "",
+    tags: [...document.querySelectorAll("[data-part=tags] li")].map(n => n.textContent),
+    canvas: (() => { const c = document.querySelector(".hist-canvas"); return c ? [c.width, c.height] : null; })(),
+    rowHeight: (() => { const li = document.querySelector(".hist-rows li"); return li ? li.getBoundingClientRect().height : 0; })(),
+    older: !!document.getElementById("g-older"), zoomOut: (document.getElementById("g-out") || {}).disabled,
+    focus: document.activeElement.id, notice: (document.querySelector("[data-state=history]") || {}).textContent || "",
+    weeks: document.querySelectorAll("[aria-label='Commits per week'] li").length,
+    contributors: [...document.querySelectorAll("[data-part=contributors] li")].map(n => n.textContent),
+    unlinked: (document.querySelector("[data-part=unlinked]") || {}).textContent || "",
+    heat: document.querySelectorAll(".heat span:not(.pad)").length,
+    controls: [...document.querySelectorAll("main button")].map(b => b.textContent) }));
+  hi.demo = await histNow();
+  await p.click("#g-in"); await p.waitForTimeout(300);
+  hi.zoomed = await histNow();
+  await p.click("#g-fit"); await p.waitForTimeout(300);
+  hi.fit = await histNow();
+  await tree(p, "repos:second"); await p.waitForTimeout(150);
+  await tree(p, "r:second:example-org/second-site"); await p.waitForTimeout(400);
+  await p.click("#rs-history"); await p.waitForTimeout(1500);
+  hi.paged = { first: await histNow() };
+  await p.click("#g-older"); await p.waitForTimeout(1500);
+  hi.paged.second = await histNow();
+  await p.setViewportSize({ width: 320, height: 800 }); await p.waitForTimeout(300);
+  hi.narrow = await p.evaluate(() => document.documentElement.scrollWidth);
+  await p.close();
+  const hrepos = F.planRepos();
+  const hrow = (i, at) => ({ sha: sha("hist-" + i), commit: { message: "Step " + i, committer: { date: at } }, parents: [{ sha: sha("hist-" + (i + 1)) }], author: { login: "agent-" + (i % 3) } });
+  const full = Array.from({ length: 100 }, (_, i) => Object.assign(hrow(i, new Date(Date.UTC(2026, 0, 20) - i * 864e5).toISOString()), i ? {} : { sha: F.CODE_COMMIT }));
+  hrepos["acme/garden"].history = { [F.CODE_COMMIT]: [full, 500] };
+  hrepos["acme/garden"].branchList = 403;
+  hrepos["acme/garden"].tagList = [{ name: "v0.1", commit: { sha: sha("far-older") } }];
+  const hgh = mockGitHub(hrepos);
+  const hurls = [];
+  p = await open();
+  await p.route("https://api.github.com/**", async route => {
+    const req = route.request();
+    hurls.push(req.method() + " " + req.url());
+    const res = await hgh.fetch(req.url(), { method: req.method() });
+    await route.fulfill({ status: res.status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }, body: await res.text() });
+  });
+  await p.fill("#plan-repo", "acme/garden-plan"); await p.fill("#token", "synthetic-token"); await p.click("#connect button[type=submit]");
+  await finished(); await p.waitForTimeout(400);
+  await garden();
+  await p.click("#rs-history"); await p.waitForTimeout(1200);
+  hi.private = { first: await histNow() };
+  await p.click("#g-older"); await p.waitForTimeout(1200);
+  hi.private.second = await histNow();
+  hi.private.urls = hurls;
+  await p.close();
+
   // 7. Framed: the page refuses to show.
   p = await open();
   await p.goto(BASE + "/frame.html"); await p.waitForTimeout(400);
