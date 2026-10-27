@@ -386,6 +386,7 @@ class BrowserTest(unittest.TestCase):
 
     def test_explanation_bubbles_on_hover_and_focus_and_in_help(self):
         f = self.r["firstUse"]
+        self.assertTrue(f["hoverSoon"], "a bubble waits a moment before it shows on hover")
         self.assertFalse(f["hoverTip"][0])
         self.assertIn("Dropped from the plan", f["hoverTip"][1])
         self.assertTrue(f["escHides"])
@@ -498,12 +499,12 @@ class BrowserTest(unittest.TestCase):
     def test_every_repository_the_token_reads_is_listed_and_marked_found(self):
         f = self.r["found"]
         ids = [x[0] for x in f["projects"]]
-        self.assertEqual(ids, ["p:garden", "p:recipes", "p:~found-acme/found-code", "p:~found-acme/found-plan"],
+        self.assertEqual(ids, ["p:garden", "p:recipes", "p:~found-acme/found-code", "p:~found-acme/found-plan", "p:~found-beta/found-plan"],
                          "a listed repository is not repeated, whatever its case")
         labels = dict(f["projects"])
-        self.assertIn("found", labels["p:~found-acme/found-plan"])
-        self.assertNotIn("code only", labels["p:~found-acme/found-plan"])
-        self.assertIn("code only, found", labels["p:~found-acme/found-code"])
+        self.assertEqual(labels["p:~found-acme/found-plan"], "acme/found-plan, found", "names that two owners share keep the owner")
+        self.assertEqual(labels["p:~found-beta/found-plan"], "beta/found-plan, code only, found")
+        self.assertEqual(labels["p:~found-acme/found-code"], "found-code, code only, found", "a found repository is named without its owner")
         self.assertEqual(f["planTasks"], ["XQ101", "XQ102", "XQ201"], "a found plan's tasks are read from its task table")
         self.assertIn("Found through the token", f["codeNoPlan"])
         self.assertIn("It is not 0%", f["codeNoPlan"])
@@ -513,6 +514,9 @@ class BrowserTest(unittest.TestCase):
         self.assertIn("found", rows["acme/found-plan"])
         self.assertEqual(f["deniedProjects"], ["p:garden", "p:recipes"], "a list that cannot be read adds nothing")
         self.assertIn("could not be read", f["denied"])
+        self.assertEqual(f["emptyList"], ["p:~found-acme/found-code", "p:~found-acme/found-plan"], "an empty list is filled by what the token finds")
+        self.assertTrue(f["emptyHead"])
+        self.assertIn("the token finds no other repository", f["nothing"])
         self.assertTrue(all(u.startswith("GET ") for u in f["urls"]))
         self.assertFalse(any("/users/" in u or "/events" in u or "/notifications" in u for u in f["urls"]))
 

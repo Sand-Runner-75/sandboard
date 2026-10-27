@@ -109,6 +109,9 @@
       const ahead = plural(x.cmp.data.ahead, "commit") + " ahead";
       if (x.lane.state === "loading") notes.push(el("p", at, x.branch.name + ": reading this branch's own commits."));
       else if (!x.lane.data) notes.push(el("p", at, x.branch.name + ": this branch's commits could not be read (" + stateName(x.lane) + "), so it has no lane for its " + ahead + "."));
+      else if (x.stop && x.stop.state === "loading") notes.push(el("p", Object.assign(at, { "data-stop": "loading" }), x.branch.name + ": reading more of this branch's own commits."));
+      else if (x.stop) notes.push(el("p", Object.assign(at, { "data-stop": x.stop.state }), x.branch.name + ": " + plural(x.unread, "more commit") +
+        " on this branch not read: a later page of its commits could not be read (" + stateName(x.stop) + (x.stop.error ? ", " + x.stop.error : "") + ")."));
       else if (!x.commits.length) notes.push(el("p", at, x.branch.name + ": " + ahead + ", none of them in the commits read, so it has no lane."));
       else if (x.unread) notes.push(el("p", at, x.branch.name + ": " + plural(x.unread, "more commit") + " on this branch not read."));
     }

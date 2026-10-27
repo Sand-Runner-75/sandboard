@@ -445,12 +445,13 @@
       // The branch's own commits: those reached from its head before the read history or the merge base.
       // Its pages are read one after another while a commit it reaches is still not read.
       const read = [], by = new Map();
-      let first = null, mine = new Set();
+      // stop: a later page still being read, or the failure that ended the reading after the first page.
+      let first = null, mine = new Set(), stop = null;
       for (let p = 1; ; p++) {
         const page = live(K.lane(repo, b.sha, p));
-        if (!page) { wanted.push({ kind: "lane", head: b.sha, page: p }); break; }
+        if (!page) { wanted.push({ kind: "lane", head: b.sha, page: p }); if (p > 1) stop = { state: "loading" }; break; }
         if (p === 1) first = page;
-        if (!page.data) break;
+        if (!page.data) { if (p > 1) stop = page; break; }
         for (const c of page.data.commits) { read.push(c); by.set(c.sha, c); }
         mine = new Set();
         let missing = false;
@@ -465,7 +466,7 @@
         if (page.data.end || !missing || mine.size >= cmp.data.ahead) break;
       }
       const own = read.filter(c => mine.has(c.sha));
-      return { branch: b, cmp, asked: true, lane: first || { state: "loading" }, commits: own, unread: Math.max(0, cmp.data.ahead - own.length) };
+      return { branch: b, cmp, asked: true, lane: first || { state: "loading" }, stop, commits: own, unread: Math.max(0, cmp.data.ahead - own.length) };
     });
     const graph = historyGraph(main, compared.filter(x => x.commits && x.commits.length));
     return { state, error, end, pages, main, branches, tags, compared, graph, wanted, more: !end && !error && pages === depth };

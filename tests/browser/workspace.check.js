@@ -423,6 +423,8 @@ function privateRepos() {
   // Bubbles: on hover of a status, Esc hides it; on keyboard focus, described by it.
   await p.click("#tab-view"); await p.waitForTimeout(100);
   await p.hover("#task-list .row[data-id='DT203'] .pill"); await p.waitForTimeout(600);
+  fu.hoverSoon = await p.$eval("#tip", n => n.hidden);
+  await p.waitForTimeout(900);
   fu.hoverTip = await p.$eval("#tip", n => [n.hidden, n.textContent]);
   await p.keyboard.press("Escape"); await p.waitForTimeout(50);
   fu.escHides = await p.$eval("#tip", n => n.hidden);
@@ -1039,7 +1041,8 @@ function privateRepos() {
   const NP = sha("found-plan"), NC = sha("found-code");
   nrepos["acme/found-plan"] = { default_branch: "main", branches: { main: NP }, files: { [NP]: { [F.FILES.table]: F.TABLE } } };
   nrepos["acme/found-code"] = { default_branch: "main", branches: { main: NC }, files: { [NC]: {} } };
-  let tokenRepos = () => json(["acme/garden-plan", "ACME/Garden", "acme/found-plan", "acme/found-code"].map(full_name => ({ full_name })));
+  nrepos["beta/found-plan"] = { default_branch: "main", branches: { main: NC }, files: { [NC]: {} } };
+  let tokenRepos = () => json(["acme/garden-plan", "ACME/Garden", "acme/found-plan", "acme/found-code", "beta/found-plan"].map(full_name => ({ full_name })));
   const ngh = mockGitHub(nrepos, [[/^[/]user[/]repos[?]/, () => tokenRepos()]]);
   const nurls = [];
   p = await open();
@@ -1065,6 +1068,15 @@ function privateRepos() {
   found.deniedProjects = (await projectsNow()).map(x => x[0]);
   await tree(p, "a:portfolio"); await p.waitForTimeout(300);
   found.denied = await p.$eval("#workspace .notice[data-state=denied]", n => n.textContent).catch(() => "");
+  // A valid list that names no project: the found repositories fill it; with none found it says so.
+  nrepos["acme/garden-plan"].files[F.PLAN_COMMIT]["sandboard.workspaces.json"] = JSON.stringify(F.workspacesDoc({ workspaces: [], found: { files: F.FILES } }));
+  tokenRepos = () => json(["acme/found-plan", "acme/found-code"].map(full_name => ({ full_name })));
+  await p.click("#refresh"); await finished(); await p.waitForTimeout(400);
+  found.emptyList = (await projectsNow()).map(x => x[0]);
+  found.emptyHead = await text(p, "#view-h");
+  tokenRepos = () => json([]);
+  await p.click("#refresh"); await finished(); await p.waitForTimeout(400);
+  found.nothing = await p.$eval("#workspace .notice[data-state=empty]", n => n.textContent).catch(() => "");
   found.urls = nurls;
   await p.close();
 

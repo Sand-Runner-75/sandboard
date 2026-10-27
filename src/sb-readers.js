@@ -513,7 +513,8 @@
 
   async function readHistoryPageUnguarded(ctx, client, repo, commit, page) {
     const source = { repo, commit, page };
-    if (!SB.validRepo(repo) || !isSha(commit) || !Number.isSafeInteger(page) || page < 1) {
+    // The same pages the allowlist lets through: 1 to 999,999,999.
+    if (!SB.validRepo(repo) || !isSha(commit) || !Number.isSafeInteger(page) || page < 1 || page > 999999999) {
       return result("invalid", null, source, { error: "not a valid repository, commit or page" });
     }
     const res = await client.get(ctx, "/repos/" + repo + "/commits?sha=" + commit + "&per_page=" + HISTORY_PAGE + "&page=" + page);

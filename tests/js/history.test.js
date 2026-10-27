@@ -56,7 +56,7 @@ test("a history page keeps parents and the login, never a name or email; a full 
   assert.equal((await SB.readHistoryPage(s.ctx, s.client, REPO, HEAD, 1)).data.commits[1].author, null, "a login not in GitHub's form is not kept");
   s = setup({ history: { [HEAD]: [500] } });
   assert.equal((await SB.readHistoryPage(s.ctx, s.client, REPO, HEAD, 1)).state, "failed");
-  for (const page of [0, -1, 1.5, "2"]) assert.equal((await SB.readHistoryPage(s.ctx, s.client, REPO, HEAD, page)).state, "invalid");
+  for (const page of [0, -1, 1.5, "2", 1e9]) assert.equal((await SB.readHistoryPage(s.ctx, s.client, REPO, HEAD, page)).state, "invalid");
   assert.equal(s.gh.calls.length, 1, "a page that is not a whole number from 1 is never requested");
   s = setup({ history: { [HEAD]: Array.from({ length: 12 }, (_, p) => Array.from({ length: p < 11 ? 100 : 3 }, (_, i) => api("c" + p + "-" + i, ["x"]))) } });
   r = await SB.readHistoryPage(s.ctx, s.client, REPO, HEAD, 12);
@@ -181,6 +181,17 @@ test("a branch's own commits are read page after page until they reach the histo
   assert.deepEqual(h.wanted, [], "once all 150 are read, no more is asked for");
   assert.deepEqual([h.compared[0].commits.length, h.compared[0].unread], [150, 0]);
   assert.equal(h.graph.rows.length, 152);
+  // A later page that is refused keeps the rows already read and says why the rest are not.
+  live.set(K.lane(REPO, sha("b0"), 2), SB.result("denied", null, {}, { error: "HTTP 403" }));
+  h = SB.historyView(get, REPO, HEAD, 1, new Set());
+  assert.deepEqual(h.wanted, []);
+  assert.deepEqual([h.compared[0].lane.state, h.compared[0].stop.state, h.compared[0].stop.error], ["partial", "denied", "HTTP 403"]);
+  assert.deepEqual([h.compared[0].commits.length, h.compared[0].unread], [100, 50]);
+  live.delete(K.lane(REPO, sha("b0"), 2));
+  assert.equal(SB.historyView(get, REPO, HEAD, 1, new Set()).compared[0].stop.state, "loading", "a later page not read yet is being read");
+  live.set(K.lane(REPO, sha("b0"), 1), lanePage(0, 100, false));
+  live.set(K.lane(REPO, sha("b0"), 2), lanePage(100, 100, false));
+  assert.equal(SB.historyView(get, REPO, HEAD, 1, new Set()).compared[0].stop, null, "nothing stopped the reading");
 });
 
 test("a branch ahead whose own commits fail, are refused or come back empty keeps its counts and says why it has no lane", () => {

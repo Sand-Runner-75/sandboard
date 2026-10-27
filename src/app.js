@@ -133,16 +133,19 @@
       const list = await SB.readWorkspaces(ctx, client, target.repo, target.ref);
       session.alive(ctx);
       S.list = list;
-      if (list.state !== "current") { S.tabs = []; S.activeTab = null; S.selected = null; S.docs = new Map(); S.mapped = new Map(); render(); return; }
+      const none = () => { S.tabs = []; S.activeTab = null; S.selected = null; S.docs = new Map(); S.mapped = new Map(); render(); };
+      // An empty list is still a list: the repositories found through the token can fill it.
+      if (list.state !== "current" && list.state !== "empty") { none(); return; }
       // Every repository the token can read that the list does not name is shown too, marked as found.
       const found = await SB.readAccountRepos(ctx, client);
       session.alive(ctx);
       S.found = found;
       const named = new Set(list.data.workspaces.flatMap(w => [w.plan && w.plan.repo, ...w.code.map(c => c.repo)]).filter(Boolean).map(r => r.toLowerCase()));
-      const extra = found.data ? found.data.repos.filter(r => !named.has(r.toLowerCase())).map(r => foundWorkspace(r, list.data.found)) : [];
+      const extra = found.data ? shortNames(found.data.repos.filter(r => !named.has(r.toLowerCase()))).map(([r, label]) => foundWorkspace(r, label, list.data.found)) : [];
       S.entries = list.data.workspaces.concat(extra, S.opened.map(openedWorkspace)).map(w => ({ w, loading: true, plan: null, table: null, progress: null,
                                                    code: w.code.map(c => ({ c, pinned: null, checks: null })), tasks: [] }));
-      if (!S.entries.some(e => e.w.id === S.current)) { S.current = S.entries[0].w.id; S.view = { kind: "overview" }; }
+      if (!S.entries.length) { none(); announce("Reading finished."); return; }
+      if (!S.entries.some(e => e.w.id === S.current)) { S.current = S.entries[0].w.id; S.view = startView(S.entries[0].w); }
       // A project seen for the first time opens with its stages or phases showing; a refresh keeps what was opened or closed.
       const known = new Set(S.mapped.keys());
       keepMapped();
@@ -156,6 +159,7 @@
           w = codeOnly(w);
           read = await SB.readWorkspace(ctx, client, w);
           session.alive(ctx);
+          if (w.id === S.current && S.view.kind !== "repo") S.view = startView(w);
         }
         S.entries[i] = entryFrom(w, read);
         dropUnreadableTabs(S.entries[i]);
@@ -173,15 +177,22 @@
   }
 
   const planRepo = w => (w.plan ? w.plan.repo : null);
+  // A project opens on its overview; one with no plan opens on its first repository.
+  const startView = w => (w.plan ? { kind: "overview" } : { kind: "repo", repo: w.code[0].repo });
 
   // A repository the token can read that the workspace list does not name: read as a plan with the
   // list's found plan files, and as code only when it has no task table there (or the list gives none).
   // Its ID cannot clash with a listed one (listed IDs have no "~").
-  const foundWorkspace = (repo, files) => {
-    const w = { id: "~found-" + repo.toLowerCase(), label: repo, kind: "project", plan: { repo, ref: null, files }, code: [], found: true };
+  const foundWorkspace = (repo, label, files) => {
+    const w = { id: "~found-" + repo.toLowerCase(), label, kind: "project", plan: { repo, ref: null, files }, code: [], found: true };
     return files ? w : codeOnly(w);
   };
-  const codeOnly = w => Object.assign({}, w, { kind: "standalone", plan: null, code: [{ repo: w.plan.repo, ref: null, role: "found" }] });
+  // Each found repository is labelled by its name alone, or by owner and name when two share a name.
+  const shortNames = repos => {
+    const name = r => r.split("/")[1].toLowerCase();
+    return repos.map(r => [r, repos.filter(x => name(x) === name(r)).length > 1 ? r : r.split("/")[1]]);
+  };
+  const codeOnly = w => Object.assign({}, w, { kind: "standalone", plan: null, code: [{ repo: w.plan.repo, ref: null, role: "code" }] });
   const noTable = read => read.some(x => x.kind === "table" && x.result.state === "missing");
 
   // A repository opened by name for this visit: a code-only workspace that is not in the workspace
@@ -224,7 +235,7 @@
 
   // The reads the shown view needs and does not have yet. Called after every render; each read starts once.
   function ensureReads() {
-    if (!S.signedIn || !session || !S.run || S.list.state !== "current" || S.activeTab) return;
+    if (!S.signedIn || !session || !S.run || !S.entries.length || S.activeTab) return;
     const feed = r => loadLive(SB.feedKey(r.repo, r.pinned.data.commit), readFeed(r.repo, r.pinned.data.commit));
     if (S.view.kind === "activity") {
       loadLive("user", ctx => SB.readUser(ctx, client));
@@ -844,6 +855,8 @@
   // The bubble can be hovered, stays until the pointer or focus leaves, and Esc hides it.
 
   const tipBox = $("tip");
+  // The pointer rests this long before a bubble shows, so passing over a name shows nothing.
+  const TIP_WAIT = 1200;
   let tipFor = null;
   let tipTimer;
 
@@ -880,7 +893,7 @@
     const node = tipNode(e.target, false);
     if (node === tipFor) { clearTimeout(tipTimer); return; }
     clearTimeout(tipTimer);
-    tipTimer = node ? setTimeout(() => showTip(node, null), 350) : setTimeout(hideTip, 200);
+    tipTimer = node ? setTimeout(() => showTip(node, null), TIP_WAIT) : setTimeout(hideTip, 200);
   });
   document.addEventListener("focusin", e => {
     const node = tipNode(e.target, true);
