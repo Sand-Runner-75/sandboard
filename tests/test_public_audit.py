@@ -167,6 +167,20 @@ class PublicAuditTest(unittest.TestCase):
         for kind in ("a private task ID", "a private decision ID", "a private record path"):
             self.assertIn(kind, kinds)
 
+    def test_session_links_fail_except_in_legacy_commit_messages(self):
+        link = "Claude-" + "Session: https://claude.ai/code/" + "session_0123abcd"
+        self.repo.commit({"a.txt": "x\n"}, "old work\n\n" + link)
+        legacy = self.head()
+        self.assertEqual(pa.audit(self.repo.root, self.terms, legacy_end=legacy), [])
+        self.assertIn("a chat session link", [k for _, k in pa.audit(self.repo.root, self.terms)])
+        self.repo.commit({"b.txt": "y\n"}, "new work\n\n" + link)
+        findings = pa.audit(self.repo.root, self.terms, legacy_end=legacy)
+        self.assertEqual(findings, [("history commit " + self.head()[:7] + " message:3",
+                                     "a chat session link")])
+        self.repo.commit({"notes.md": "see " + link.split(" ", 1)[1] + "\n"})
+        kinds = [k for _, k in pa.audit(self.repo.root, self.terms, legacy_end=legacy)]
+        self.assertGreaterEqual(kinds.count("a chat session link"), 2)
+
     def test_log_files_are_scanned_and_redacted(self):
         self.repo.commit({"a.txt": "x\n"})
         log = os.path.join(self.repo.tmp.name, "ci-log.txt")

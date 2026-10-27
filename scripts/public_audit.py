@@ -5,7 +5,8 @@ Scans every tracked file, every blob ever committed on any ref (so deleted
 files, text or binary, are still checked), every commit's message, author and
 committer, build output folders and any CI log files given with --log. It
 looks for credential patterns, email addresses other than the allowed noreply
-ones, private record markers, generated artifacts that must not be committed,
+ones, private record markers, chat session links (commit messages up to
+LEGACY_SESSION_END excepted), generated artifacts that must not be committed,
 and the private terms listed
 in the PUBLIC_AUDIT_TERMS environment variable (one per line, matched
 case-insensitively in contents and in file names).
@@ -35,7 +36,13 @@ PATTERNS = [
     (re.compile(r"\bS[T]\d{3}\b"), "a private task ID"),
     (re.compile(r"\bSB-[D]\d+\b"), "a private decision ID"),
     (re.compile(r"\bhandover[s]/|\bproject-recor[d]/|\bmaster-task-tabl[e]\b"), "a private record path"),
+    (re.compile(r"claude\.ai/code/sessio[n]_|\bClaude-Sessio[n]:", re.IGNORECASE), "a chat session link"),
 ]
+SESSION_LINK = "a chat session link"
+# Commit messages up to this commit carried chat session links before they
+# were ruled out; the owner chose to keep that history as it is. Only those
+# commit messages are exempt from the session-link check, nothing else.
+LEGACY_SESSION_END = "b6595d9d5b7b4922058e1e4122313b0652b65e71"
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
 # Exact allowlist: GitHub's per-user noreply domain, or a local part that is exactly "noreply".
 NOREPLY_DOMAIN = "users.noreply.github.com"
@@ -176,7 +183,16 @@ def read_blobs(root, oids):
         pos = start + size + 1
 
 
-def scan_history(root, terms):
+def legacy_commits(root, end):
+    """Commits reachable from end, or none when end is not in this clone."""
+    if not end:
+        return set()
+    out = subprocess.run(["git", "-C", root, "rev-list", end], capture_output=True)
+    return set(out.stdout.decode().split()) if out.returncode == 0 else set()
+
+
+def scan_history(root, terms, legacy_end=LEGACY_SESSION_END):
+    legacy = legacy_commits(root, legacy_end)
     blobs = history_blobs(root)
     for oid, data in read_blobs(root, list(blobs)):
         for _, path, n, kind in scan_file("history", blobs[oid], data, terms):
@@ -192,13 +208,15 @@ def scan_history(root, terms):
         sha, author, committer, message = (record.split(nul) + ["", "", ""])[:4]
         for part, text in (("author", author), ("committer", committer), ("message", message)):
             for n, kind in scan_text(text, terms):
+                if kind == SESSION_LINK and part == "message" and sha in legacy:
+                    continue
                 yield f"history commit {sha[:7]}", part, n if part == "message" else None, kind
 
 
-def audit(root, terms, build_dirs=BUILD_DIRS, logs=None):
+def audit(root, terms, build_dirs=BUILD_DIRS, logs=None, legacy_end=LEGACY_SESSION_END):
     """Sorted, de-duplicated, already-redacted (location, kind) findings."""
     findings = set()
-    for scan in (scan_tracked(root, terms), scan_history(root, terms),
+    for scan in (scan_tracked(root, terms), scan_history(root, terms, legacy_end),
                  scan_build(root, terms, build_dirs), scan_logs(terms, logs)):
         for label, path, n, kind in scan:
             where = f"{label} {path}" + (f":{n}" if n else "")
