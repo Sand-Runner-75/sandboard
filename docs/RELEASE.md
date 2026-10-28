@@ -47,11 +47,12 @@ Right after every deploy, the Pages workflow runs `.github/workflows/live-check.
 - The first visit is signed out and stores nothing.
 - With synthetic GitHub replies (no real token), a task tab stays with its own project when the project changes, and nothing is stored while connected.
 - A new tab, a reload, and leaving the site and coming back (back, then forward and back again) are signed out.
+- A page restored from the browser's back/forward cache is signed out. Playwright turns that cache off by default, so this journey runs full Chromium with the cache allowed, and first proves the page really was restored from it.
 - Forget access and a revoked token (401) clear every private view, and the revoked token is reported.
 - Inside another site's frame the page refuses to show.
 - No page error or dialog, no request to any host but the site and the GitHub API, and GitHub API requests are GET only.
 
-It prints only the names of the checks and whether each passed, never the site's address. It can also be started by hand: Actions, Live site checks, Run workflow, with the site's address and the published commit.
+It prints only the names of the checks and whether each passed, never the site's address. The address itself is public: GitHub shows it in the deploy step and in the check step's environment. It can also be started by hand: Actions, Live site checks, Run workflow, with the site's address and the published commit.
 
 **If any live check fails, unpublish the site** (below), then find the cause. The check never publishes, changes or removes anything itself. The same check runs on every pull request against a local copy of the site, in `tests/test_browser.py`.
 

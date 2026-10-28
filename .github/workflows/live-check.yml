@@ -1,10 +1,13 @@
 # Checks the published site at its own address (docs/RELEASE.md, "After
 # publishing"): the served files equal this commit's build, and a new tab,
-# reload, leaving and coming back, switching project, Forget access and a
-# revoked token leave nothing private behind. GitHub API replies are synthetic
+# reload, leaving and coming back (including a real back/forward-cache
+# restoration), switching project, Forget access and a revoked token leave
+# nothing private behind. GitHub API replies are synthetic
 # (tests/browser/live.check.js); no real token is used. The Pages workflow runs
 # it after every deploy; it can also be started by hand. A failure means the
-# owner unpublishes the site. Output is audited before it is shown.
+# owner unpublishes the site. Output is audited before it is shown. The site's
+# address is public: GitHub shows it in the deploy step and in this step's
+# environment; the check only keeps it out of the audited log.
 name: Live site checks
 
 on:

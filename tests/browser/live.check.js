@@ -36,8 +36,9 @@ const FRAMER = (/^http:/.test(SITE || "") ? "http" : "https") + "://framer.inval
   let revoke = false;
   const gh = mockGitHub(F.planRepos());
 
+  const viewport = { width: 1280, height: 900 };
   async function open(context) {
-    context = context || await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    context = context || await browser.newContext({ viewport });
     await context.route("**/*", async route => {
       const req = route.request(), url = new URL(req.url());
       if (url.origin === origin) return route.continue();
@@ -122,6 +123,29 @@ const FRAMER = (/^http:/.test(SITE || "") ? "http" : "https") + "://framer.inval
   await p.goForward(); await p.goBack(); await p.waitForTimeout(300);
   await signedOut(p, "forward and back again stays signed out");
 
+  // 6b. A real back/forward-cache restoration. Playwright turns that cache off by default and its
+  // headless shell never uses it, so this journey runs full Chromium with the cache allowed. It
+  // first proves the page came back from the cache (pageshow with persisted set, the same page
+  // object), then that the restored page is signed out.
+  const cacheBrowser = await chromium.launch({ channel: "chromium", ignoreDefaultArgs: ["--disable-back-forward-cache"] });
+  const cacheContext = await cacheBrowser.newContext({ viewport });
+  await cacheContext.addInitScript(() => { window.__liveShows = []; addEventListener("pageshow", e => window.__liveShows.push(e.persisted)); });
+  const cached = await open(cacheContext);
+  const cdp = await cacheContext.newCDPSession(cached);
+  await cdp.send("Page.enable");
+  const notUsed = new Set();
+  cdp.on("Page.backForwardCacheNotUsed", e => (e.notRestoredExplanations || []).forEach(x => notUsed.add(x.reason)));
+  await connect(cached);
+  await cached.goto(SITE + "build-manifest.json");
+  await cached.goBack({ waitUntil: "commit" });
+  await cached.waitForFunction(() => document.readyState === "complete" && (window.__liveShows || []).length > 0, null, { timeout: 10000 }).catch(() => {});
+  await cached.waitForTimeout(300);
+  const shows = await cached.evaluate(() => window.__liveShows || []);
+  check("the back/forward cache restored the page", shows.length >= 2 && shows[shows.length - 1] === true,
+        notUsed.size ? "not used: " + [...notUsed].join(", ") : JSON.stringify(shows));
+  await signedOut(cached, "a page restored from the back/forward cache is signed out");
+  await cacheBrowser.close();
+
   // 7. Forget access clears every surface.
   await connect(p);
   await p.click("#forget"); await p.waitForTimeout(200);
@@ -145,7 +169,7 @@ const FRAMER = (/^http:/.test(SITE || "") ? "http" : "https") + "://framer.inval
   await p.context().close();
 
   // Every signed-out check above follows a connect that really opened the private project.
-  check("every connect opened the synthetic private project", connects === 4 && opened === connects, opened + " of " + connects);
+  check("every connect opened the synthetic private project", connects === 5 && opened === connects, opened + " of " + connects);
   check("no page errors or dialogs", errors.length === 0, errors.length ? errors.slice(0, 5).join(" | ") : undefined);
   check("no request to any other host", others.size === 0, others.size ? [...others].join(", ") : undefined);
   check("GitHub API requests are GET only", methods.size === 1 && methods.has("GET"), [...methods].join(", "));

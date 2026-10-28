@@ -835,6 +835,7 @@ class LiveSiteCheckTest(unittest.TestCase):
         "served files equal the reviewed build", "first visit is signed out", "nothing stored on first visit",
         "a task tab stays with its own project", "nothing stored while connected", "a new tab starts signed out",
         "reload signs out", "back after leaving stays signed out", "forward and back again stays signed out",
+        "the back/forward cache restored the page", "a page restored from the back/forward cache is signed out",
         "Forget access clears everything", "a revoked token clears everything", "a revoked token is reported",
         "framed page refuses to show", "every connect opened the synthetic private project",
         "no page errors or dialogs", "no request to any other host", "GitHub API requests are GET only",
@@ -883,20 +884,44 @@ class LiveSiteCheckTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertNotIn(self.site, json.dumps(r), "the output never names the site")
 
-    def test_a_served_file_that_is_not_the_reviewed_build_fails_the_check(self):
-        path = os.path.join(self.served, "style.css")
+    def serve_changed(self, name, change):
+        """Run the check with one served file changed, and put it back afterwards."""
+        path = os.path.join(self.served, name)
         with open(path, "rb") as f:
             original = f.read()
         try:
-            with open(path, "ab") as f:
-                f.write(b"\n/* changed after review */\n")
+            with open(path, "wb") as f:
+                f.write(change(original))
             code, r, _ = self.run_check()
         finally:
             with open(path, "wb") as f:
                 f.write(original)
-        served = [c for c in r["checks"] if c["name"] == "served files equal the reviewed build"][0]
+        return code, r, {c["name"]: c for c in r["checks"]}
+
+    def test_a_served_file_that_is_not_the_reviewed_build_fails_the_check(self):
+        code, r, by = self.serve_changed("style.css", lambda b: b + b"\n/* changed after review */\n")
+        served = by["served files equal the reviewed build"]
         self.assertFalse(served["pass"])
         self.assertIn("style.css", served["detail"])
+        self.assertFalse(r["pass"])
+        self.assertEqual(code, 1)
+
+    def test_a_page_restored_from_the_cache_with_its_private_views_fails_the_check(self):
+        listeners = (b'  window.addEventListener("pagehide", () => endSession("left"));\n',
+                     b'  window.addEventListener("pageshow", e => { if (e.persisted) endSession("restored"); });\n')
+
+        def without_listeners(b):
+            for line in listeners:
+                self.assertIn(line, b)
+                b = b.replace(line, b"")
+            return b
+
+        code, r, by = self.serve_changed("app.js", without_listeners)
+        self.assertTrue(by["the back/forward cache restored the page"]["pass"])
+        self.assertFalse(by["a page restored from the back/forward cache is signed out"]["pass"])
+        self.assertIn("Example Garden", by["a page restored from the back/forward cache is signed out"]["detail"])
+        # Ordinary navigation reloads the page, so it cannot tell this apart.
+        self.assertTrue(by["back after leaving stays signed out"]["pass"])
         self.assertFalse(r["pass"])
         self.assertEqual(code, 1)
 
