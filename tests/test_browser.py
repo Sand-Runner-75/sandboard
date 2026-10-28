@@ -548,10 +548,29 @@ class BrowserTest(unittest.TestCase):
         self.assertIn("more than one repository has it (acme/garden-plan, beta/second-plan)", d["several"][1])
         self.assertEqual(d["none"][0], "missing")
         self.assertIn("no repository of nobody that the token reads has it", d["none"][1])
+        self.assertIn("sign in with the plan repository as owner/repo", d["none"][1])
         self.assertIn("only its owner, or nothing", d["bad"]["state"])
         self.assertTrue(d["bad"]["signedOut"])
         self.assertTrue(all(u.startswith("GET ") for u in d["urls"]))
-        self.assertFalse(any("/repos/nobody" in u for u in d["urls"]))
+        self.assertEqual(d["errors"], [])
+
+    def test_a_search_that_is_not_complete_or_cannot_list_chooses_nothing(self):
+        d = self.r["discover"]
+        state, text = d["unchecked"]["notice"]
+        self.assertEqual(state, "partial")
+        self.assertIn("acme/garden-plan has it, but the search is not complete (these could not be checked: acme/locked)", text)
+        self.assertIn("sign in with acme/garden-plan to use it", text)
+        self.assertEqual(d["unchecked"]["projects"], [], "nothing is loaded from an incomplete search")
+        for got, state in ((d["denied"], "denied"), (d["failed"], "failed")):
+            self.assertEqual(got[0], state)
+            self.assertIn("the token's list of repositories could not be read", got[1])
+            self.assertIn("sign in with the plan repository as owner/repo", got[1])
+
+    def test_refresh_searches_again_until_a_plan_repository_is_found(self):
+        d = self.r["discover"]
+        for key in ("noneThenRefresh", "failedThenRefresh", "refreshWhilelisting", "refreshWhilechecking"):
+            self.assertEqual(d[key]["projects"][:2], ["p:garden", "p:recipes"], key)
+            self.assertIsNone(d[key]["notice"], key)
 
     def test_repository_views_never_scroll_the_page_sideways(self):
         n = self.r["repos"]["narrow"]

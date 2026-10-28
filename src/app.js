@@ -35,7 +35,7 @@
   // Everything shown comes from here, and everything here is dropped on sign-out.
   function freshState() {
     return {
-      signedIn: false, demo: false, planRepo: "", run: null,
+      signedIn: false, demo: false, planRepo: "", findOwner: null, run: null,
       list: { state: "loading" }, entries: [], current: null,
       view: { kind: "overview" }, filters: noFilters(), selected: null,
       tabs: [], activeTab: null, docs: new Map(), mapped: new Map(),
@@ -467,29 +467,41 @@
     }
     start(false);
     S.planRepo = owner === null ? planRepo : "";
+    S.findOwner = owner;
     $("state").textContent = "Signed in. The token is in this page's memory only.";
     const ctx = session.start(typed);
     $("main").focus();
-    if (owner !== null && !await findPlan(ctx, owner)) return;
+    await read(ctx);
+  }
+
+  // A sign-in or refresh with no plan repository yet looks for it first.
+  async function read(ctx) {
+    if (!S.planRepo && S.findOwner !== null && !await findPlan(ctx, S.findOwner)) return;
     await load(ctx);
   }
 
   // The plan repository is used only when it is the one repository the token reads (of that owner)
-  // with the workspace list; none or several are said, with what to type instead.
+  // with the workspace list, and every one of them was checked; otherwise nothing is loaded, and
+  // the page says why, with what to type instead.
   async function findPlan(ctx, owner) {
     S.list = { state: "loading" };
     render();
     try {
       const found = await SB.findPlanRepos(ctx, client, owner);
       session.alive(ctx);
-      if (found.state === "current" && found.data.repos.length === 1) { S.planRepo = found.data.repos[0]; return true; }
+      const d = found.data;
+      if (found.state === "current" && d.complete && d.repos.length === 1) { S.planRepo = d.repos[0]; return true; }
       const of = owner ? " of " + owner : "";
-      S.list = found.state === "current"
-        ? SB.result("invalid", null, null, { error: "more than one repository" + of + " has it (" + found.data.repos.join(", ") + "). Forget access, then sign in with the one to use as owner/repo." })
-        : found.state === "empty"
-          ? SB.result("missing", null, null, { error: "no repository" + of + " that the token reads has it" +
-              (found.data.complete ? "" : " (only the first " + SB.FIND_LIMIT + " were checked)") + ". Forget access, then sign in with the plan repository as owner/repo." })
-          : SB.result(found.state, null, null, { error: "the token's list of repositories could not be read (" + (found.error || found.state) + ")" });
+      const again = "Forget access, then sign in with ";
+      // Why a search that found one, or none, cannot be trusted to be the whole answer.
+      const gaps = d ? [!d.listedAll && "the token's list of repositories is longer than can be read",
+                        !d.underLimit && "only the first " + SB.FIND_LIMIT + " were checked",
+                        d.unchecked.length && "these could not be checked: " + d.unchecked.join(", ")].filter(Boolean) : [];
+      S.list = !d ? SB.result(found.state, null, null, { error: "the token's list of repositories could not be read (" + (found.error || found.state) + "). " + again + "the plan repository as owner/repo." })
+        : d.repos.length > 1 ? SB.result("invalid", null, null, { error: "more than one repository" + of + " has it (" + d.repos.join(", ") + "). " + again + "the one to use as owner/repo." })
+        : d.repos.length === 1 ? SB.result("partial", null, null, { error: d.repos[0] + " has it, but the search is not complete (" + gaps.join("; ") + "). " + again + d.repos[0] + " to use it." })
+        : SB.result(gaps.length ? "partial" : "missing", null, null, { error: "no repository" + of + " that the token reads has it" +
+            (gaps.length ? " among those checked (" + gaps.join("; ") + ")" : "") + ". " + again + "the plan repository as owner/repo." });
       render();
       announce("Reading finished.");
       return false;
@@ -807,7 +819,7 @@
     S.workDepth = new Map();
     const ctx = session.start();  // same token, new run: replies to the old run are dropped
     announce("Refreshing.");
-    load(ctx);
+    read(ctx);
   }
 
   // ---- Go to: places only (projects, views, repositories, the open project's tasks, themes)

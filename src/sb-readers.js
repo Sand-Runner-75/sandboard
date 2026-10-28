@@ -467,8 +467,9 @@
 
   // ---- The plan repository, when sign-in gives only its owner or nothing: every repository the token
   // can read (of that owner, in any case) is checked for the workspace list file at its default branch,
-  // a few at a time, up to FIND_LIMIT. The repositories that have it are returned; the caller uses one
-  // only when it is the only one. Nothing is guessed from names.
+  // a few at a time, up to FIND_LIMIT. The repositories that have it are returned, with those that
+  // could not be checked; the caller uses one only when the search is complete and found only it.
+  // Nothing is guessed from names.
 
   const FIND_LIMIT = 50;
   const FIND_BATCH = 5;
@@ -482,19 +483,23 @@
     if (!["current", "empty", "partial"].includes(listed.state)) return listed;
     const of = listed.state === "empty" ? [] : listed.data.repos.filter(r => !owner || r.split("/")[0].toLowerCase() === owner.toLowerCase());
     const checked = of.slice(0, FIND_LIMIT);
-    const repos = [];
+    const repos = [], unchecked = [];
     for (let i = 0; i < checked.length; i += FIND_BATCH) {
       const batch = await Promise.all(checked.slice(i, i + FIND_BATCH).map(async repo => {
         const pinned = await client.pin(ctx, repo, "");
-        if (pinned.state !== "current") return null;
+        // Not found, or a repository with no commits yet (409): it has no workspace list.
+        if (pinned.state === "missing" || pinned.error === "HTTP 409") return [repo, "absent"];
+        if (pinned.state !== "current") return [repo, "unchecked"];
         const file = await client.readFile(ctx, repo, pinned.data.commit, WORKSPACES_FILE);
-        return file.state === "current" ? repo : null;
+        return [repo, file.state === "current" ? "found" : file.state === "missing" ? "absent" : "unchecked"];
       }));
-      repos.push(...batch.filter(Boolean));
+      for (const [repo, how] of batch) if (how === "found") repos.push(repo); else if (how === "unchecked") unchecked.push(repo);
     }
-    // Every repository of the owner was checked only when the token's list was whole and under the limit.
-    const complete = listed.state !== "partial" && checked.length === of.length;
-    return result(repos.length ? "current" : "empty", { repos, checked: checked.length, complete }, { owner: owner || null });
+    // The search is complete only when the token's list was whole, under the limit, and every
+    // repository in it answered whether it has the file.
+    const listedAll = listed.state !== "partial", underLimit = checked.length === of.length;
+    return result(repos.length ? "current" : "empty", { repos, checked: checked.length, unchecked, listedAll, underLimit,
+                                                       complete: listedAll && underLimit && !unchecked.length }, { owner: owner || null });
   }
 
   // ---- One workspace: every read it needs, in order, each with its own result.
