@@ -696,11 +696,185 @@
     return { ok: true, lines: lines.slice(0, MAX_DIFF_LINES), total: lines.length };
   }
 
+  // ---- Search over what this visit has already read: task rows (and, when asked, the task details and
+  // task files already read), repositories, pull requests listed so far, file paths of trees read and
+  // files opened. Nothing is read for a search, nothing is kept beyond the page's memory, and a source
+  // that was not read is named as not searched. A search result is never progress or approval.
+
+  const MAX_SEARCH = 50;
+  const EXCERPT = 60;
+  const TASK_FILES = ["brief", "handover", "crossref"];
+  const lowered = new WeakMap();
+  // Lower-case text, kept per read result so a long file is not lowered again on every key press.
+  const lower = (owner, text) => {
+    if (!owner || typeof owner !== "object") return String(text).toLowerCase();
+    let m = lowered.get(owner);
+    if (!m) lowered.set(owner, m = new Map());
+    if (!m.has(text)) m.set(text, String(text).toLowerCase());
+    return m.get(text);
+  };
+
+  // What has been read, by source, with each item's repository, commit and projects. live and docs are
+  // the app's maps of read results; docKey names a task file's read as the app does.
+  function searchSources(entries, live, docs, docKey) {
+    const items = new Map();
+    const plans = [], pins = [], lists = [];
+    const add = (key, item, project) => {
+      if (!items.has(key)) items.set(key, Object.assign(item, { projects: [] }));
+      const it = items.get(key);
+      if (!it.projects.some(p => p.id === project.id)) it.projects.push(project);
+    };
+    for (const e of entries) {
+      const project = { id: e.w.id, label: e.w.label };
+      if (e.w.plan) {
+        const ok = !e.loading && e.plan && e.plan.state === "current" && e.table && e.table.state === "current";
+        plans.push({ project, repo: e.w.plan.repo, state: ok ? "current" : e.loading || !e.plan ? "loading" : e.plan.state !== "current" ? e.plan.state : e.table ? e.table.state : "loading" });
+        if (ok) {
+          const commit = e.plan.data.commit;
+          for (const t of e.tasks) {
+            if (t.invalid || !t.id) continue;
+            // Each task file the plan names, with how its read ended: only "current" text is searched.
+            const files = [], fileStates = [];
+            for (const kind of TASK_FILES) {
+              const template = e.w.plan.files && e.w.plan.files[kind];
+              if (!template) continue;
+              const res = docs.get(docKey(e.w.id, e.w.plan.repo, commit, kind, template, t.id));
+              const ok = res && res.state === "current" && res.data && typeof res.data.text === "string";
+              fileStates.push({ kind, state: !res ? "unread" : ok ? "current" : res.state === "current" ? "invalid" : res.state });
+              if (ok) files.push({ kind, text: res.data.text, owner: res.data });
+            }
+            const details = Object.entries(t.fields || {}).filter(([k, v]) => v && !["ID", "Task", "Title", "Sub-task"].includes(k) && typeof v === "string").map(([name, text]) => ({ kind: name, text }));
+            add("task|" + e.w.id + "|" + e.w.plan.repo + "@" + commit + "|" + t.id,
+                { kind: "task", repo: e.w.plan.repo, commit, id: t.id, title: t.title || "", status: t.status, details, files, fileStates }, project);
+          }
+        }
+      }
+      const mapped = (e.w.plan ? [[e.w.plan.repo, e.plan]] : []).concat(e.w.code.map((c, i) => [c.repo, e.code[i] ? e.code[i].pinned : null]));
+      for (const [repo, pinned] of mapped) {
+        const ok = pinned && pinned.state === "current";
+        pins.push({ project, repo, state: ok ? "current" : pinned ? pinned.state : "loading", error: pinned && pinned.error || null });
+        if (!ok) continue;
+        const commit = pinned.data.commit;
+        const meta = pinned.data.meta || null;
+        // One result per pin: two projects can pin the same repository at different commits.
+        add("repo|" + repo + "@" + commit, { kind: "repo", repo, commit, description: meta && meta.description || "", topics: meta && meta.topics || [] }, project);
+        const tree = live.get(codeKey.tree(repo, commit));
+        if (tree && tree.data) {
+          for (const t of tree.data.entries) if (t.kind !== "dir") add("path|" + repo + "@" + commit + "|" + t.path, { kind: "path", repo, commit, path: t.path, entry: t.kind, truncated: !!tree.data.truncated }, project);
+          if (!lists.some(l => l.kind === "tree" && l.repo === repo && l.commit === commit)) lists.push({ kind: "tree", repo, commit, partial: !!tree.data.truncated, project });
+        }
+        const prefix = "text|" + repo + "@" + commit + "|";
+        for (const [key, res] of live) {
+          if (!key.startsWith(prefix) || !res || !res.data || res.data.binary || typeof res.data.text !== "string") continue;
+          add("file|" + repo + "@" + commit + "|" + key.slice(prefix.length), { kind: "file", repo, commit, path: key.slice(prefix.length), text: res.data.text, owner: res.data }, project);
+        }
+        // Pull requests are GitHub's now, not pinned: those listed by the activity feed and the pull request pages read.
+        const feed = live.get(feedKey(repo, commit));
+        const pullLists = [];
+        if (feed && feed.data && feed.data.pulls && feed.data.pulls.data) pullLists.push({ from: "feed", res: feed.data.pulls, readAt: feed.data.readAt || null });
+        const work = "work|pulls|" + repo + "|";
+        for (const [key, res] of live) if (key.startsWith(work) && res && res.data) pullLists.push({ from: "list", res, readAt: null });
+        for (const l of pullLists) {
+          for (const pr of l.res.data.pulls) add("pull|" + repo + "#" + pr.number + "|" + pr.head, { kind: "pull", repo, number: pr.number, title: pr.title, head: pr.head, state: pr.state, merged: !!pr.merged, readAt: l.readAt }, project);
+          if (!lists.some(x => x.kind === "pulls" && x.repo === repo && x.from === l.from && x.res === l.res)) lists.push({ kind: "pulls", repo, from: l.from, res: l.res, partial: l.res.state === "partial", project });
+        }
+      }
+    }
+    return { items: [...items.values()], plans, pins, lists };
+  }
+
+  // A short piece of text around the first place any of the words is found, on one line, cut at the edges.
+  function excerpt(text, low, words) {
+    let at = -1, word = "";
+    for (const w of words) { const i = low.indexOf(w); if (i >= 0 && (at < 0 || i < at)) { at = i; word = w; } }
+    if (at < 0) return null;
+    const from = Math.max(0, at - EXCERPT), to = Math.min(text.length, at + word.length + EXCERPT);
+    const line = text.slice(0, at).split("\n").length;
+    return { text: (from > 0 ? "…" : "") + text.slice(from, to).replace(/[\s]+/g, " ") + (to < text.length ? "…" : ""), line };
+  }
+
+  // Items holding every word typed, by kind, at most MAX_SEARCH of each. scope: a project ID, or null for
+  // every project. inside: also match the task details and task files already read; a task found only
+  // there carries an excerpt of where.
+  function searchFind(src, query, scope, inside) {
+    const words = String(query || "").toLowerCase().split(/[\s]+/).filter(Boolean);
+    const out = { words, tasks: [], repos: [], pulls: [], paths: [], files: [] };
+    const group = { task: "tasks", repo: "repos", pull: "pulls", path: "paths", "file": "files" };
+    if (!words.length) return Object.assign(out, { totals: { tasks: 0, repos: 0, pulls: 0, paths: 0, files: 0 } });
+    const has = hay => words.every(w => hay.includes(w));
+    const totals = { tasks: 0, repos: 0, pulls: 0, paths: 0, files: 0 };
+    for (const it of src.items) {
+      if (scope && !it.projects.some(p => p.id === scope)) continue;
+      let hit = null;
+      if (it.kind === "task") {
+        const base = (it.id + " " + it.title).toLowerCase();
+        if (has(base)) hit = { it, where: "title" };
+        else if (inside) {
+          const parts = it.details.map(d => ({ kind: d.kind, text: d.text, low: d.text.toLowerCase() }))
+            .concat(it.files.map(f => ({ kind: f.kind, text: f.text, low: lower(f.owner, f.text) })));
+          if (has(base + "\n" + parts.map(p => p.low).join("\n"))) {
+            const left = words.filter(w => !base.includes(w));
+            const part = parts.find(p => left.some(w => p.low.includes(w)));
+            hit = { it, where: "content", in: part.kind, excerpt: excerpt(part.text, part.low, left) };
+          }
+        }
+      } else if (it.kind === "repo") {
+        if (has((it.repo + " " + it.description + " " + it.topics.join(" ")).toLowerCase())) hit = { it };
+      } else if (it.kind === "pull") {
+        if (has(("#" + it.number + " " + it.title + " " + it.head).toLowerCase())) hit = { it };
+      } else if (it.kind === "path") {
+        if (has(it.path.toLowerCase())) hit = { it };
+      } else if (it.kind === "file") {
+        const low = lower(it.owner, it.text);
+        if (has(it.path.toLowerCase() + "\n" + low)) hit = { it, excerpt: excerpt(it.text, low, words) };
+      }
+      if (!hit) continue;
+      const g = group[it.kind];
+      totals[g] += 1;
+      if (out[g].length < MAX_SEARCH) out[g].push(hit);
+    }
+    return Object.assign(out, { totals });
+  }
+
+  // What the search covered in this scope, and what it did not: plans and repositories not read, trees
+  // cut by GitHub, pull request lists that stop early, and tasks whose files were not read.
+  function searchCoverage(src, scope, inside) {
+    const mine = x => !scope || x.project.id === scope;
+    const inScope = it => !scope || it.projects.some(p => p.id === scope);
+    const plans = src.plans.filter(mine);
+    const scopeRepos = new Set(src.items.filter(it => it.kind === "repo" && inScope(it)).map(it => it.repo));
+    const tasks = src.items.filter(it => it.kind === "task" && inScope(it));
+    const lists = src.lists.filter(mine);
+    return {
+      plansRead: plans.filter(p => p.state === "current").length, plansNot: plans.filter(p => p.state !== "current"),
+      // Each repository of the scope that was not read is named once.
+      reposRead: scopeRepos.size, reposNot: [...new Map(src.pins.filter(p => mine(p) && p.state !== "current" && !scopeRepos.has(p.repo)).map(p => [p.repo, p])).values()],
+      trees: lists.filter(l => l.kind === "tree"), pullLists: lists.filter(l => l.kind === "pulls"),
+      files: src.items.filter(it => it.kind === "file" && inScope(it)).length,
+      tasks: tasks.length, taskFiles: inside ? taskFiles(tasks) : null,
+    };
+  }
+
+  // How the task files of these tasks were read: tasks whose every file was searched or found absent,
+  // tasks with a file not read yet, and the files that could not be read, by how their read ended.
+  function taskFiles(tasks) {
+    const out = { named: 0, searched: 0, complete: 0, unread: 0, notRead: {} };
+    for (const t of tasks) {
+      if (!t.fileStates.length) continue;
+      out.named += 1;
+      if (t.files.length) out.searched += 1;
+      if (t.fileStates.every(f => f.state === "current" || f.state === "missing")) out.complete += 1;
+      if (t.fileStates.some(f => f.state === "unread" || f.state === "loading")) out.unread += 1;
+      for (const f of t.fileStates) if (!["current", "missing", "unread", "loading"].includes(f.state)) out.notRead[f.state] = (out.notRead[f.state] || 0) + 1;
+    }
+    return out;
+  }
+
   Object.assign(SB, { SORTS, portfolio, filterPortfolio, sortPortfolio, portfolioOptions, tally, analytics, languageBytes, repoHref, feedEvents, feedKey, typeOf,
                       historyOrder, historyGraph, commitTimes, WEEKS_SHOWN, DAYS_SHOWN, contributors,
                       workKey, workList, pullState, reviewEvidence, runOutcome, inboxScope, inbox, historyKey, COMPARE_FIRST, comparedBranches, historyView,
                       ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
                       approvals, resultHref, tabKey, stageOfPhase, short,
                       HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs,
-                      codeKey, MAX_TEXT_LINES, MAX_DIFF_LINES, MAX_FOUND, MAX_READ_BYTES, codeTree, codeFind, codeOpenable, textLines, textPieces, diffLines });
+                      codeKey, MAX_TEXT_LINES, MAX_SEARCH, searchSources, searchFind, searchCoverage, MAX_DIFF_LINES, MAX_FOUND, MAX_READ_BYTES, codeTree, codeFind, codeOpenable, textLines, textPieces, diffLines });
 })(typeof window !== "undefined" ? window : globalThis);

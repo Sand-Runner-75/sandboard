@@ -318,7 +318,7 @@ pre.code > div { display: flex; min-width: max-content; padding-right: 12px; }
 pre.code .ln { flex: none; width: 3.2em; padding-right: 10px; text-align: right; color: var(--muted); user-select: none; }
 pre.code .mk { flex: none; width: 1.2em; color: var(--muted); }
 pre.code .tx { white-space: pre; }
-pre.code .hid { border: 1px solid var(--warn-fg); border-radius: 3px; padding: 0 2px; margin: 0 1px; color: var(--warn-fg); background: var(--warn-bg); font-size: 0.85em; }
+pre.code .hid, .excerpt .hid { border: 1px solid var(--warn-fg); border-radius: 3px; padding: 0 2px; margin: 0 1px; color: var(--warn-fg); background: var(--warn-bg); font-size: 0.85em; }
 pre.diff .add { background: color-mix(in srgb, var(--s-done) 16%, var(--sunken)); }
 pre.diff .del { background: color-mix(in srgb, var(--s-blocked) 14%, var(--sunken)); }
 pre.diff .add .mk { color: var(--s-done); } pre.diff .del .mk { color: var(--s-blocked); }
@@ -326,5 +326,7 @@ pre.diff .hunk, pre.diff .note { color: var(--muted); }
 .cmp-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
 .cmp-form label { display: grid; gap: 2px; font-size: 0.78rem; color: var(--muted); }
 .cmp-form input { width: 18rem; max-width: 100%; }
+.found-list .linkbtn { overflow-wrap: anywhere; }
+.found-list .hit { flex-basis: 100%; font-size: 0.82rem; overflow-wrap: anywhere; }
 @media (max-width: 860px) { .files { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 520px) { .cmp-form label, .cmp-form input { width: 100%; } }

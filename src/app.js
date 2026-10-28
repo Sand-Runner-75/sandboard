@@ -54,6 +54,8 @@
       // Files: per repository, files or changes, the open file and folders, the path search, and the
       // branch, tag or commit its changes are compared with.
       code: new Map(),
+      // Search: the words typed, every project or only the current one, and whether task details count.
+      search: { q: "", all: false, inside: false },
     };
   }
   let S = freshState();
@@ -234,6 +236,7 @@
   // The reads the shown view needs and does not have yet. Called after every render; each read starts once.
   function ensureReads() {
     if (!S.signedIn || !session || !S.run || !S.entries.length || S.activeTab) return;
+    if (S.view.kind === "search") return;  // a search reads nothing
     const feed = r => loadLive(SB.feedKey(r.repo, r.pinned.data.commit), readFeed(r.repo, r.pinned.data.commit));
     if (S.view.kind === "activity") {
       loadLive("user", ctx => SB.readUser(ctx, client));
@@ -690,6 +693,20 @@
         if (err instanceof SB.Revoked) endSession("revoked");
       }
     },
+    setSearch(key, value, focusId) {
+      S.search[key] = value;
+      const caret = key === "q" ? $("sq").selectionStart : null;
+      render();
+      const n = $(focusId);
+      if (n) { n.focus(); if (caret !== null) n.setSelectionRange(caret, caret); }
+    },
+    // A file path or opened file found by the search, shown in its repository's Files at the same commit.
+    openFound(project, repo, path) {
+      A.go(project, { kind: "repo", repo, sub: "files" });
+      const c = codeView(repo);
+      c.mode = "files";
+      A.openCodeFile(repo, path);
+    },
     closeMenu: () => setMenu(false),
     go(project, view, opts) {
       if (project !== S.current) { S.filters = noFilters(); S.selected = null; }
@@ -817,6 +834,7 @@
     S.histDepth = new Map();
     S.histScroll = new Map();
     S.workDepth = new Map();
+    S.search = freshState().search;  // a new run searches nothing read before it
     const ctx = session.start();  // same token, new run: replies to the old run are dropped
     announce("Refreshing.");
     read(ctx);
@@ -829,7 +847,7 @@
 
   function places() {
     const out = [["All repositories", "Account", () => A.goAccount("portfolio")], ["Activity and languages", "Account", () => A.goAccount("activity")],
-                 ["Inbox", "Account", () => A.goAccount("inbox")]];
+                 ["Inbox", "Account", () => A.goAccount("inbox")], ["Search what is read", "Account", () => A.goAccount("search")]];
     for (const e of S.entries) {
       const w = e.w;
       if (w.plan) {

@@ -192,6 +192,34 @@ function privateRepos() {
   life.afterBack = await p.evaluate(() => document.body.innerText);
   await p.close();
 
+  // 3b. Search: Go to opens it, the keyboard reaches its controls, it fits a phone screen, and Forget
+  // access or leaving the page drops the words, the option and the results.
+  const ls = out.searchLife = {};
+  p = await open({ viewport: { width: 320, height: 640 } }); await demo(p);
+  await p.keyboard.press("Control+k"); await p.keyboard.type("search what"); await p.keyboard.press("Enter"); await p.waitForTimeout(200);
+  ls.heading = await text(p, "#main h1#view-h");
+  await p.focus("#sq"); await p.keyboard.type("dt1"); await p.waitForTimeout(100);
+  ls.typedFocus = await active(p);
+  ls.results = await p.$$eval("[data-part=search-tasks] [data-result=task]", n => n.length);
+  await p.keyboard.press("Tab"); ls.nextFocus = await active(p);
+  await p.click("#s-inside"); await p.waitForTimeout(100);
+  ls.overflow = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  // Refresh starts a new run: the words, the option and the results go with the old run.
+  await p.evaluate(() => document.getElementById("refresh").click()); await p.waitForTimeout(400);
+  ls.afterRefresh = { q: await p.inputValue("#sq"), inside: await p.$eval("#s-inside", n => n.getAttribute("aria-pressed")),
+                      results: await p.$$eval("[data-result]", n => n.length) };
+  await p.fill("#sq", "dt1"); await p.waitForTimeout(100);
+  await p.evaluate(() => document.getElementById("forget").click()); await p.waitForTimeout(150);
+  ls.afterForget = await p.evaluate(() => document.body.innerText);
+  await demo(p);
+  await p.keyboard.press("Control+k"); await p.keyboard.type("search what"); await p.keyboard.press("Enter"); await p.waitForTimeout(200);
+  ls.again = { q: await p.inputValue("#sq"), inside: await p.$eval("#s-inside", n => n.getAttribute("aria-pressed")),
+               results: await p.$$eval("[data-result]", n => n.length) };
+  await p.fill("#sq", "dt1"); await p.waitForTimeout(100);
+  await p.goto(BASE + "/other.html"); await p.goBack(); await p.waitForTimeout(300);
+  ls.afterBack = await p.evaluate(() => document.body.innerText);
+  await p.close();
+
   // 4. Copy: the copied text is exactly the shown text; a refused clipboard says so.
   p = await open({ permissions: ["clipboard-read", "clipboard-write"] }); await demo(p);
   await tree(p, "v:demo:tasks"); await p.click("#task-list .row[data-id='DT201']"); await p.waitForTimeout(300);
@@ -308,6 +336,29 @@ function privateRepos() {
   priv.panelOrder = await p.$$eval("#inspector > *", n => n.map(x => x.className || x.tagName.toLowerCase()));
   priv.briefFolded = await p.$eval("#inspector [data-file='brief']", n => n.tagName === "DETAILS" && !n.open);
   priv.xrefLink = await p.$$eval("#inspector [data-file='crossref-link'] a", a => a.map(x => [x.getAttribute("href"), x.target, x.rel]));
+  // Search over what is read: it reads nothing. The brief read above counts only with Search inside tasks,
+  // which is off by default; turning it off again drops the match. A result opens the task.
+  const sr = priv.search = {};
+  const before = priv.methods.length;
+  await tree(p, "a:search"); await p.waitForTimeout(150);
+  sr.heading = await text(p, "#main h1#view-h");
+  const searchHits = () => p.$$eval("[data-part=search-tasks] [data-result=task]", n => n.map(x => x.dataset.task));
+  await p.fill("#sq", "synthetic brief"); await p.waitForTimeout(100);
+  sr.pressedAtFirst = await p.$eval("#s-inside", n => n.getAttribute("aria-pressed"));
+  sr.off = await searchHits();
+  await p.click("#s-inside"); await p.waitForTimeout(100);
+  sr.on = await searchHits();
+  sr.excerpt = await text(p, "[data-part=search-tasks] [data-part=excerpt]");
+  sr.focus = await active(p);
+  await p.click("#s-inside"); await p.waitForTimeout(100);
+  sr.offAgain = await searchHits();
+  await p.fill("#sq", "xq101 sketch"); await p.waitForTimeout(100);
+  sr.byId = await searchHits();
+  sr.source = await text(p, "[data-part=search-tasks] [data-result=task] .qual");
+  sr.coverage = await text(p, "[data-part=search-coverage]");
+  sr.requests = priv.methods.length - before;
+  await p.click("[data-part=search-tasks] [data-open='task|garden|XQ101']"); await p.waitForTimeout(300);
+  sr.opened = await p.$eval("#task-list .row[aria-selected=true]", n => n.dataset.id).catch(() => null);
   await expand(p, "p:garden"); await expand(p, "phases:garden");
   priv.phaseGroup = await p.$$eval("#tree [data-id^='ph:garden:']", n => n.map(x => x.dataset.id));
   priv.stageFilter = await p.$$eval("#f-stage", n => n.length);
