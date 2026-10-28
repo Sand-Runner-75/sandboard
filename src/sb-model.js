@@ -733,19 +733,19 @@
           const commit = e.plan.data.commit;
           for (const t of e.tasks) {
             if (t.invalid || !t.id) continue;
-            const files = [];
-            let read = 0;
+            // Each task file the plan names, with how its read ended: only "current" text is searched.
+            const files = [], fileStates = [];
             for (const kind of TASK_FILES) {
               const template = e.w.plan.files && e.w.plan.files[kind];
               if (!template) continue;
               const res = docs.get(docKey(e.w.id, e.w.plan.repo, commit, kind, template, t.id));
-              if (!res || res.state === "loading") continue;
-              read += 1;
-              if (res.state === "current" && res.data && typeof res.data.text === "string") files.push({ kind, text: res.data.text, owner: res.data });
+              const ok = res && res.state === "current" && res.data && typeof res.data.text === "string";
+              fileStates.push({ kind, state: !res ? "unread" : ok ? "current" : res.state === "current" ? "invalid" : res.state });
+              if (ok) files.push({ kind, text: res.data.text, owner: res.data });
             }
             const details = Object.entries(t.fields || {}).filter(([k, v]) => v && !["ID", "Task", "Title", "Sub-task"].includes(k) && typeof v === "string").map(([name, text]) => ({ kind: name, text }));
             add("task|" + e.w.id + "|" + e.w.plan.repo + "@" + commit + "|" + t.id,
-                { kind: "task", repo: e.w.plan.repo, commit, id: t.id, title: t.title || "", status: t.status, details, files, filesRead: read }, project);
+                { kind: "task", repo: e.w.plan.repo, commit, id: t.id, title: t.title || "", status: t.status, details, files, fileStates }, project);
           }
         }
       }
@@ -756,7 +756,8 @@
         if (!ok) continue;
         const commit = pinned.data.commit;
         const meta = pinned.data.meta || null;
-        add("repo|" + repo, { kind: "repo", repo, commit, description: meta && meta.description || "", topics: meta && meta.topics || [] }, project);
+        // One result per pin: two projects can pin the same repository at different commits.
+        add("repo|" + repo + "@" + commit, { kind: "repo", repo, commit, description: meta && meta.description || "", topics: meta && meta.topics || [] }, project);
         const tree = live.get(codeKey.tree(repo, commit));
         if (tree && tree.data) {
           for (const t of tree.data.entries) if (t.kind !== "dir") add("path|" + repo + "@" + commit + "|" + t.path, { kind: "path", repo, commit, path: t.path, entry: t.kind, truncated: !!tree.data.truncated }, project);
@@ -774,7 +775,7 @@
         const work = "work|pulls|" + repo + "|";
         for (const [key, res] of live) if (key.startsWith(work) && res && res.data) pullLists.push({ from: "list", res, readAt: null });
         for (const l of pullLists) {
-          for (const pr of l.res.data.pulls) add("pull|" + repo + "#" + pr.number, { kind: "pull", repo, number: pr.number, title: pr.title, head: pr.head, state: pr.state, merged: !!pr.merged, readAt: l.readAt }, project);
+          for (const pr of l.res.data.pulls) add("pull|" + repo + "#" + pr.number + "|" + pr.head, { kind: "pull", repo, number: pr.number, title: pr.title, head: pr.head, state: pr.state, merged: !!pr.merged, readAt: l.readAt }, project);
           if (!lists.some(x => x.kind === "pulls" && x.repo === repo && x.from === l.from && x.res === l.res)) lists.push({ kind: "pulls", repo, from: l.from, res: l.res, partial: l.res.state === "partial", project });
         }
       }
@@ -850,9 +851,23 @@
       reposRead: scopeRepos.size, reposNot: [...new Map(src.pins.filter(p => mine(p) && p.state !== "current" && !scopeRepos.has(p.repo)).map(p => [p.repo, p])).values()],
       trees: lists.filter(l => l.kind === "tree"), pullLists: lists.filter(l => l.kind === "pulls"),
       files: src.items.filter(it => it.kind === "file" && inScope(it)).length,
-      tasks: tasks.length, tasksWithFiles: inside ? tasks.filter(t => t.files.length).length : null,
-      tasksFilesRead: inside ? tasks.filter(t => t.filesRead).length : null,
+      tasks: tasks.length, taskFiles: inside ? taskFiles(tasks) : null,
     };
+  }
+
+  // How the task files of these tasks were read: tasks whose every file was searched or found absent,
+  // tasks with a file not read yet, and the files that could not be read, by how their read ended.
+  function taskFiles(tasks) {
+    const out = { named: 0, searched: 0, complete: 0, unread: 0, notRead: {} };
+    for (const t of tasks) {
+      if (!t.fileStates.length) continue;
+      out.named += 1;
+      if (t.files.length) out.searched += 1;
+      if (t.fileStates.every(f => f.state === "current" || f.state === "missing")) out.complete += 1;
+      if (t.fileStates.some(f => f.state === "unread" || f.state === "loading")) out.unread += 1;
+      for (const f of t.fileStates) if (!["current", "missing", "unread", "loading"].includes(f.state)) out.notRead[f.state] = (out.notRead[f.state] || 0) + 1;
+    }
+    return out;
   }
 
   Object.assign(SB, { SORTS, portfolio, filterPortfolio, sortPortfolio, portfolioOptions, tally, analytics, languageBytes, repoHref, feedEvents, feedKey, typeOf,

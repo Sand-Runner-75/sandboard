@@ -70,19 +70,58 @@ test("tasks match by ID and title only, unless search inside tasks is on; turnin
   assert.deepEqual(find(w, "water zebra", "alpha", true).tasks, []);
 });
 
-test("task files not read are not searched, and coverage says how many tasks had any read", () => {
+test("task files not read are not searched, and coverage says how each task file's read ended", () => {
   const w = world();
   w.docs.clear();
   assert.deepEqual(find(w, "compost", "alpha", true).tasks, []);
   const src = SB.searchSources(w.entries, w.live, w.docs, docKey);
   const c = SB.searchCoverage(src, "alpha", true);
-  assert.deepEqual([c.tasks, c.tasksFilesRead, c.tasksWithFiles], [2, 0, 0]);
-  // A missing file counts as read (there is none); a file still loading does not.
+  assert.equal(c.tasks, 2);
+  assert.deepEqual(c.taskFiles, { named: 2, searched: 0, complete: 0, unread: 2, notRead: {} });
+  // A missing file was read (there is none); a file still loading was not.
   const w2 = world();
   w2.docs.set(docKey("alpha", "acme/alpha-plan", PLAN_A, "brief", FILES.brief, "XQ1"), { state: "loading" });
   const c2 = SB.searchCoverage(SB.searchSources(w2.entries, w2.live, w2.docs, docKey), "alpha", true);
-  assert.deepEqual([c2.tasksFilesRead, c2.tasksWithFiles], [1, 1]);
-  assert.equal(SB.searchCoverage(src, "alpha", false).tasksFilesRead, null);
+  assert.deepEqual(c2.taskFiles, { named: 2, searched: 1, complete: 1, unread: 1, notRead: {} });
+  assert.equal(SB.searchCoverage(src, "alpha", false).taskFiles, null);
+});
+
+test("a task file that could not be read is named by how its read ended and is never counted as searched", () => {
+  // One file read and one refused: the task is searched by the file read only, and the refusal is named.
+  const w = world();
+  w.docs.set(docKey("alpha", "acme/alpha-plan", PLAN_A, "handover", FILES.handover, "XQ2"), SB.result("denied", null, null, { error: "no access" }));
+  assert.deepEqual(ids(find(w, "compost", "alpha", true).tasks), ["alpha:XQ2"]);
+  const c = SB.searchCoverage(SB.searchSources(w.entries, w.live, w.docs, docKey), "alpha", true);
+  assert.deepEqual(c.taskFiles, { named: 2, searched: 1, complete: 0, unread: 1, notRead: { denied: 1 } });
+  // Every file refused or failed: nothing is searched in them and nothing counts as read.
+  const w2 = world();
+  w2.docs.clear();
+  for (const id of ["XQ1", "XQ2"]) {
+    w2.docs.set(docKey("alpha", "acme/alpha-plan", PLAN_A, "brief", FILES.brief, id), SB.result("denied", null, null, { error: "no access" }));
+    w2.docs.set(docKey("alpha", "acme/alpha-plan", PLAN_A, "handover", FILES.handover, id), SB.result("failed", null, null, { error: "network" }));
+  }
+  assert.deepEqual(find(w2, "compost", "alpha", true).tasks, []);
+  const c2 = SB.searchCoverage(SB.searchSources(w2.entries, w2.live, w2.docs, docKey), "alpha", true);
+  assert.deepEqual(c2.taskFiles, { named: 2, searched: 0, complete: 0, unread: 0, notRead: { denied: 2, failed: 2 } });
+});
+
+test("the same repository pinned at two commits gives one result per pin, each with its own description", () => {
+  const w = world();
+  const NEW = sha("code-b");
+  w.entries[1].w.code = [{ repo: "acme/alpha", ref: null, role: "code" }];
+  w.entries[1].code = [{ c: w.entries[1].w.code[0], pinned: ok({ commit: NEW, meta: { description: "Newer drip code", topics: [] } }) }];
+  const beta = find(w, "acme/alpha", "beta", false).repos;
+  assert.deepEqual(beta.map(h => [h.it.commit, h.it.description, h.it.projects.map(p => p.id).join("+")]), [[NEW, "Newer drip code", "beta"]]);
+  assert.deepEqual(find(w, "drip", "beta", false).repos.map(h => h.it.commit), [NEW]);
+  assert.deepEqual(find(w, "drip", "alpha", false).repos, []);
+  assert.deepEqual(find(w, "watering", "alpha", false).repos.map(h => h.it.commit), [CODE]);
+  assert.deepEqual(find(w, "acme/alpha", null, false).repos.filter(h => h.it.repo === "acme/alpha").map(h => h.it.commit).sort(), [CODE, NEW].sort());
+});
+
+test("a pull request listed at two heads keeps each head as read", () => {
+  const w = world();
+  w.live.set(SB.workKey.list("pulls", "acme/alpha", "open", 1), ok({ end: true, pulls: [{ number: 7, title: "Add the pump timer", state: "open", head: sha("pr7-new"), merged: null }] }));
+  assert.deepEqual(find(w, "#7", "alpha", false).pulls.map(h => h.it.head).sort(), [sha("pr7"), sha("pr7-new")].sort());
 });
 
 test("the search is scoped to the current project unless every project is chosen; the same ID stays apart", () => {

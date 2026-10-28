@@ -104,7 +104,15 @@
     const notes = [];
     notes.push(plural(c.plansRead, "plan") + " read: " + (c.plansRead === 1 ? "its" : "their") + " task rows are searched by ID and title" + (inside ? ", and with Search inside tasks by their other columns too." : "."));
     for (const p of c.plansNot) notes.push(p.project.label + ": the plan " + (p.state === "loading" ? "is still being read" : "could not be read (" + stateName(p.state) + ")") + ", so its tasks are not searched.");
-    if (inside) notes.push("Task files: " + plural(c.tasksFilesRead, "task") + " of " + c.tasks + " had a brief, handover or cross-references read; the others are searched by their table row only. Opening a task reads its files.");
+    if (inside) {
+      const f = c.taskFiles;
+      if (!f.named) notes.push("Task files: the plan names no brief, handover or cross-references, so tasks are searched by their table row only.");
+      else {
+        notes.push("Task files: " + plural(f.searched, "task") + " of " + c.tasks + " had file text searched; " + f.complete + " of " + f.named + " had every file read or found not there.");
+        if (f.unread) notes.push(plural(f.unread, "task has", "tasks have") + " a file not read yet, so only " + (f.unread === 1 ? "its" : "their") + " table row and files already read are searched. Opening a task reads its files.");
+        for (const [state, n] of Object.entries(f.notRead)) notes.push(plural(n, "task file") + " could not be read (" + stateName(state) + "), so " + (n === 1 ? "its" : "their") + " text is not searched.");
+      }
+    }
     notes.push(plural(c.reposRead, "repository", "repositories") + " searched by name, description and topics.");
     for (const r of c.reposNot) notes.push(r.repo + (r.state === "loading" ? " is still being read" : " could not be read (" + stateName(r.state) + ")") + ", so nothing in it is searched.");
     notes.push(c.trees.length ? plural(c.trees.length, "file tree") + " read and searched by path" + (c.trees.some(t => t.partial) ? "; GitHub cut " + c.trees.filter(t => t.partial).map(t => t.repo).join(", ") + ", so some paths there are not searched." : ".")

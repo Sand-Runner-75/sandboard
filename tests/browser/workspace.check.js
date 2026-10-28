@@ -204,6 +204,11 @@ function privateRepos() {
   await p.keyboard.press("Tab"); ls.nextFocus = await active(p);
   await p.click("#s-inside"); await p.waitForTimeout(100);
   ls.overflow = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  // Refresh starts a new run: the words, the option and the results go with the old run.
+  await p.evaluate(() => document.getElementById("refresh").click()); await p.waitForTimeout(400);
+  ls.afterRefresh = { q: await p.inputValue("#sq"), inside: await p.$eval("#s-inside", n => n.getAttribute("aria-pressed")),
+                      results: await p.$$eval("[data-result]", n => n.length) };
+  await p.fill("#sq", "dt1"); await p.waitForTimeout(100);
   await p.evaluate(() => document.getElementById("forget").click()); await p.waitForTimeout(150);
   ls.afterForget = await p.evaluate(() => document.body.innerText);
   await demo(p);

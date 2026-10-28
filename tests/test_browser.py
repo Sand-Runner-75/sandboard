@@ -239,7 +239,7 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(sr["requests"], 0, "searching makes no request")
         self.assertEqual(sr["opened"], "XQ101")
 
-    def test_search_works_by_keyboard_fits_a_phone_and_is_dropped_with_access(self):
+    def test_search_works_by_keyboard_fits_a_phone_and_is_dropped_with_access_or_a_refresh(self):
         ls = self.r["searchLife"]
         self.assertEqual(ls["heading"], "Search")
         self.assertEqual(ls["typedFocus"]["id"], "sq", "typing keeps focus in the search field")
@@ -249,6 +249,7 @@ class BrowserTest(unittest.TestCase):
         for text in (ls["afterForget"], ls["afterBack"]):
             self.assertNotIn("DT1", text)
             self.assertIn("Sign in to read your projects", text)
+        self.assertEqual(ls["afterRefresh"], {"q": "", "inside": "false", "results": 0}, "a refresh drops the search")
         self.assertEqual(ls["again"], {"q": "", "inside": "false", "results": 0})
 
     def test_untrusted_text_is_shown_as_text(self):

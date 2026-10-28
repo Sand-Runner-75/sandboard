@@ -834,6 +834,7 @@
     S.histDepth = new Map();
     S.histScroll = new Map();
     S.workDepth = new Map();
+    S.search = freshState().search;  // a new run searches nothing read before it
     const ctx = session.start();  // same token, new run: replies to the old run are dropped
     announce("Refreshing.");
     read(ctx);
