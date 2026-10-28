@@ -331,7 +331,8 @@
     const account = { id: "g:account", label: "Account", tip: TIPS["All repositories"], kids: [
       { id: "a:portfolio", label: "All repositories", tip: TIPS["All repositories"], act: () => A.goAccount("portfolio"), cur: !S.activeTab && S.view.kind === "portfolio" },
       { id: "a:activity", label: "Activity and languages", tip: TIPS.Activity, act: () => A.goAccount("activity"), cur: !S.activeTab && S.view.kind === "activity" },
-      { id: "a:inbox", label: "Inbox", tip: TIPS.Inbox, act: () => A.goAccount("inbox"), cur: !S.activeTab && S.view.kind === "inbox" }] };
+      { id: "a:inbox", label: "Inbox", tip: TIPS.Inbox, act: () => A.goAccount("inbox"), cur: !S.activeTab && S.view.kind === "inbox" },
+      { id: "a:search", label: "Search", tip: TIPS.Search, act: () => A.goAccount("search"), cur: !S.activeTab && S.view.kind === "search" }] };
     return [projects, account];
   }
 
@@ -881,7 +882,7 @@
 
   function tabBar(S, A) {
     const bar = el("div", { class: "tabs", role: "tablist", "aria-label": "Open items" });
-    const names = { overview: "Overview", tasks: "Tasks", repo: "Repository", portfolio: "All repositories", activity: "Activity", inbox: "Inbox" };
+    const names = { overview: "Overview", tasks: "Tasks", repo: "Repository", portfolio: "All repositories", activity: "Activity", inbox: "Inbox", search: "Search" };
     bar.append(el("div", { class: "tab" + (S.activeTab ? "" : " on") }, el("button", { type: "button", role: "tab", id: "tab-view",
       "aria-selected": String(!S.activeTab), tabindex: S.activeTab ? "-1" : "0", onclick: () => A.showTab(null),
       onkeydown: e => tabKeys(e, A) }, el("span", { class: "kind" }, "View"), names[S.view.kind] || "View")));
@@ -996,8 +997,9 @@
         : notice(S.list.state, "Workspace list (" + SB.WORKSPACES_FILE + ")" + (S.planRepo ? " in " + S.planRepo : "") + ": " + (S.list.error || (STATE[S.list.state] || STATE.failed)[3])));
       return;
     }
-    if (!S.activeTab && (S.view.kind === "portfolio" || S.view.kind === "activity" || S.view.kind === "inbox")) {
-      box.replaceChildren(tabBar(S, A), S.view.kind === "portfolio" ? V.portfolio(S, A) : S.view.kind === "inbox" ? V.inbox(S, A) : V.activity(S, A));
+    if (!S.activeTab && ["portfolio", "activity", "inbox", "search"].includes(S.view.kind)) {
+      box.replaceChildren(tabBar(S, A), S.view.kind === "portfolio" ? V.portfolio(S, A) : S.view.kind === "inbox" ? V.inbox(S, A)
+        : S.view.kind === "search" ? V.search(S, A) : V.activity(S, A));
       return;
     }
     const entry = S.entries.find(e => e.w.id === S.current);

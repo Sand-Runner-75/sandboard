@@ -18,6 +18,7 @@
 <script src="sb-history.js" defer></script>
 <script src="sb-work.js" defer></script>
 <script src="sb-code.js" defer></script>
+<script src="sb-search.js" defer></script>
 <script src="app.js" defer></script>
 </head>
 <body>
@@ -63,7 +64,7 @@
   <h2 id="help-title">Keyboard</h2>
   <dl class="props help-keys">
     <dt><kbd>Ctrl K</kbd> <kbd>⌘K</kbd></dt><dd>Go to a project, a view or a task</dd>
-    <dt><kbd>/</kbd></dt><dd>Search tasks</dd>
+    <dt><kbd>/</kbd></dt><dd>Search tasks; Account → Search finds words in everything already read</dd>
     <dt><kbd>↑</kbd> <kbd>↓</kbd> <kbd>Home</kbd> <kbd>End</kbd></dt><dd>Move in the tree and in the task list</dd>
     <dt><kbd>→</kbd> <kbd>←</kbd> in the tree</dt><dd>Open a group, close it or go to its parent</dd>
     <dt><kbd>Enter</kbd></dt><dd>Open the item; in the task list, show its details</dd>
@@ -82,7 +83,7 @@
   <h2 id="goto-title" class="sr">Go to</h2>
   <input id="goto-q" type="text" placeholder="Go to a project, a view or a task" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="goto-list" aria-autocomplete="list" aria-label="Go to">
   <ul class="goto-list" id="goto-list" role="listbox" aria-label="Places"></ul>
-  <p class="muted qual">Goes to places only. It does not search inside files, pull requests or decisions.</p>
+  <p class="muted qual">Goes to places only. To find words in the tasks, pull requests and files already read, go to Search.</p>
 </dialog>
 <div id="live" class="sr" role="status" aria-live="polite"></div>
 <div id="tip" class="tip" role="tooltip" hidden></div>

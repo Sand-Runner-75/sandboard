@@ -223,10 +223,38 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(life["gotoItems"], 0)
         self.assertIn("No access: the token is invalid, expired or revoked.", v["afterRevoke"])
 
+    def test_search_reads_nothing_and_task_content_counts_only_when_asked(self):
+        sr = self.r["private"]["search"]
+        self.assertEqual(sr["heading"], "Search")
+        self.assertEqual(sr["pressedAtFirst"], "false", "Search inside tasks is off by default")
+        self.assertEqual(sr["off"], [], "the brief's words do not find the task while the option is off")
+        self.assertEqual(sr["on"], ["XQ101"])
+        self.assertIn("brief", sr["excerpt"])
+        self.assertIn("Synthetic brief for XQ101.", sr["excerpt"])
+        self.assertEqual(sr["focus"]["id"], "s-inside")
+        self.assertEqual(sr["offAgain"], [])
+        self.assertEqual(sr["byId"], ["XQ101"])
+        self.assertIn("acme/garden-plan @", sr["source"])
+        self.assertIn("No file tree read yet", sr["coverage"])
+        self.assertEqual(sr["requests"], 0, "searching makes no request")
+        self.assertEqual(sr["opened"], "XQ101")
+
+    def test_search_works_by_keyboard_fits_a_phone_and_is_dropped_with_access(self):
+        ls = self.r["searchLife"]
+        self.assertEqual(ls["heading"], "Search")
+        self.assertEqual(ls["typedFocus"]["id"], "sq", "typing keeps focus in the search field")
+        self.assertGreater(ls["results"], 0)
+        self.assertEqual(ls["nextFocus"]["tag"], "BUTTON")
+        self.assertLessEqual(ls["overflow"], 0)
+        for text in (ls["afterForget"], ls["afterBack"]):
+            self.assertNotIn("DT1", text)
+            self.assertIn("Sign in to read your projects", text)
+        self.assertEqual(ls["again"], {"q": "", "inside": "false", "results": 0})
+
     def test_untrusted_text_is_shown_as_text(self):
         p = self.r["progress"]
         self.assertIn('<script>alert("never runs")</script>', p["hostile"])
-        self.assertEqual((p["scripts"], p["imgs"]), (12, 0))
+        self.assertEqual((p["scripts"], p["imgs"]), (13, 0))
         self.assertEqual(p["writeControls"], [])
 
     def test_copy_is_exactly_the_shown_text_and_a_refusal_is_reported(self):
@@ -352,7 +380,7 @@ class BrowserTest(unittest.TestCase):
         f = self.r["firstUse"]
         self.assertEqual(f["expandAll"], 0)
         self.assertGreater(f["itemsExpanded"], 40)
-        self.assertEqual(f["itemsCollapsed"], ["g:projects", "p:demo", "p:second", "p:notes", "p:kit", "p:locked", "p:tools", "g:account", "a:portfolio", "a:activity", "a:inbox"])
+        self.assertEqual(f["itemsCollapsed"], ["g:projects", "p:demo", "p:second", "p:notes", "p:kit", "p:locked", "p:tools", "g:account", "a:portfolio", "a:activity", "a:inbox", "a:search"])
 
     def test_the_stage_filter_keeps_its_phases_and_never_changes_figures(self):
         f, v = self.r["firstUse"], self.r["private"]
