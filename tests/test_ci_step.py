@@ -2,6 +2,7 @@
 it is shown, whether the command passed or failed. Uses a synthetic private
 term and a synthetic credential read from the fixture file."""
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -94,32 +95,38 @@ class WorkflowLogTest(unittest.TestCase):
         return text.split("\n      - ")[1:]
 
     def test_test_and_build_steps_are_audited_before_shown(self):
-        for name in ("checks.yml", "pages.yml"):
+        for name, count in (("checks.yml", 2), ("pages.yml", 2), ("live-check.yml", 2)):
             text = self.read(name)
             with self.subTest(name):
                 self.assertNotIn("tee", text)
-                runs = [s for s in self.steps(text) if "unittest" in s or "build.py" in s]
-                self.assertEqual(len(runs), 2)
+                runs = [s for s in self.steps(text) if "unittest" in s or "build.py" in s or "live.check.js" in s]
+                self.assertEqual(len(runs), count)
                 for step in runs:
                     self.assertIn("python3 scripts/ci_step.py --log ci-log.txt -- ", step)
                     self.assertIn("PUBLIC_AUDIT_TERMS: ${{ secrets.PUBLIC_AUDIT_TERMS }}", step)
 
-    def test_checks_install_a_pinned_browser_and_require_it(self):
-        text = self.read("checks.yml")
-        install = [s for s in self.steps(text) if "playwright@" in s]
-        self.assertEqual(len(install), 1)
-        self.assertRegex(install[0], r"playwright@\d+\.\d+\.\d+\b")
-        for line in install[0].splitlines():
-            if "npm " in line or " install " in line:
-                self.assertIn("python3 scripts/ci_step.py --log ci-log.txt -- ", line)
-        tests = [s for s in self.steps(text) if "unittest" in s]
-        self.assertIn('SANDBOARD_REQUIRE_BROWSER: "1"', tests[0])
-        self.assertIn("SANDBOARD_PLAYWRIGHT:", tests[0])
+    def test_every_workflow_installs_the_same_pinned_browser_and_tests_require_it(self):
+        versions = set()
+        for name in ("checks.yml", "pages.yml", "live-check.yml"):
+            text = self.read(name)
+            with self.subTest(name):
+                install = [s for s in self.steps(text) if "playwright@" in s]
+                self.assertEqual(len(install), 1)
+                versions.update(re.findall(r"playwright@(\d+\.\d+\.\d+)\b", install[0]))
+                for line in install[0].splitlines():
+                    if "npm " in line or " install " in line:
+                        self.assertIn("python3 scripts/ci_step.py --log ci-log.txt -- ", line)
+                for tests in [s for s in self.steps(text) if "unittest" in s]:
+                    self.assertIn('SANDBOARD_REQUIRE_BROWSER: "1"', tests)
+                    self.assertIn("SANDBOARD_PLAYWRIGHT:", tests)
+        self.assertEqual(len(versions), 1, "one Playwright version everywhere")
 
     def test_final_audit_runs_even_after_a_failed_step(self):
-        audit = [s for s in self.steps(self.read("checks.yml")) if "public_audit.py" in s]
-        self.assertEqual(len(audit), 1)
-        self.assertIn("if: always()", audit[0])
+        for name in ("checks.yml", "live-check.yml"):
+            with self.subTest(name):
+                audit = [s for s in self.steps(self.read(name)) if "public_audit.py" in s]
+                self.assertEqual(len(audit), 1)
+                self.assertIn("if: always()", audit[0])
 
     def test_nothing_is_uploaded_after_any_failure(self):
         text = self.read("pages.yml")

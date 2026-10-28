@@ -37,11 +37,27 @@ Only `dist/`: the app shell and synthetic demo data. Real project data is never 
 2. Settings, Secrets and variables, Actions, Variables: add `PAGES_ENABLED` = `true`.
 3. Actions, Pages, Run workflow, ref `main`.
 
-The workflow runs the tests, the build and the public audit (files, history, build output, its own log) before uploading anything. If any step fails, nothing is uploaded and the live site stays as it was.
+The workflow runs the tests (the browser checks included, with the same pinned Playwright and Chromium as the Checks workflow), the build and the public audit (files, history, build output, its own log) before uploading anything. If any step fails, nothing is uploaded and the live site stays as it was.
+
+## After publishing
+
+Right after every deploy, the Pages workflow runs `.github/workflows/live-check.yml` against the site's own address. It builds the published commit again and runs `tests/browser/live.check.js` in Chromium on the live site:
+
+- Every served file equals that build byte for byte, so the site is exactly the reviewed commit.
+- The first visit is signed out and stores nothing.
+- With synthetic GitHub replies (no real token), a task tab stays with its own project when the project changes, and nothing is stored while connected.
+- A new tab, a reload, and leaving the site and coming back (back, then forward and back again) are signed out.
+- Forget access and a revoked token (401) clear every private view, and the revoked token is reported.
+- Inside another site's frame the page refuses to show.
+- No page error or dialog, no request to any host but the site and the GitHub API, and GitHub API requests are GET only.
+
+It prints only the names of the checks and whether each passed, never the site's address. It can also be started by hand: Actions, Live site checks, Run workflow, with the site's address and the published commit.
+
+**If any live check fails, unpublish the site** (below), then find the cause. The check never publishes, changes or removes anything itself. The same check runs on every pull request against a local copy of the site, in `tests/test_browser.py`.
 
 ## Rolling back
 
-- **To an earlier version:** Actions, Pages, Run workflow, and enter the earlier commit's ID as `ref`. That commit is tested, built, audited and published in place of the current site. Only a commit that already contains this build, test and audit path can be used: anything older than the commit that added `scripts/build.py` and `scripts/ci_step.py` fails at the first step and publishes nothing.
+- **To an earlier version:** Actions, Pages, Run workflow, and enter the earlier commit's ID as `ref`. That commit is tested, built, audited and published in place of the current site, and the live checks then run against it with the current check. Only a commit that already contains this build, test and audit path can be used: anything older than the commit that added `scripts/build.py` and `scripts/ci_step.py` fails at the first step and publishes nothing.
 - **Before Pages is first turned on:** rehearse a rollback between two eligible commits, so the path is proven before it is needed.
 - **To take the site down:** set `PAGES_ENABLED` to `false` (stops new deploys), then Settings, Pages, "Unpublish site".
 - **If something private was published:** unpublish first, then tell the owner. Do not try to fix it with a new commit alone: it stays in git history and possibly in caches.

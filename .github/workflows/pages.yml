@@ -22,14 +22,31 @@ jobs:
   build:
     if: vars.PAGES_ENABLED == 'true'
     runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
+      - name: Commit being published
+        id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Browser for the browser checks (Playwright and Chromium, pinned)
+        env:
+          PUBLIC_AUDIT_TERMS: ${{ secrets.PUBLIC_AUDIT_TERMS }}
+        run: |
+          python3 scripts/ci_step.py --log ci-log.txt -- npm install --prefix "$RUNNER_TEMP/pw" --no-save --no-audit --no-fund playwright@1.63.0
+          python3 scripts/ci_step.py --log ci-log.txt -- "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
       - name: Tests
         env:
           PUBLIC_AUDIT_TERMS: ${{ secrets.PUBLIC_AUDIT_TERMS }}
+          # The browser checks must run before publishing: a missing browser fails, never skips.
+          SANDBOARD_PLAYWRIGHT: ${{ runner.temp }}/pw/node_modules/playwright
+          SANDBOARD_REQUIRE_BROWSER: "1"
         run: python3 scripts/ci_step.py --log ci-log.txt -- python3 -m unittest discover -s tests -v
       - name: Build
         env:
@@ -55,6 +72,20 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # The published site checked at its own address, built from the same commit
+  # (live-check.yml). If it fails, the owner unpublishes (docs/RELEASE.md).
+  live:
+    needs: [build, deploy]
+    if: vars.PAGES_ENABLED == 'true'
+    uses: ./.github/workflows/live-check.yml
+    with:
+      url: ${{ needs.deploy.outputs.page_url }}
+      ref: ${{ needs.build.outputs.sha }}
+    secrets:
+      PUBLIC_AUDIT_TERMS: ${{ secrets.PUBLIC_AUDIT_TERMS }}
