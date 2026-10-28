@@ -3,8 +3,9 @@ tabs, the access lifecycle, copy, layouts and themes, result-file links and the
 read-only request boundary (tests/browser/workspace.check.js).
 
 They need Node.js and Playwright with its Chromium. Without them the checks are
-skipped, as on CI; set SANDBOARD_PLAYWRIGHT to the playwright module's folder
-when it is not found on its own."""
+skipped, except where SANDBOARD_REQUIRE_BROWSER is set (as on CI), where a
+missing browser fails; set SANDBOARD_PLAYWRIGHT to the playwright module's
+folder when it is not found on its own."""
 import hashlib
 import json
 import os
@@ -32,6 +33,13 @@ def find_playwright():
 
 
 PLAYWRIGHT = find_playwright()
+
+
+class BrowserRequiredTest(unittest.TestCase):
+    def test_browser_checks_run_where_required(self):
+        if os.environ.get("SANDBOARD_REQUIRE_BROWSER"):
+            self.assertTrue(PLAYWRIGHT and os.path.isdir(PLAYWRIGHT),
+                            "SANDBOARD_REQUIRE_BROWSER is set but Playwright was not found")
 
 
 @unittest.skipUnless(PLAYWRIGHT, "Node.js and Playwright are needed for the browser checks")

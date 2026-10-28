@@ -104,6 +104,18 @@ class WorkflowLogTest(unittest.TestCase):
                     self.assertIn("python3 scripts/ci_step.py --log ci-log.txt -- ", step)
                     self.assertIn("PUBLIC_AUDIT_TERMS: ${{ secrets.PUBLIC_AUDIT_TERMS }}", step)
 
+    def test_checks_install_a_pinned_browser_and_require_it(self):
+        text = self.read("checks.yml")
+        install = [s for s in self.steps(text) if "playwright@" in s]
+        self.assertEqual(len(install), 1)
+        self.assertRegex(install[0], r"playwright@\d+\.\d+\.\d+\b")
+        for line in install[0].splitlines():
+            if "npm " in line or " install " in line:
+                self.assertIn("python3 scripts/ci_step.py --log ci-log.txt -- ", line)
+        tests = [s for s in self.steps(text) if "unittest" in s]
+        self.assertIn('SANDBOARD_REQUIRE_BROWSER: "1"', tests[0])
+        self.assertIn("SANDBOARD_PLAYWRIGHT:", tests[0])
+
     def test_final_audit_runs_even_after_a_failed_step(self):
         audit = [s for s in self.steps(self.read("checks.yml")) if "public_audit.py" in s]
         self.assertEqual(len(audit), 1)
