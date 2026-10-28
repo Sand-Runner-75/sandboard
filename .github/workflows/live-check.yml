@@ -1,0 +1,75 @@
+# Checks the published site at its own address (docs/RELEASE.md, "After
+# publishing"): the served files equal this commit's build, and a new tab,
+# reload, leaving and coming back (including a real back/forward-cache
+# restoration), switching project, Forget access and a revoked token leave
+# nothing private behind. GitHub API replies are synthetic
+# (tests/browser/live.check.js); no real token is used. The Pages workflow runs
+# it after every deploy; it can also be started by hand. A failure means the
+# owner unpublishes the site. Output is audited before it is shown. The site's
+# address is public: GitHub shows it in the deploy step and in this step's
+# environment; the check only keeps it out of the audited log.
+name: Live site checks
+
+on:
+  workflow_call:
+    inputs:
+      url:
+        type: string
+        required: true
+      ref:
+        type: string
+        required: true
+    secrets:
+      PUBLIC_AUDIT_TERMS:
+        required: true
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Address of the published site"
+        required: true
+      ref:
+        description: "Commit that is published"
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      # The published commit, built again to compare with what is served.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      # The check itself comes from this workflow's own commit, so a rollback to a
+      # commit older than the check is checked too.
+      - uses: actions/checkout@v5
+        with:
+          path: checker
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Browser for the live checks (Playwright and Chromium, pinned)
+        env:
+          PUBLIC_AUDIT_TERMS: ${{ secrets.PUBLIC_AUDIT_TERMS }}
+        run: |
+          python3 scripts/ci_step.py --log ci-log.txt -- npm install --prefix "$RUNNER_TEMP/pw" --no-save --no-audit --no-fund playwright@1.63.0
+          python3 scripts/ci_step.py --log ci-log.txt -- "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Build
+        env:
+          PUBLIC_AUDIT_TERMS: ${{ secrets.PUBLIC_AUDIT_TERMS }}
+        run: python3 scripts/ci_step.py --log ci-log.txt -- python3 scripts/build.py --out dist
+      - name: Check the published site
+        env:
+          PUBLIC_AUDIT_TERMS: ${{ secrets.PUBLIC_AUDIT_TERMS }}
+          SITE_URL: ${{ inputs.url }}
+        run: python3 scripts/ci_step.py --log ci-log.txt -- node checker/tests/browser/live.check.js "$RUNNER_TEMP/pw/node_modules/playwright" "$SITE_URL" dist
+      - name: Public audit (build output, this log)
+        # Runs even after a failed step, so a failing run is audited too.
+        if: always()
+        env:
+          PUBLIC_AUDIT_TERMS: ${{ secrets.PUBLIC_AUDIT_TERMS }}
+        run: python3 scripts/public_audit.py --build-dir dist --log ci-log.txt

@@ -826,5 +826,105 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(size["1920"], [18, 15.75], "never more than an eighth above it")
 
 
+@unittest.skipUnless(PLAYWRIGHT, "Node.js and Playwright are needed for the browser checks")
+class LiveSiteCheckTest(unittest.TestCase):
+    """The published-site check (tests/browser/live.check.js) run against a local copy served
+    under a sub-path, as GitHub Pages serves a project site, so it keeps working between releases."""
+
+    CHECKS = [
+        "served files equal the reviewed build", "first visit is signed out", "nothing stored on first visit",
+        "a task tab stays with its own project", "nothing stored while connected", "a new tab starts signed out",
+        "reload signs out", "back after leaving stays signed out", "forward and back again stays signed out",
+        "the back/forward cache restored the page", "a page restored from the back/forward cache is signed out",
+        "Forget access clears everything", "a revoked token clears everything", "a revoked token is reported",
+        "framed page refuses to show", "every connect opened the synthetic private project",
+        "no page errors or dialogs", "no request to any other host", "GitHub API requests are GET only",
+    ]
+
+    @classmethod
+    def setUpClass(cls):
+        import functools
+        import sys
+        import threading
+        from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+        sys.path.insert(0, os.path.join(ROOT, "scripts"))
+        import build
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.dist = os.path.join(cls.tmp.name, "dist")
+        assert build.build(cls.dist) == []
+        cls.served = os.path.join(cls.tmp.name, "site", "sandboard")
+        shutil.copytree(cls.dist, cls.served)
+
+        class Quiet(SimpleHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+        handler = functools.partial(Quiet, directory=os.path.join(cls.tmp.name, "site"))
+        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.site = "http://127.0.0.1:%d/sandboard/" % cls.server.server_address[1]
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+        cls.tmp.cleanup()
+
+    def run_check(self):
+        done = subprocess.run(["node", os.path.join(HERE, "browser", "live.check.js"), PLAYWRIGHT, self.site, self.dist],
+                              capture_output=True, text=True, timeout=300, cwd=ROOT)
+        return done.returncode, json.loads(done.stdout or "{}"), done.stderr[-2000:]
+
+    def test_the_published_site_check_passes_on_the_reviewed_build(self):
+        code, r, err = self.run_check()
+        self.assertNotIn("crashed", r, err)
+        self.assertEqual([c["name"] for c in r["checks"]], self.CHECKS)
+        self.assertEqual([c["name"] for c in r["checks"] if not c["pass"]], [])
+        self.assertTrue(r["pass"])
+        self.assertEqual(code, 0)
+        self.assertNotIn(self.site, json.dumps(r), "the output never names the site")
+
+    def serve_changed(self, name, change):
+        """Run the check with one served file changed, and put it back afterwards."""
+        path = os.path.join(self.served, name)
+        with open(path, "rb") as f:
+            original = f.read()
+        try:
+            with open(path, "wb") as f:
+                f.write(change(original))
+            code, r, _ = self.run_check()
+        finally:
+            with open(path, "wb") as f:
+                f.write(original)
+        return code, r, {c["name"]: c for c in r["checks"]}
+
+    def test_a_served_file_that_is_not_the_reviewed_build_fails_the_check(self):
+        code, r, by = self.serve_changed("style.css", lambda b: b + b"\n/* changed after review */\n")
+        served = by["served files equal the reviewed build"]
+        self.assertFalse(served["pass"])
+        self.assertIn("style.css", served["detail"])
+        self.assertFalse(r["pass"])
+        self.assertEqual(code, 1)
+
+    def test_a_page_restored_from_the_cache_with_its_private_views_fails_the_check(self):
+        listeners = (b'  window.addEventListener("pagehide", () => endSession("left"));\n',
+                     b'  window.addEventListener("pageshow", e => { if (e.persisted) endSession("restored"); });\n')
+
+        def without_listeners(b):
+            for line in listeners:
+                self.assertIn(line, b)
+                b = b.replace(line, b"")
+            return b
+
+        code, r, by = self.serve_changed("app.js", without_listeners)
+        self.assertTrue(by["the back/forward cache restored the page"]["pass"])
+        self.assertFalse(by["a page restored from the back/forward cache is signed out"]["pass"])
+        self.assertIn("Example Garden", by["a page restored from the back/forward cache is signed out"]["detail"])
+        # Ordinary navigation reloads the page, so it cannot tell this apart.
+        self.assertTrue(by["back after leaving stays signed out"]["pass"])
+        self.assertFalse(r["pass"])
+        self.assertEqual(code, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

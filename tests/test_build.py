@@ -278,7 +278,23 @@ class PagesWorkflowTest(unittest.TestCase):
         self.assertIn("workflow_dispatch:", on_block)
         for trigger in ("push:", "pull_request:", "schedule:", "release:"):
             self.assertNotIn(trigger, on_block)
-        self.assertEqual(self.text.count("if: vars.PAGES_ENABLED == 'true'"), 2)
+        self.assertEqual(self.text.count("if: vars.PAGES_ENABLED == 'true'"), 3)
+        self.assertEqual(self.text.count("\n    runs-on:") + self.text.count("\n    uses:"), 3, "every job is gated")
+
+    def test_the_live_site_is_checked_after_deploy_at_the_built_commit(self):
+        live = self.text.split("\n  live:\n", 1)[1]
+        self.assertIn("needs: [build, deploy]", live)
+        self.assertIn("uses: ./.github/workflows/live-check.yml", live)
+        self.assertIn("url: ${{ needs.deploy.outputs.page_url }}", live)
+        self.assertIn("ref: ${{ needs.build.outputs.sha }}", live)
+        self.assertIn('echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"', self.text)
+        with open(os.path.join(ROOT, ".github", "workflows", "live-check.yml")) as f:
+            check = f.read()
+        on_block = check.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+        for trigger in ("push:", "pull_request:", "schedule:", "release:"):
+            self.assertNotIn(trigger, on_block)
+        self.assertEqual(check.split("\npermissions:\n", 1)[1].split("\n\n", 1)[0].strip(), "contents: read")
+        self.assertNotIn("pages: write", check)
 
     def test_audit_runs_before_upload(self):
         self.assertLess(self.text.index("scripts/public_audit.py --build-dir dist --log ci-log.txt"),
