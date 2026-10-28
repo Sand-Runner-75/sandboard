@@ -1115,6 +1115,85 @@ function privateRepos() {
   found.urls = nurls;
   await p.close();
 
+  // Only the owner, or nothing, at sign-in: the one repository the token reads with the workspace list is
+  // used; several, none, or a name that is neither form are said, and nothing is guessed from names.
+  const discover = out.discover = {};
+  const drepos = F.planRepos();
+  const DP = sha("second-plan");
+  drepos["beta/second-plan"] = { default_branch: "main", branches: { main: DP }, files: { [DP]: { "sandboard.workspaces.json": JSON.stringify(F.workspacesDoc()) } } };
+  const NOBODY = sha("nobody-plan");
+  const dUsual = ["acme/garden-plan", "acme/garden", "acme/recipes", "beta/second-plan"];
+  let dTokenList = () => json(dUsual.map(full_name => ({ full_name })));
+  // A held reply waits until it is released, so a refresh can come while the search is still going.
+  let dHold = null;
+  const dHolding = (key, re) => [re, async () => { if (dHold && dHold.key === key) await dHold.done; return null; }];
+  const dRelease = () => { const h = dHold; dHold = null; if (h) h.go(); };
+  const dHoldOn = key => { let go; dHold = { key, done: new Promise(r => { go = r; }), go }; };
+  const dgh = mockGitHub(drepos, [dHolding("listing", /^[/]user[/]repos[?]/), [/^[/]user[/]repos[?]/, () => dTokenList()],
+                                  dHolding("checking", /contents[/]sandboard[.]workspaces[.]json/),
+                                  [/^[/]repos[/]acme[/]locked/, () => json({ message: "denied" }, 403)]]);
+  const durls = [];
+  const dErrorsBefore = out.errors.length;
+  p = await open();
+  await p.route("https://api.github.com/**", async route => {
+    const req = route.request();
+    durls.push(req.method() + " " + req.url());
+    const res = await dgh.fetch(req.url(), { method: req.method() });
+    await route.fulfill({ status: res.status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }, body: await res.text() });
+  });
+  const dSubmit = async name => { await p.fill("#plan-repo", name); await p.fill("#token", "synthetic-token"); await p.click("#connect button[type=submit]"); };
+  const dSignIn = async name => { await dSubmit(name); await finished(); await p.waitForTimeout(300); };
+  const dNotice = () => p.$eval("#workspace .notice", n => [n.dataset.state, n.textContent]).catch(() => null);
+  const dProjects = () => p.$$eval("#tree [role=treeitem][data-id^='p:']", n => n.map(x => x.dataset.id));
+  const dForget = async () => { await p.click("#forget"); await p.waitForTimeout(200); };
+  const dRefresh = async () => { await p.click("#refresh"); await finished(); await p.waitForTimeout(300); };
+  await dSignIn("acme");
+  discover.owner = { projects: await dProjects(), notice: await dNotice() };
+  await dForget();
+  await dSignIn("");
+  discover.several = await dNotice();
+  await dForget();
+  // None found; then the owner's plan appears, and a refresh searches again and uses it.
+  await dSignIn("nobody");
+  discover.none = await dNotice();
+  drepos["nobody/plan"] = { default_branch: "main", branches: { main: NOBODY }, files: { [NOBODY]: { "sandboard.workspaces.json": JSON.stringify(F.workspacesDoc()) } } };
+  dTokenList = () => json(dUsual.concat("nobody/plan").map(full_name => ({ full_name })));
+  await dRefresh();
+  discover.noneThenRefresh = { projects: await dProjects(), notice: await dNotice() };
+  await dForget();
+  // One found, but another repository could not be checked: nothing is chosen, and the found one is named.
+  dTokenList = () => json(["acme/garden-plan", "acme/locked"].map(full_name => ({ full_name })));
+  await dSignIn("acme");
+  discover.unchecked = { notice: await dNotice(), projects: await dProjects() };
+  await dForget();
+  // The token's list cannot be read (denied, then a passing failure that a refresh gets past).
+  dTokenList = () => json({ message: "no" }, 403);
+  await dSignIn("acme");
+  discover.denied = await dNotice();
+  await dForget();
+  dTokenList = () => json({ message: "no" }, 500);
+  await dSignIn("acme");
+  discover.failed = await dNotice();
+  dTokenList = () => json(dUsual.map(full_name => ({ full_name })));
+  await dRefresh();
+  discover.failedThenRefresh = { projects: await dProjects(), notice: await dNotice() };
+  await dForget();
+  // Refresh while the token's list is still being read, and while the repositories are being checked.
+  for (const what of ["listing", "checking"]) {
+    dHoldOn(what);
+    await dSubmit("acme"); await p.waitForTimeout(300);
+    await p.click("#refresh"); await p.waitForTimeout(200);
+    dRelease();
+    await finished(); await p.waitForTimeout(400);
+    discover["refreshWhile" + what] = { projects: await dProjects(), notice: await dNotice() };
+    await dForget();
+  }
+  await dSignIn("acme/");
+  discover.bad = { state: await p.textContent("#state"), signedOut: await p.isVisible("#signed-out") };
+  discover.errors = out.errors.slice(dErrorsBefore);
+  discover.urls = durls;
+  await p.close();
+
   // 7. Framed: the page refuses to show.
   p = await open();
   await p.goto(BASE + "/frame.html"); await p.waitForTimeout(400);

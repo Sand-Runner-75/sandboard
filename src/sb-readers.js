@@ -465,6 +465,43 @@
     return result("partial", { repos: repos.sort() }, {}, { coverage: { shown: repos.length, total: null } });
   }
 
+  // ---- The plan repository, when sign-in gives only its owner or nothing: every repository the token
+  // can read (of that owner, in any case) is checked for the workspace list file at its default branch,
+  // a few at a time, up to FIND_LIMIT. The repositories that have it are returned, with those that
+  // could not be checked; the caller uses one only when the search is complete and found only it.
+  // Nothing is guessed from names.
+
+  const FIND_LIMIT = 50;
+  const FIND_BATCH = 5;
+
+  function findPlanRepos(ctx, client, owner) {
+    return SB.guard(findPlanReposUnguarded(ctx, client, owner), { owner: owner || null });
+  }
+
+  async function findPlanReposUnguarded(ctx, client, owner) {
+    const listed = await readAccountRepos(ctx, client);
+    if (!["current", "empty", "partial"].includes(listed.state)) return listed;
+    const of = listed.state === "empty" ? [] : listed.data.repos.filter(r => !owner || r.split("/")[0].toLowerCase() === owner.toLowerCase());
+    const checked = of.slice(0, FIND_LIMIT);
+    const repos = [], unchecked = [];
+    for (let i = 0; i < checked.length; i += FIND_BATCH) {
+      const batch = await Promise.all(checked.slice(i, i + FIND_BATCH).map(async repo => {
+        const pinned = await client.pin(ctx, repo, "");
+        // Not found, or a repository with no commits yet (409): it has no workspace list.
+        if (pinned.state === "missing" || pinned.error === "HTTP 409") return [repo, "absent"];
+        if (pinned.state !== "current") return [repo, "unchecked"];
+        const file = await client.readFile(ctx, repo, pinned.data.commit, WORKSPACES_FILE);
+        return [repo, file.state === "current" ? "found" : file.state === "missing" ? "absent" : "unchecked"];
+      }));
+      for (const [repo, how] of batch) if (how === "found") repos.push(repo); else if (how === "unchecked") unchecked.push(repo);
+    }
+    // The search is complete only when the token's list was whole, under the limit, and every
+    // repository in it answered whether it has the file.
+    const listedAll = listed.state !== "partial", underLimit = checked.length === of.length;
+    return result(repos.length ? "current" : "empty", { repos, checked: checked.length, unchecked, listedAll, underLimit,
+                                                       complete: listedAll && underLimit && !unchecked.length }, { owner: owner || null });
+  }
+
   // ---- One workspace: every read it needs, in order, each with its own result.
   // A failure stops only the reads that depend on it, never other workspaces.
 
@@ -887,7 +924,7 @@
 
   Object.assign(SB, { WORKSPACES_FILE, STATUSES, SCOPES, readWorkspace, readTaskFile, isPath, validateWorkspaces, readWorkspaces, splitRow, parsePlanTables, readPlan,
                       validateProgress, readProgress, readCheckRuns, readPulls, readComments,
-                      COMMIT_LIMIT, REPO_COMMENT_LIMIT, readLanguages, readCommits, readRepoComments, readUser, readAccountRepos,
+                      COMMIT_LIMIT, REPO_COMMENT_LIMIT, readLanguages, readCommits, readRepoComments, readUser, readAccountRepos, FIND_LIMIT, findPlanRepos,
                       HISTORY_PAGE, historyCommit, readHistoryPage, readRefs, readCompare,
                       WORK_PAGE, MAX_WORK_PAGES, readPullPage, readReviews, readIssuePage, readRunPage, readReleasePage, assetLink,
                       MAX_DIFF_FILES, readTree, readCodeFile, readCommitChanges, readCompareChanges });

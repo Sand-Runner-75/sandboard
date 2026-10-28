@@ -130,6 +130,66 @@ test("the token's list of repositories is read by name, page by page, up to nine
   assert.ok(r.data == null);
 });
 
+test("only an owner, or nothing, at sign-in finds the plan repository by its workspace list file", async () => {
+  const repos = F.planRepos();
+  const OTHER = sha("beta-plan");
+  repos["beta/other-plan"] = { default_branch: "main", branches: { main: OTHER }, files: { [OTHER]: { [SB.WORKSPACES_FILE]: "{}" } } };
+  const token = list => [[/^\/user\/repos/, () => json(list.map(full_name => ({ full_name })))]];
+  const all = ["acme/garden", "acme/garden-plan", "acme/recipes", "beta/other-plan"];
+  const whole = { unchecked: [], listedAll: true, underLimit: true, complete: true };
+  // The owner's repositories only, in any case; a repository without the file is not a plan, whatever its name.
+  let s = setup(token(all), repos);
+  let r = await SB.findPlanRepos(s.ctx, s.client, "ACME");
+  assert.equal(r.state, "current");
+  assert.deepEqual(r.data, Object.assign({ repos: ["acme/garden-plan"], checked: 3 }, whole));
+  assert.ok(!s.gh.calls.some(c => c.url.includes("/beta/")), "another owner's repository is not read");
+  assert.ok(s.gh.calls.every(c => (c.init.method || "GET") === "GET"));
+  // Nothing given: every repository the token reads is checked, and two with the file are both returned.
+  s = setup(token(all), repos);
+  assert.deepEqual((await SB.findPlanRepos(s.ctx, s.client, "")).data.repos, ["acme/garden-plan", "beta/other-plan"]);
+  s = setup(token(all), repos);
+  r = await SB.findPlanRepos(s.ctx, s.client, "nobody");
+  assert.equal(r.state, "empty");
+  assert.deepEqual(r.data, Object.assign({ repos: [], checked: 0 }, whole));
+  // Not found (404) and a repository with no commits (409) have no list; the search stays complete.
+  const absent = [[/^\/repos\/acme\/gone$/, () => json({ message: "Not Found" }, 404)],
+                  [/^\/repos\/acme\/blank$/, () => json({ full_name: "acme/blank", default_branch: "main" })],
+                  [/^\/repos\/acme\/blank\/commits\//, () => json({ message: "Git Repository is empty." }, 409)]];
+  s = setup(token(["acme/garden-plan", "acme/gone", "acme/blank", "acme/garden"]).concat(absent), repos);
+  r = await SB.findPlanRepos(s.ctx, s.client, "acme");
+  assert.deepEqual(r.data, Object.assign({ repos: ["acme/garden-plan"], checked: 4 }, whole));
+  // A repository whose metadata, commit or file cannot be read is unchecked, never taken as having no list.
+  const fail = (re, status, headers) => [re, () => json({ message: "no" }, status, headers || {})];
+  for (const [what, override] of [["metadata denied", fail(/^\/repos\/acme\/garden$/, 403)],
+                                  ["metadata rate-limited", fail(/^\/repos\/acme\/garden$/, 429)],
+                                  ["metadata failed", fail(/^\/repos\/acme\/garden$/, 500)],
+                                  ["commit failed", fail(/^\/repos\/acme\/garden\/commits\//, 500)],
+                                  ["file denied", fail(/^\/repos\/acme\/garden\/contents\//, 403)],
+                                  ["file not valid", [/^\/repos\/acme\/garden\/contents\//, () => json({ type: "dir" })]]]) {
+    s = setup(token(["acme/garden-plan", "acme/garden"]).concat([override]), repos);
+    r = await SB.findPlanRepos(s.ctx, s.client, "acme");
+    assert.deepEqual(r.data, { repos: ["acme/garden-plan"], checked: 2, unchecked: ["acme/garden"], listedAll: true, underLimit: true, complete: false }, what);
+  }
+  // At most FIND_LIMIT are checked; one found among them is not complete.
+  const many = Array.from({ length: SB.FIND_LIMIT + 10 }, (_, i) => "acme/r" + String(i).padStart(3, "0"));
+  s = setup(token(["acme/garden-plan"].concat(many)), repos);
+  r = await SB.findPlanRepos(s.ctx, s.client, "acme");
+  assert.deepEqual(r.data, { repos: ["acme/garden-plan"], checked: SB.FIND_LIMIT, unchecked: [], listedAll: true, underLimit: false, complete: false });
+  assert.equal(s.gh.calls.filter(c => /\/repos\/acme\/r\d+$/.test(c.url)).length, SB.FIND_LIMIT - 1);
+  // A token list longer than can be read (nine full pages) is not complete either.
+  s = setup([[/^\/user\/repos\?per_page=100&page=(\d)$/, p => json(p.endsWith("=1") ? [{ full_name: "acme/garden-plan" }].concat(Array.from({ length: 99 }, (_, i) => ({ full_name: "zed/p1-" + i })))
+                                                                     : Array.from({ length: 100 }, (_, i) => ({ full_name: "zed/p" + p.slice(-1) + "-" + i })))]], repos);
+  r = await SB.findPlanRepos(s.ctx, s.client, "acme");
+  assert.deepEqual(r.data, { repos: ["acme/garden-plan"], checked: 1, unchecked: [], listedAll: false, underLimit: true, complete: false });
+  // A token list that cannot be read is said as such; a revoked token ends the session.
+  s = setup([[/^\/user\/repos/, () => json({ message: "no" }, 403)]], repos);
+  assert.equal((await SB.findPlanRepos(s.ctx, s.client, "acme")).state, "denied");
+  s = setup([[/^\/user\/repos/, () => json({ message: "Bad credentials" }, 401)]], repos);
+  await assert.rejects(SB.findPlanRepos(s.ctx, s.client, "acme"), SB.Revoked);
+  s = setup(token(["acme/garden-plan", "acme/garden"]).concat([[/^\/repos\/acme\/garden$/, () => json({ message: "Bad credentials" }, 401)]]), repos);
+  await assert.rejects(SB.findPlanRepos(s.ctx, s.client, "acme"), SB.Revoked);
+});
+
 test("the workspace list may give the plan files a found repository is read with", () => {
   const doc = found => Object.assign(F.workspacesDoc(), found === undefined ? {} : { found });
   assert.equal(SB.validateWorkspaces(doc()), null);
