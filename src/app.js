@@ -459,16 +459,47 @@
     const typed = $("token").value.trim();
     $("token").value = "";
     const planRepo = $("plan-repo").value.trim();
-    if (!typed || !SB.parseRepoRef(planRepo)) {
-      $("state").textContent = !typed ? "Enter a read-only token." : "Enter the plan repository as owner/repo or owner/repo@branch.";
+    // Only an owner, or nothing: the plan repository is looked for among the token's repositories.
+    const owner = /^[A-Za-z0-9-]*$/.test(planRepo) ? planRepo : null;
+    if (!typed || (owner === null && !SB.parseRepoRef(planRepo))) {
+      $("state").textContent = !typed ? "Enter a read-only token." : "Enter the plan repository as owner/repo or owner/repo@branch, only its owner, or nothing.";
       return;
     }
     start(false);
-    S.planRepo = planRepo;
+    S.planRepo = owner === null ? planRepo : "";
     $("state").textContent = "Signed in. The token is in this page's memory only.";
     const ctx = session.start(typed);
     $("main").focus();
+    if (owner !== null && !await findPlan(ctx, owner)) return;
     await load(ctx);
+  }
+
+  // The plan repository is used only when it is the one repository the token reads (of that owner)
+  // with the workspace list; none or several are said, with what to type instead.
+  async function findPlan(ctx, owner) {
+    S.list = { state: "loading" };
+    render();
+    try {
+      const found = await SB.findPlanRepos(ctx, client, owner);
+      session.alive(ctx);
+      if (found.state === "current" && found.data.repos.length === 1) { S.planRepo = found.data.repos[0]; return true; }
+      const of = owner ? " of " + owner : "";
+      S.list = found.state === "current"
+        ? SB.result("invalid", null, null, { error: "more than one repository" + of + " has it (" + found.data.repos.join(", ") + "). Forget access, then sign in with the one to use as owner/repo." })
+        : found.state === "empty"
+          ? SB.result("missing", null, null, { error: "no repository" + of + " that the token reads has it" +
+              (found.data.complete ? "" : " (only the first " + SB.FIND_LIMIT + " were checked)") + ". Forget access, then sign in with the plan repository as owner/repo." })
+          : SB.result(found.state, null, null, { error: "the token's list of repositories could not be read (" + (found.error || found.state) + ")" });
+      render();
+      announce("Reading finished.");
+      return false;
+    } catch (err) {
+      if (err instanceof SB.Revoked) { endSession("revoked"); return false; }
+      try { session.alive(ctx); } catch (e) { return false; }
+      S.list = SB.result("failed", null, null, { error: "browser error (" + err.name + ")" });
+      render();
+      return false;
+    }
   }
 
   async function showDemo() {

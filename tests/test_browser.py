@@ -540,6 +540,19 @@ class BrowserTest(unittest.TestCase):
         self.assertTrue(all(u.startswith("GET ") for u in f["urls"]))
         self.assertFalse(any("/users/" in u or "/events" in u or "/notifications" in u for u in f["urls"]))
 
+    def test_only_the_owner_or_nothing_finds_the_one_plan_repository(self):
+        d = self.r["discover"]
+        self.assertEqual(d["owner"]["projects"][:2], ["p:garden", "p:recipes"], "the owner's one repository with the list is used")
+        self.assertIsNone(d["owner"]["notice"])
+        self.assertEqual(d["several"][0], "invalid")
+        self.assertIn("more than one repository has it (acme/garden-plan, beta/second-plan)", d["several"][1])
+        self.assertEqual(d["none"][0], "missing")
+        self.assertIn("no repository of nobody that the token reads has it", d["none"][1])
+        self.assertIn("only its owner, or nothing", d["bad"]["state"])
+        self.assertTrue(d["bad"]["signedOut"])
+        self.assertTrue(all(u.startswith("GET ") for u in d["urls"]))
+        self.assertFalse(any("/repos/nobody" in u for u in d["urls"]))
+
     def test_repository_views_never_scroll_the_page_sideways(self):
         n = self.r["repos"]["narrow"]
         self.assertLessEqual(n["portfolio"], 320)

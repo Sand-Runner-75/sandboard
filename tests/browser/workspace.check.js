@@ -1115,6 +1115,37 @@ function privateRepos() {
   found.urls = nurls;
   await p.close();
 
+  // Only the owner, or nothing, at sign-in: the one repository the token reads with the workspace list is
+  // used; several, none, or a name that is neither form are said, and nothing is guessed from names.
+  const discover = out.discover = {};
+  const drepos = F.planRepos();
+  const DP = sha("second-plan");
+  drepos["beta/second-plan"] = { default_branch: "main", branches: { main: DP }, files: { [DP]: { "sandboard.workspaces.json": JSON.stringify(F.workspacesDoc()) } } };
+  const dgh = mockGitHub(drepos, [[/^[/]user[/]repos[?]/, () => json(["acme/garden-plan", "acme/garden", "acme/recipes", "beta/second-plan"].map(full_name => ({ full_name })))]]);
+  const durls = [];
+  p = await open();
+  await p.route("https://api.github.com/**", async route => {
+    const req = route.request();
+    durls.push(req.method() + " " + req.url());
+    const res = await dgh.fetch(req.url(), { method: req.method() });
+    await route.fulfill({ status: res.status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }, body: await res.text() });
+  });
+  const signIn = async name => { await p.fill("#plan-repo", name); await p.fill("#token", "synthetic-token"); await p.click("#connect button[type=submit]"); await finished(); await p.waitForTimeout(300); };
+  const noticeNow = () => p.$eval("#workspace .notice", n => [n.dataset.state, n.textContent]).catch(() => null);
+  await signIn("acme");
+  discover.owner = { projects: await p.$$eval("#tree [role=treeitem][data-id^='p:']", n => n.map(x => x.dataset.id)), notice: await noticeNow() };
+  await p.click("#forget"); await p.waitForTimeout(200);
+  await signIn("");
+  discover.several = await noticeNow();
+  await p.click("#forget"); await p.waitForTimeout(200);
+  await signIn("nobody");
+  discover.none = await noticeNow();
+  await p.click("#forget"); await p.waitForTimeout(200);
+  await signIn("acme/");
+  discover.bad = { state: await p.textContent("#state"), signedOut: await p.isVisible("#signed-out") };
+  discover.urls = durls;
+  await p.close();
+
   // 7. Framed: the page refuses to show.
   p = await open();
   await p.goto(BASE + "/frame.html"); await p.waitForTimeout(400);

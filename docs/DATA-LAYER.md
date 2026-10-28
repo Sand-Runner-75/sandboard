@@ -25,7 +25,7 @@ Every reader returns `{state, data, source: {repo, ref, commit, path}, schema, e
 
 ## Workspace list
 
-Read from the private plan repository named at sign-in, file `sandboard.workspaces.json`, at the pinned commit. Missing or invalid: no workspaces are shown, with the reason. Nothing is guessed from repository names.
+Read from the private plan repository named at sign-in, file `sandboard.workspaces.json`, at the pinned commit. Missing or invalid: no workspaces are shown, with the reason. Nothing is guessed from repository names. When sign-in gives only an owner, or nothing, the plan repository is found instead: every repository the token can read (of that owner, up to 50, five at a time) is checked for that file at its default branch, and it is used only when exactly one has it. Several, none or a token list that cannot be read: nothing is loaded, and the page says which, with the names found when there are several.
 
 
 ```json

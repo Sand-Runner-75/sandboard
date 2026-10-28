@@ -465,6 +465,38 @@
     return result("partial", { repos: repos.sort() }, {}, { coverage: { shown: repos.length, total: null } });
   }
 
+  // ---- The plan repository, when sign-in gives only its owner or nothing: every repository the token
+  // can read (of that owner, in any case) is checked for the workspace list file at its default branch,
+  // a few at a time, up to FIND_LIMIT. The repositories that have it are returned; the caller uses one
+  // only when it is the only one. Nothing is guessed from names.
+
+  const FIND_LIMIT = 50;
+  const FIND_BATCH = 5;
+
+  function findPlanRepos(ctx, client, owner) {
+    return SB.guard(findPlanReposUnguarded(ctx, client, owner), { owner: owner || null });
+  }
+
+  async function findPlanReposUnguarded(ctx, client, owner) {
+    const listed = await readAccountRepos(ctx, client);
+    if (!["current", "empty", "partial"].includes(listed.state)) return listed;
+    const of = listed.state === "empty" ? [] : listed.data.repos.filter(r => !owner || r.split("/")[0].toLowerCase() === owner.toLowerCase());
+    const checked = of.slice(0, FIND_LIMIT);
+    const repos = [];
+    for (let i = 0; i < checked.length; i += FIND_BATCH) {
+      const batch = await Promise.all(checked.slice(i, i + FIND_BATCH).map(async repo => {
+        const pinned = await client.pin(ctx, repo, "");
+        if (pinned.state !== "current") return null;
+        const file = await client.readFile(ctx, repo, pinned.data.commit, WORKSPACES_FILE);
+        return file.state === "current" ? repo : null;
+      }));
+      repos.push(...batch.filter(Boolean));
+    }
+    // Every repository of the owner was checked only when the token's list was whole and under the limit.
+    const complete = listed.state !== "partial" && checked.length === of.length;
+    return result(repos.length ? "current" : "empty", { repos, checked: checked.length, complete }, { owner: owner || null });
+  }
+
   // ---- One workspace: every read it needs, in order, each with its own result.
   // A failure stops only the reads that depend on it, never other workspaces.
 
@@ -887,7 +919,7 @@
 
   Object.assign(SB, { WORKSPACES_FILE, STATUSES, SCOPES, readWorkspace, readTaskFile, isPath, validateWorkspaces, readWorkspaces, splitRow, parsePlanTables, readPlan,
                       validateProgress, readProgress, readCheckRuns, readPulls, readComments,
-                      COMMIT_LIMIT, REPO_COMMENT_LIMIT, readLanguages, readCommits, readRepoComments, readUser, readAccountRepos,
+                      COMMIT_LIMIT, REPO_COMMENT_LIMIT, readLanguages, readCommits, readRepoComments, readUser, readAccountRepos, FIND_LIMIT, findPlanRepos,
                       HISTORY_PAGE, historyCommit, readHistoryPage, readRefs, readCompare,
                       WORK_PAGE, MAX_WORK_PAGES, readPullPage, readReviews, readIssuePage, readRunPage, readReleasePage, assetLink,
                       MAX_DIFF_FILES, readTree, readCodeFile, readCommitChanges, readCompareChanges });

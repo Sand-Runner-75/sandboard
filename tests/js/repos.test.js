@@ -130,6 +130,42 @@ test("the token's list of repositories is read by name, page by page, up to nine
   assert.ok(r.data == null);
 });
 
+test("only an owner, or nothing, at sign-in finds the plan repository by its workspace list file", async () => {
+  const repos = F.planRepos();
+  const OTHER = sha("beta-plan");
+  repos["beta/other-plan"] = { default_branch: "main", branches: { main: OTHER }, files: { [OTHER]: { [SB.WORKSPACES_FILE]: "{}" } } };
+  const token = list => [[/^\/user\/repos/, () => json(list.map(full_name => ({ full_name })))]];
+  const all = ["acme/garden", "acme/garden-plan", "acme/recipes", "beta/other-plan"];
+  // The owner's repositories only, in any case; a repository without the file is not a plan, whatever its name.
+  let s = setup(token(all), repos);
+  let r = await SB.findPlanRepos(s.ctx, s.client, "ACME");
+  assert.equal(r.state, "current");
+  assert.deepEqual(r.data, { repos: ["acme/garden-plan"], checked: 3, complete: true });
+  assert.ok(!s.gh.calls.some(c => c.url.includes("/beta/")), "another owner's repository is not read");
+  assert.ok(s.gh.calls.every(c => (c.init.method || "GET") === "GET"));
+  // Nothing given: every repository the token reads is checked, and two with the file are both returned.
+  s = setup(token(all), repos);
+  assert.deepEqual((await SB.findPlanRepos(s.ctx, s.client, "")).data.repos, ["acme/garden-plan", "beta/other-plan"]);
+  s = setup(token(all), repos);
+  r = await SB.findPlanRepos(s.ctx, s.client, "nobody");
+  assert.equal(r.state, "empty");
+  assert.deepEqual(r.data, { repos: [], checked: 0, complete: true });
+  // A repository that cannot be read is not a plan, and does not stop the others.
+  s = setup(token(["acme/garden-plan", "acme/locked"]).concat([[/^\/repos\/acme\/locked/, () => json({ message: "no" }, 403)]]), repos);
+  assert.deepEqual((await SB.findPlanRepos(s.ctx, s.client, "acme")).data.repos, ["acme/garden-plan"]);
+  // At most FIND_LIMIT are checked, and the result says it is not complete.
+  const many = Array.from({ length: SB.FIND_LIMIT + 10 }, (_, i) => "acme/r" + String(i).padStart(3, "0"));
+  s = setup(token(many), repos);
+  r = await SB.findPlanRepos(s.ctx, s.client, "acme");
+  assert.deepEqual(r.data, { repos: [], checked: SB.FIND_LIMIT, complete: false });
+  assert.equal(s.gh.calls.filter(c => /\/repos\/acme\/r\d+$/.test(c.url)).length, SB.FIND_LIMIT);
+  // A token list that cannot be read is said as such; a revoked token ends the session.
+  s = setup([[/^\/user\/repos/, () => json({ message: "no" }, 403)]], repos);
+  assert.equal((await SB.findPlanRepos(s.ctx, s.client, "acme")).state, "denied");
+  s = setup([[/^\/user\/repos/, () => json({ message: "Bad credentials" }, 401)]], repos);
+  await assert.rejects(SB.findPlanRepos(s.ctx, s.client, "acme"), SB.Revoked);
+});
+
 test("the workspace list may give the plan files a found repository is read with", () => {
   const doc = found => Object.assign(F.workspacesDoc(), found === undefined ? {} : { found });
   assert.equal(SB.validateWorkspaces(doc()), null);
