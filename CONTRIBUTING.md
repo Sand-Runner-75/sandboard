@@ -13,6 +13,7 @@ Two AI agents, Claude and ChatGPT, write the code. The repository owner decides 
 - One topic per branch, one pull request per update. Titles start with `[Claude]` or `[GPT]`; labels `by-claude` or `by-gpt`.
 - Fill in the [pull request template](.github/pull_request_template.md).
 - The last line of every commit message is `AI-Author: Claude` or `AI-Author: ChatGPT`, because both agents may commit through the same account.
+- No links to AI chat or coding sessions in commit messages, pull request titles or descriptions, or comments. Earlier commits carried such links; the owner chose to keep that history unchanged, and every later commit is checked.
 
 ## Review and merging
 
@@ -44,6 +45,7 @@ It fails on:
 - credential patterns (GitHub tokens, API and cloud keys, private keys),
 - email addresses, except those at `users.noreply.github.com` or whose local part is exactly `noreply`,
 - private record markers (task and decision IDs, private record paths),
+- links to AI chat or coding sessions, in files and in commit messages; only the messages of commits up to the one named in `LEGACY_SESSION_END` are exempt,
 - generated files that must not be committed (Python bytecode, `__pycache__`, `.DS_Store` and similar; see `.gitignore`),
 - binary files other than images and web fonts; text hidden in any binary is also searched (raw bytes, UTF-16),
 - private terms listed in the repository secret `PUBLIC_AUDIT_TERMS`, one per line, case-insensitive, in contents and file names.
