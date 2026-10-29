@@ -259,7 +259,7 @@
 
   // Branch names that usually hold a version, offered first and picked to start with.
   const VERSION = /^(main|master|trunk|staging|stage|stg|develop|development|dev|next|preview|beta|alpha|production|prod|live|v\d+(?:\.\d+)*|version[-_/]?\d+)$/i;
-  const VERSIONS = 6, START = 4, PR_FIRST = 3, PR_MAX = 9, OPEN_LANES = 8;
+  const VERSIONS = 6, START = 4, PR_FIRST = 3, PR_MAX = 9, OPEN_LANES = 8, DEF_PAGES = 30;
 
   // The version branches to start with: the default branch, then the others whose names say version.
   function versionStart(list, def) {
@@ -301,26 +301,43 @@
       // history, read page for page as deep, does not have. sharedOf(name) shows the shared ones too.
       const apart = name !== def && !!defBranch && !(sharedOf && sharedOf(name));
       const seen = [], onDef = new Set();
-      let reading = false, end = false, broke = null, defEnd = !apart;
-      const own = () => apart ? seen.filter(c => !onDef.has(c.sha)) : seen;
-      for (let p = 1; own().length < show; p++) {
+      let reading = false, end = false, broke = null, defEnd = !apart, pB = 0, pD = 0, defOldest = Infinity;
+      // GitHub lists a branch's commits newest first, so a commit newer than the oldest default-branch commit
+      // read, and not among those read, is not on the default branch. An older one is not known yet: it is
+      // left out (and counted) until more of the default branch is read, never shown as this version's own.
+      const known = c => defEnd || time({ date: c.at }) > defOldest;
+      const own = () => apart ? seen.filter(c => !onDef.has(c.sha) && known(c)) : seen;
+      const lanePage = (head, p, who) => {
+        const res = live(K().lane(repo, head, p));
+        if (!res) { wanted.push({ kind: "lane", head, page: p }); return "wait"; }
+        if (res.state === "loading") return "wait";
+        if (!res.data) { broke = { branch: who, state: res.state, error: res.error || null }; return "fail"; }
+        return res.data;
+      };
+      while (own().length < show) {
+        const seenOldest = seen.length ? time({ date: seen[seen.length - 1].at }) : Infinity;
+        const needB = !end, needD = !defEnd && pD < DEF_PAGES && seenOldest <= defOldest;
+        if (!needB && !needD) break;
+        let moved = false, wait = false;
         // The default branch's page and this branch's page are read side by side.
-        let wait = false;
-        if (!defEnd) {
-          const res = live(K().lane(repo, defBranch.sha, p));
-          if (!res) { wanted.push({ kind: "lane", head: defBranch.sha, page: p }); wait = true; }
-          else if (res.state === "loading") wait = true;
-          else if (!res.data) { broke = { branch: def, state: res.state, error: res.error || null }; break; }
-          else { for (const c of res.data.commits) onDef.add(c.sha); if (res.data.end) defEnd = true; }
+        if (needD) {
+          const d = lanePage(defBranch.sha, pD + 1, def);
+          if (d === "fail") break;
+          if (d === "wait") wait = true;
+          else { pD++; moved = true; for (const c of d.commits) onDef.add(c.sha);
+            if (d.commits.length) defOldest = Math.min(defOldest, ...d.commits.map(c => time({ date: c.at })));
+            if (d.end) defEnd = true; }
         }
-        const res = live(K().lane(repo, b.sha, p));
-        if (!res) { wanted.push({ kind: "lane", head: b.sha, page: p }); reading = true; break; }
-        if (res.state === "loading") { reading = true; break; }
-        if (!res.data) { broke = { branch: name, state: res.state, error: res.error || null }; break; }
+        if (needB) {
+          const d = lanePage(b.sha, pB + 1, name);
+          if (d === "fail") break;
+          if (d === "wait") wait = true;
+          else { pB++; moved = true; seen.push(...d.commits); if (d.end) end = true; }
+        }
         if (wait) { reading = true; break; }
-        seen.push(...res.data.commits);
-        if (res.data.end) { end = true; break; }
+        if (!moved) break;
       }
+      const unknown = apart ? seen.filter(c => !onDef.has(c.sha) && !known(c)).length : 0;
       failed = failed || broke;
       const mineAll = own();
       const win = mineAll.slice(0, show).map(c => ({ sha: c.sha, parents: c.parents, date: c.at, msg: c.title, author: c.author || "" }));
@@ -336,14 +353,17 @@
       }
       // Open pull requests from this repository's own branches: their newest commits, down to where they
       // leave this version, drawn as lanes too (at most OPEN_LANES of them).
-      const open = mine.filter(p => p.state === "open" && (!p.headRepo || p.headRepo === repo)).slice(0, OPEN_LANES);
+      // What is not drawn is said: open ones from forks, those past the limit, and those whose commits could not be read.
+      const openAll = mine.filter(p => p.state === "open"), ownOpen = openAll.filter(p => !p.headRepo || p.headRepo === repo);
+      const open = ownOpen.slice(0, OPEN_LANES);
+      const lanes = { forks: openAll.length - ownOpen.length, capped: ownOpen.length - open.length, failed: [] };
       const oldest = win.length ? Date.parse(win[win.length - 1].date) || 0 : 0;
       let openReading = false;
       for (const p of open) {
         const res = live(K().lane(repo, p.head, 1));
         if (!res) { wanted.push({ kind: "lane", head: p.head, page: 1 }); openReading = true; continue; }
         if (res.state === "loading") { openReading = true; continue; }
-        if (!res.data) continue;
+        if (!res.data) { lanes.failed.push({ number: p.number, state: res.state, error: res.error || null }); continue; }
         const by = new Map(res.data.commits.map(c => [c.sha, c]));
         const extra = [];
         for (let c = by.get(p.head); c && !inWin.has(c.sha); c = by.get(c.parents[0])) {
@@ -357,16 +377,18 @@
       const count = { open: 0, draft: 0, merged: 0, closed: 0 };
       for (const p of mine) count[p.merged ? "merged" : p.state === "open" ? (p.draft ? "draft" : "open") : "closed"]++;
       return { name, sha: b.sha, isDefault: name === def, apart, canApart: name !== def && !!defBranch, show, win, heads, marks, pulls: mine, count,
-               more: (!end || mineAll.length > show) && !broke, reading: reading || openReading, failed: broke, shown: Math.min(mineAll.length, show) };
+               unknown, lanes, more: (!end || mineAll.length > show || (unknown > 0 && !defEnd && pD < DEF_PAGES)) && !broke, reading: reading || openReading, failed: broke, shown: Math.min(mineAll.length, show) };
     });
     const tags = live(K().refs(repo, "tags"));
     if (!tags) wanted.push({ kind: "refs", list: "tags" });
     const tagList = tags && tags.data ? tags.data.refs.map(t => ({ name: t.name, sha: t.sha })) : [];
+    const tagState = readState(tags);
+    const laneFailed = versions.some(x => x.lanes.failed.length);
     // One read is wanted once, however many versions want it.
     const once = [...new Map(wanted.map(w => [JSON.stringify(w), w])).values()];
     return { state: "current", wanted: once, def, branches: list.map(b => b.name), start, picked: names, max: VERSIONS,
-             partialBranches: br.state === "partial", versions, prs, tags: tagList, failed, retry: !!failed || prs.failed };
+             partialBranches: br.state === "partial", versions, prs, tags: tagList, tagState, failed, retry: !!failed || prs.failed || tagState.failed || laneFailed };
   }
 
-  Object.assign(SB, { ATLAS: { FLOW, OTHER, RANK, FIRST, MORE, BRANCHES, VERSIONS, PR_FIRST, PR_MAX, flowOf, rankOf, older, versionStart }, atlasGraph, atlasLayout, atlasVersions });
+  Object.assign(SB, { ATLAS: { FLOW, OTHER, RANK, FIRST, MORE, BRANCHES, VERSIONS, PR_FIRST, PR_MAX, OPEN_LANES, DEF_PAGES, flowOf, rankOf, older, versionStart }, atlasGraph, atlasLayout, atlasVersions });
 })(typeof window !== "undefined" ? window : globalThis);

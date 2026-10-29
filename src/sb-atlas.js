@@ -430,6 +430,8 @@
       el("button", { type: "button", class: "linkbtn", id: "av-retry", onclick: () => A.atlasRetry(repo) }, "Read again")));
     else if (!prs.end) panel.append(el("div", { class: "qual plain", id: "av-prs-cut" }, "Pull requests are taken from the newest " + (prs.pages * 100).toLocaleString("en") + " of this repository's; older ones are not listed. ",
       prs.more ? el("button", { type: "button", class: "linkbtn", id: "av-prs-more", onclick: () => A.atlasVersionPrMore(repo) }, "Read 100 more") : null));
+    if (v.tagState.failed) panel.append(el("div", { class: "qual plain", role: "alert" }, "The tags could not be read (" + (v.tagState.error || v.tagState.state) + "), so none are drawn. ",
+      el("button", { type: "button", class: "linkbtn", onclick: () => A.atlasRetry(repo) }, "Read again")));
     v.versions.forEach((ver, i) => panel.append(versionCard(A, r, v, ver, i)));
     return panel;
   }
@@ -475,12 +477,23 @@
       const sig = JSON.stringify([ver.name, r.web, lay.W, lay.H, ver.win.map(x => x.sha).join(","), ver.heads, v.tags, ver.marks]);
       const holder = A.atlasBox(slot, sig, () => drawGraph(A, repo, r.web, lay, id + "-box", "Graph of " + ver.name));
       const box = holder.box;
+      // A graph kept from an earlier drawing takes this card's place in the list, so it takes its name too.
+      box.id = id + "-box";
       box.atlasMore = ver.more && !ver.reading;
       box.atlasOlder = () => A.atlasVersionOlder(repo, ver.name);
       filesTips(A, repo, box);
       card.append(box, keyTable(lay));
       Promise.resolve().then(() => place(box));
     }
+    // What the graph leaves out, said in words.
+    const L = ver.lanes, gaps = [
+      ver.unknown ? plural(ver.unknown, "older commit is", "older commits are") + " not drawn yet: " + v.def + " has not been read back that far, so it is not known whether " + (ver.unknown === 1 ? "it is" : "they are") + " on " + v.def : null,
+      L.capped ? plural(L.capped, "more open pull request is", "more open pull requests are") + " listed but not drawn (at most " + SB.ATLAS.OPEN_LANES + " are)" : null,
+      L.forks ? plural(L.forks, "open pull request comes", "open pull requests come") + " from another repository, so " + (L.forks === 1 ? "it is" : "they are") + " listed but not drawn" : null,
+      L.failed.length ? "The commits of " + L.failed.map(f => "#" + f.number + " (" + (f.error || f.state) + ")").join(", ") + " could not be read, so " + (L.failed.length === 1 ? "it is" : "they are") + " not drawn" : null,
+    ].filter(Boolean);
+    if (gaps.length) card.append(el("p", { class: "qual plain", id: id + "-gaps", role: L.failed.length ? "alert" : null }, gaps.join(". ") + ". ",
+      L.failed.length ? el("button", { type: "button", class: "linkbtn", onclick: () => A.atlasRetry(repo) }, "Read again") : null));
     card.append(versionPulls(r.web, ver, v.prs));
     return card;
   }

@@ -1387,6 +1387,13 @@ function privateRepos() {
   await p.check('#av-pick input[value="list-data"]'); await p.waitForTimeout(600);
   atl.versions.added = await versions();
   atl.versions.focus = await p.evaluate(() => document.activeElement && document.activeElement.value);
+  atl.versions.ownText = await p.$eval("#av-1", n => n.textContent).catch(() => null);
+  await p.check('#av-panel input[data-shared="list-data"]'); await p.waitForTimeout(600);
+  atl.versions.shared = await versions();
+  // Taking the first version away moves the second one up: its kept graph takes the new place's name.
+  await p.uncheck('#av-pick input[value="main"]'); await p.waitForTimeout(400);
+  atl.versions.moved = await versions();
+  await p.check('#av-pick input[value="main"]'); await p.waitForTimeout(400);
   const width = () => p.$eval("#ag-box svg", n => parseFloat(n.style.width));
   atl.zoom = { start: await width() };
   await p.click("#ag-zin"); await p.waitForTimeout(100); atl.zoom.in = await width();

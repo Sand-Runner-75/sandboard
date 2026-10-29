@@ -300,7 +300,12 @@ class BrowserTest(unittest.TestCase):
         self.assertGreater(v["start"]["cards"][0][1], 0, "the version has its own graph")
         self.assertEqual(v["added"]["picked"], ["main", "list-data"])
         self.assertEqual([x[0] for x in v["added"]["cards"]], ["main", "list-data"], "a branch picked adds its own version")
-        self.assertEqual(v["added"]["boxes"], ["av-0-box", "av-1-box"], "each version's graph has its own name")
+        self.assertEqual(v["added"]["boxes"], ["av-0-box"], "a branch with nothing main lacks has no graph of its own")
+        self.assertIn("list-data has no commits that main does not have", v["ownText"])
+        self.assertEqual(v["shared"]["boxes"], ["av-0-box", "av-1-box"], "with the shared history it has its own graph, by its own name")
+        self.assertGreater(v["shared"]["cards"][1][1], 0)
+        self.assertEqual(v["moved"]["boxes"], ["av-0-box"], "a kept graph takes the name of its new place")
+        self.assertEqual([x[0] for x in v["moved"]["cards"]], ["list-data"])
         self.assertEqual(v["focus"], "list-data", "the focus stays on the branch just picked")
         z = a["zoom"]
         self.assertGreater(z["in"], z["start"])

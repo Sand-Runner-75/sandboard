@@ -141,3 +141,37 @@ test("pull request pages are read until the list ends, and a failed one says so"
   v = SB.atlasVersions(key => live.get(key), REPO, "main", ["main"], () => 100, 3);
   assert.deepEqual([v.prs.end, v.prs.pages, v.prs.more], [false, 3, true]);
 });
+
+test("a commit older than the default branch's history read so far is never called this version's own", () => {
+  // main: page 1 holds only newer main commits; the shared commit C is on its unread page 2.
+  const mainNew = Array.from({ length: 100 }, (_, i) => c("mn" + i, [i ? "mn" + (i - 1) : "cc"], 200 - i));
+  const live = new Map([
+    [K.refs(REPO, "branches"), refs([["main", "mn0"], ["staging", "su"]])], [K.refs(REPO, "tags"), refs([])],
+    [SB.workKey.list("pulls", REPO, "all", 1), { state: "empty", data: { pulls: [], end: true } }],
+    [K.lane(REPO, sha("mn0"), 1), { state: "partial", data: { commits: mainNew, end: false } }],
+    [K.lane(REPO, sha("su"), 1), { state: "current", data: { commits: [c("su", ["cc"], 50, "Staging only"), c("cc", ["r0"], 5, "Shared"), c("r0", [], 0)], end: true } }],
+  ]);
+  let v = SB.atlasVersions(key => live.get(key), REPO, "main", ["main", "staging"], () => 100, 3);
+  let st = v.versions[1];
+  assert.deepEqual(st.win.map(x => seedOf(x.sha) || x.msg), [], "nothing is shown as staging's own before main is read back far enough");
+  assert.equal(st.unknown, 3);
+  assert.ok(v.wanted.some(w => w.kind === "lane" && w.head === sha("mn0") && w.page === 2));
+  live.set(K.lane(REPO, sha("mn0"), 2), { state: "current", data: { commits: [c("cc", ["r0"], 5, "Shared"), c("r0", [], 0)], end: true } });
+  v = SB.atlasVersions(key => live.get(key), REPO, "main", ["main", "staging"], () => 100, 3);
+  st = v.versions[1];
+  assert.deepEqual([st.win.map(x => x.msg), st.unknown], [["Staging only"], 0], "the shared commit on main's second page is not staging's own");
+});
+
+test("an open pull request whose commits cannot be read, past the limit or from a fork is said, not dropped", () => {
+  const opens = Array.from({ length: SB.ATLAS.OPEN_LANES + 2 }, (_, i) => pr(50 + i, "topic-" + i, "o2", "staging", { state: "open" }));
+  opens.push(pr(90, "theirs", "o2", "staging", { state: "open", headRepo: "someone/fork" }));
+  const live = new Map([[K.refs(REPO, "branches"), refs(H.branches)], [K.refs(REPO, "tags"), { state: "failed", data: null, error: "HTTP 502" }],
+    [SB.workKey.list("pulls", REPO, "all", 1), { state: "current", data: { pulls: opens, end: true } }]]);
+  for (const h of ["q1", "s1"]) live.set(K.lane(REPO, sha(h), 1), { state: "current", data: { commits: behind(H.commits, h), end: true } });
+  live.set(K.lane(REPO, sha("o2"), 1), { state: "denied", data: null, error: "HTTP 403" });
+  const v = SB.atlasVersions(key => live.get(key), REPO, "main", ["main", "staging"], () => 100, 3);
+  const L = v.versions[1].lanes;
+  assert.equal(L.failed.length, SB.ATLAS.OPEN_LANES);
+  assert.deepEqual([L.failed[0].error, L.capped, L.forks], ["HTTP 403", 2, 1]);
+  assert.deepEqual([v.tagState.failed, v.tagState.error, v.retry], [true, "HTTP 502", true]);
+});
