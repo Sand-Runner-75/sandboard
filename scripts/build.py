@@ -104,7 +104,11 @@ def demo_repos(fixture_dir):
                 repos[name]["branches"] = branches
             if "tags" in r:
                 repos[name]["tags"] = tags
-    return {"sign_in": spec["sign_in"], "repos": repos}
+    out = {"sign_in": spec["sign_in"], "repos": repos}
+    # The made-up account the Atlas shows: its profile, and its events in hours before the demo is opened.
+    if "account" in spec:
+        out["account"] = {"profile": spec["account"]["profile"], "events": spec["account"]["events"]}
+    return out
 
 
 def demo_commits(name, spec, commit):

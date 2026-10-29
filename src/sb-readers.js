@@ -440,6 +440,70 @@
     return result("current", { login: body.login, type: ["User", "Organization", "Bot"].includes(body.type) ? body.type : null }, {});
   }
 
+  // ---- The Atlas account, read only when asked: the account's public profile and its public events.
+  // The login is the one the token reads as. Text fields are kept short; nothing else is kept.
+
+  const LOGIN = /^[A-Za-z0-9-]{1,39}$/;
+  const nonNegative = v => Number.isInteger(v) && v >= 0 ? v : null;
+  const shortText = (v, max) => typeof v === "string" && v.trim() !== "" ? v.trim().slice(0, max) : null;
+
+  function readProfile(ctx, client, login) {
+    return SB.guard(readProfileUnguarded(ctx, client, login), { login });
+  }
+  async function readProfileUnguarded(ctx, client, login) {
+    const source = { login };
+    if (typeof login !== "string" || !LOGIN.test(login)) return result("invalid", null, source, { error: "not a login" });
+    const res = await client.get(ctx, "/users/" + login);
+    if (!res.ok) return result(client.stateFor(res), null, source, { error: "HTTP " + res.status });
+    const u = await client.json(ctx, res);
+    if (!isObject(u) || typeof u.login !== "string" || u.login.toLowerCase() !== login.toLowerCase() || !isTime(time(u.created_at))) {
+      return result("invalid", null, source, { error: "unexpected profile reply" });
+    }
+    return result("current", {
+      login: u.login, type: ["User", "Organization", "Bot"].includes(u.type) ? u.type : null,
+      name: shortText(u.name, 100), bio: shortText(u.bio, 300), location: shortText(u.location, 100), company: shortText(u.company, 100),
+      // The website is kept as text and never linked: only GitHub's own pages are.
+      blog: shortText(u.blog, 200),
+      followers: nonNegative(u.followers), following: nonNegative(u.following), since: u.created_at ? Date.parse(u.created_at) : null,
+      // The profile page only when GitHub gives an https address whose path is this login, as for repositories.
+      web: SB.webAddress(u.html_url, u.login),
+    }, source);
+  }
+
+  // Public events, newest first, 100 a page and at most 3 pages: GitHub keeps at most 300, from the last
+  // 90 days. An event not in the expected form is left out and counted.
+  const EVENT_PAGES = 3;
+  function readPublicEvents(ctx, client, login) {
+    return SB.guard(readPublicEventsUnguarded(ctx, client, login), { login });
+  }
+  async function readPublicEventsUnguarded(ctx, client, login) {
+    const source = { login };
+    if (typeof login !== "string" || !LOGIN.test(login)) return result("invalid", null, source, { error: "not a login" });
+    const events = [];
+    let skipped = 0;
+    for (let page = 1; page <= EVENT_PAGES; page++) {
+      const res = await client.get(ctx, "/users/" + login + "/events/public?per_page=100&page=" + page);
+      if (!res.ok) {
+        // A later page that fails keeps what came before it, said as partial.
+        if (page > 1) return result("partial", { events, skipped, stopped: "HTTP " + res.status }, source, { error: "HTTP " + res.status });
+        return result(client.stateFor(res), null, source, { error: "HTTP " + res.status });
+      }
+      const body = await client.json(ctx, res);
+      if (!Array.isArray(body) || body.length > 100) return result("invalid", null, source, { error: "unexpected event list" });
+      for (const e of body) {
+        const p = isObject(e) && isObject(e.payload) ? e.payload : {};
+        const at = isObject(e) && typeof e.created_at === "string" && isTime(e.created_at) ? Date.parse(e.created_at) : NaN;
+        if (!isObject(e) || typeof e.type !== "string" || !/^[A-Za-z]{1,40}$/.test(e.type) || Number.isNaN(at) || !isObject(e.repo) || !SB.validRepo(e.repo.name)) { skipped++; continue; }
+        const size = nonNegative(p.size) || nonNegative(p.distinct_size) || null;
+        events.push({ type: e.type, at, repo: e.repo.name, size: size && size <= 100000 ? size : null,
+                      action: typeof p.action === "string" && /^[a-z_]{1,30}$/.test(p.action) ? p.action : null,
+                      refType: ["branch", "tag", "repository"].includes(p.ref_type) ? p.ref_type : null });
+      }
+      if (body.length < 100) return result(events.length ? "current" : "empty", { events, skipped, stopped: null }, source);
+    }
+    return result("partial", { events, skipped, stopped: null }, source, { coverage: { shown: events.length, total: null } });
+  }
+
   // ---- The repositories the token can read, as GitHub lists them: names only, 100 a page, up to 9
   // pages. A list that still goes on after the last page is partial.
 
@@ -939,7 +1003,7 @@
 
   Object.assign(SB, { WORKSPACES_FILE, STATUSES, SCOPES, readWorkspace, readTaskFile, isPath, validateWorkspaces, readWorkspaces, splitRow, parsePlanTables, readPlan,
                       validateProgress, readProgress, readCheckRuns, readPulls, readComments,
-                      COMMIT_LIMIT, REPO_COMMENT_LIMIT, readLanguages, readCommits, readRepoComments, readUser, readAccountRepos, FIND_LIMIT, findPlanRepos,
+                      COMMIT_LIMIT, REPO_COMMENT_LIMIT, readLanguages, readCommits, readRepoComments, readUser, readProfile, EVENT_PAGES, readPublicEvents, readAccountRepos, FIND_LIMIT, findPlanRepos,
                       HISTORY_PAGE, historyCommit, readHistoryPage, readRefs, readCompare,
                       WORK_PAGE, MAX_WORK_PAGES, readPullPage, readPullCommits, readReviews, readIssuePage, readRunPage, readReleasePage, assetLink,
                       MAX_DIFF_FILES, readTree, readCodeFile, readCommitChanges, readCompareChanges });

@@ -38,6 +38,17 @@
       if (!String(url).startsWith(SB.API + "/")) throw new TypeError("the demo answers only the GitHub API paths");
       const path = String(url).slice(SB.API.length);
       if (path === "/user") return reply({ login: "demo-user", type: "User" });
+      // The made-up account's public profile and events; each event is dated hours before now.
+      const account = (demo && demo.account) || null;
+      if (path === "/users/demo-user") {
+        return account ? reply(Object.assign({ login: "demo-user", type: "User" }, account.profile)) : reply({ message: "Not Found" }, 404);
+      }
+      let ev = /^[/]users[/]demo-user[/]events[/]public[?]per_page=100&page=([1-3])$/.exec(path);
+      if (ev) {
+        const now = Date.now(), all = account ? account.events : [];
+        const list = all.map(([hours, type, name, payload]) => ({ type, created_at: new Date(now - hours * 36e5).toISOString(), repo: { name }, payload }));
+        return reply(list.slice((Number(ev[1]) - 1) * 100, Number(ev[1]) * 100));
+      }
       // The demo token reads no repository beyond the demo's own workspace list.
       if (/^[/]user[/]repos[?]/.test(path)) return reply([]);
       let m = /^[/]repos[/]([^/]+[/][^/?]+)(.*)$/.exec(path);

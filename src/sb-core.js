@@ -75,6 +75,9 @@
     new RegExp("^/user$"),
     // The repositories the token can read, by name, so every one of them is listed.
     new RegExp("^/user/repos[?]per_page=100&page=[1-9]$"),
+    // The Atlas account, only when asked: the account's public profile and up to 3 pages of its public events.
+    new RegExp("^/users/[A-Za-z0-9-]{1,39}$"),
+    new RegExp("^/users/[A-Za-z0-9-]{1,39}/events/public[?]per_page=100&page=[1-3]$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/commits/[A-Za-z0-9_.%-]+$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/contents/" + FILE_PATH + "[?]ref=" + SHA + "$"),

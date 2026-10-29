@@ -2,7 +2,8 @@
 // The Atlas: a second main view beside the dashboard, with the repository pictures the dashboard does not
 // have: the branch graph (git-flow lanes, zoom, drag, the files a commit changed, older commits, a replay
 // of the history and that replay saved as a GIF) and the code tree (the files played back commit by
-// commit, with speed, seeking, zoom, and the playback saved as a GIF or a picture). Its look and controls are adapted from the owner's own earlier app (the same
+// commit, with speed, seeking, zoom, and the playback saved as a GIF or a picture), and, as its second part,
+// the account's public profile, activity calendar and latest public events. Its look and controls are adapted from the owner's own earlier app (the same
 // author's branch graph and its zoom), reused with the owner's permission; here it is drawn with DOM
 // calls, never parsed markup, and reads only through the read-only client. Text from GitHub only goes
 // into text nodes and attributes.
@@ -16,6 +17,7 @@
   const ns = () => doc.getElementById("svg-ns").namespaceURI;
 
   Object.assign(V.TIPS, {
+    "Your account": "The account the token reads as: its public GitHub profile, its public activity of the last 90 days by your local day, and its latest public events. GitHub activity, not progress; private activity is not read.",
     "Atlas": "Pictures of a repository as GitHub has it now: its branch graph to start with. Read live, not at the commit a project pins. Nothing here changes anything, and none of it is progress.",
     "Code tree": "The repository's files as a tree, played back commit by commit: folders joined by lines, files as dots coloured by type, and each coder (shown by their initial) flying to the files they change. Read live from the default branch's newest commits, only after Play is pressed.",
     "Branch graph": "The newest commits of the branches drawn, a lane each, coloured by the kind of branch: main red, hotfix green, release orange, develop blue, feature purple, any other its own colour. Merges join lanes; tags sit above their commit, branch names below.",
@@ -45,9 +47,16 @@
 
   // ---- The Atlas page: a repository to show, then its pictures.
 
+  const PARTS = [["repo", "Repository"], ["account", "Your account"]];
   function atlas(S, A) {
     const sec = el("section", { class: "stack atlas", role: "tabpanel", id: "atlas-panel", "aria-labelledby": "major-atlas" },
       el("h1", { id: "atlas-h", class: "sr" }, "Atlas"));
+    // Two parts: a repository's pictures, and the signed-in account's public profile and activity.
+    const part = S.atlas.part === "account" ? "account" : "repo";
+    sec.append(el("div", { class: "seg atlas-parts", role: "group", "aria-label": "Atlas part" }, PARTS.map(([k, l], i) =>
+      el("button", { type: "button", id: "atlas-part-" + k, "aria-pressed": String(part === k), onclick: () => A.setAtlasPart(k),
+        onkeydown: e => { if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return; e.preventDefault(); A.setAtlasPart(PARTS[(i + 1) % PARTS.length][0], true); } }, l))));
+    if (part === "account") { sec.append(accountPanel(S, A)); return sec; }
     const rows = A.atlasRepos();
     if (!rows.length) { sec.append(notice("empty", "No repository here has been read yet. The Atlas shows the repositories your projects read.")); return sec; }
     const r = A.atlasRepo();
@@ -58,6 +67,115 @@
     sec.append(graphPanel(S, A, r), treePanel(S, A, r));
     return sec;
   }
+
+  // ---- Your account: the public profile, the public activity of the last 90 days as a calendar of days,
+  // and the latest public events. Read only once asked for.
+
+  function accountPanel(S, A) {
+    const head = el("div", { class: "ph" }, tip(el("h2", { id: "ac-h" }, "Your account"), "Your account"));
+    const panel = el("section", { class: "card atlas-panel", id: "ac-panel", "aria-labelledby": "ac-h" }, head);
+    if (!S.atlas.account) {
+      panel.append(el("div", { class: "ct-start" },
+        el("button", { type: "button", class: "btn", id: "ac-start", onclick: () => A.atlasAccountRead() }, "Show your public profile and activity"),
+        el("p", { class: "muted" }, "Reads, only after you press it, the public profile of the account the token reads as and its public events from the last " +
+          "90 days (GitHub keeps at most 300): up to 5 GitHub reads. Private activity and the contribution calendar are not read.")));
+      return panel;
+    }
+    const user = A.live("user"), login = user && user.data ? user.data.login : null;
+    const prof = login ? A.live(SB.accountKey.profile(login)) : null, evs = login ? A.live(SB.accountKey.events(login)) : null;
+    const failed = [user, prof, evs].some(x => x && x.state !== "loading" && !x.data);
+    const retry = failed ? el("button", { type: "button", class: "linkbtn", id: "ac-retry", onclick: () => A.atlasAccountRetry() }, "Read again") : null;
+    if (!login) {
+      panel.append(!user || user.state === "loading" ? notice("loading", "Reading who the token reads as.")
+        : el("div", {}, notice(user.state, "Who the token reads as could not be read" + (user.error ? " (" + user.error + ")" : "") + "."), retry));
+      return panel;
+    }
+    panel.append(profileBlock(prof, login));
+    if (!evs || evs.state === "loading") panel.append(notice("loading", "Reading your public events."));
+    else if (!evs.data) panel.append(notice(evs.state, "Your public events could not be read" + (evs.error ? " (" + evs.error + ")" : "") + ". The activity calendar and the feed need them."));
+    else panel.append(activityBlock(evs));
+    if (retry) panel.append(el("p", {}, retry));
+    return panel;
+  }
+
+  function profileBlock(prof, login) {
+    if (!prof || prof.state === "loading") return notice("loading", "Reading your public profile.");
+    if (!prof.data) return notice(prof.state, "Your public profile could not be read" + (prof.error ? " (" + prof.error + ")" : "") + ".");
+    const u = prof.data, title = u.name || u.login;
+    const bits = [
+      u.type === "Organization" ? el("span", {}, "Organization") : null,
+      u.followers !== null ? el("span", { id: "ac-followers" }, el("b", {}, u.followers.toLocaleString("en")), u.followers === 1 ? " follower" : " followers") : null,
+      u.following !== null && u.type !== "Organization" ? el("span", {}, el("b", {}, u.following.toLocaleString("en")), " following") : null,
+      u.location ? el("span", {}, u.location) : null,
+      u.company ? el("span", {}, u.company) : null,
+      u.since !== null ? el("span", {}, "On GitHub since ", el("b", {}, (SB.localDay(u.since) || "").slice(0, 4))) : null,
+      u.blog ? el("span", { title: "Your website, as text: it is not opened from here" }, u.blog) : null,
+    ].filter(Boolean);
+    return el("div", { class: "ac-profile", id: "ac-profile" },
+      el("div", { class: "ac-avatar", "aria-hidden": "true" }, title.charAt(0).toUpperCase()),
+      el("div", { class: "ac-who" },
+        el("h3", { id: "ac-name" }, title),
+        el("div", { class: "muted" }, u.web ? el("a", { href: u.web, target: "_blank", rel: "noopener noreferrer" }, "@" + u.login) : "@" + u.login),
+        u.bio ? el("p", { id: "ac-bio" }, u.bio) : null,
+        el("div", { class: "ac-meta" }, bits)));
+  }
+
+  function activityBlock(evs) {
+    const E = evs.data.events, days = SB.activityDays(E), lv = SB.heatLevels(days), top = SB.busiest(days);
+    const total = days.reduce((a, d) => a + d.count, 0);
+    const out = el("div", { class: "stack", id: "ac-activity" });
+    const said = [];
+    if (evs.state === "partial") said.push(evs.data.stopped ? "A later page of events could not be read (" + evs.data.stopped + "), so older events are missing" : "GitHub gives at most 300 events, so older ones in the 90 days may be missing");
+    if (evs.data.skipped) said.push(plural(evs.data.skipped, "event", "events") + " not in the expected form " + (evs.data.skipped === 1 ? "was" : "were") + " left out");
+    out.append(el("div", { class: "ph" }, el("h3", {}, "Public activity, last 90 days"),
+      el("span", { class: "legend", id: "ac-total" }, plural(total, "action") + " in public events (pushes count their commits when GitHub says how many), by your local day")));
+    if (said.length) out.append(el("p", { class: "qual", id: "ac-gaps" }, said.join(". ") + "."));
+    out.append(heatSvg(days, lv));
+    out.append(el("div", { class: "ac-legend" }, el("span", {}, "Less"), [0, 1, 2, 3, 4].map(l => el("i", { class: "ac-cell ac-l" + l, "aria-hidden": "true" })), el("span", {}, "More"),
+      el("span", { class: "ac-busy", id: "ac-busiest" }, "Busiest day: ", el("b", {}, top ? top.count + " on " + top.day : "none"))));
+    const active = days.filter(d => d.count);
+    out.append(el("details", { class: "ct-files", id: "ac-days" }, el("summary", {}, "Days with activity, as a list (" + active.length + ")"),
+      active.length ? el("ul", { class: "ct-paths" }, active.slice().reverse().map(d => el("li", {}, d.day + ": " + plural(d.count, "action")))) : el("p", { class: "muted" }, "None.")));
+    // The kinds of event most seen, and the latest events.
+    const mix = SB.eventMix(E), max = mix.length ? mix[0].n : 1;
+    out.append(el("div", { class: "ph" }, el("h3", {}, "Latest public events"),
+      el("span", { class: "legend" }, E.length ? plural(E.length, "event") + " read · since " + (SB.localWhen(E[E.length - 1].at) || "") : "")));
+    if (!E.length) { out.append(notice("empty", "No public events in the last 90 days.")); return out; }
+    // Bar widths are set through the style object, which the page's rules allow, never a style attribute.
+    out.append(el("div", { class: "ac-mix", id: "ac-mix" }, mix.map(m => {
+      const fil = el("span", { class: "fil" });
+      fil.style.width = Math.round(m.n / max * 100) + "%";
+      return el("div", { class: "ac-bar" }, el("span", { class: "lbl" }, m.name), el("span", { class: "trk", "aria-hidden": "true" }, fil), el("span", { class: "val" }, String(m.n)));
+    })));
+    out.append(el("ol", { class: "ac-feed", id: "ac-feed" }, E.slice(0, SB.ACCOUNT.FEED).map(e => el("li", {},
+      el("span", { class: "ac-mark", "aria-hidden": "true" }, SB.eventMark(e.type)), el("span", {}, SB.eventLine(e)),
+      el("span", { class: "muted", title: SB.localWhen(e.at) }, SB.localStamp(e.at) || "")))));
+    return out;
+  }
+
+  // The calendar: a column per week from Sunday, a square per day, Mon, Wed and Fri named, and each
+  // month named over the week it starts in.
+  function heatSvg(days, lv) {
+    const cs = 11, g = 3, left = 28, top = 18, pad = days.length ? days[0].dow : 0;
+    const weeks = Math.ceil((days.length + pad) / 7), W = left + weeks * (cs + g), H = top + 7 * (cs + g);
+    const pic = svg("svg", { viewBox: "0 0 " + W + " " + H, class: "ac-heat", id: "ac-heat", role: "img",
+      "aria-label": "Public activity by day over the last " + days.length + " days; the list below names each day with activity." });
+    let lastM = null;
+    days.forEach((d, i) => {
+      const idx = i + pad, w = Math.floor(idx / 7), x = left + w * (cs + g), y = top + d.dow * (cs + g);
+      const rect = svg("rect", { x, y, width: cs, height: cs, rx: 2, class: "ac-cell ac-l" + lv[i], "data-day": d.day,
+        "data-tip": plural(d.count, "action") + " · " + d.day });
+      pic.append(rect);
+      const m = d.day.slice(0, 7);
+      if (m !== lastM && d.dow <= 3) {
+        pic.append(svg("text", { x, y: 11, class: "ac-lbl" }, MONTHS[Number(d.day.slice(5, 7)) - 1]));
+        lastM = m;
+      }
+    });
+    [[1, "Mon"], [3, "Wed"], [5, "Fri"]].forEach(([r, t]) => pic.append(svg("text", { x: 0, y: top + r * (cs + g) + 9, class: "ac-lbl" }, t)));
+    return el("div", { class: "ac-heat-box" }, pic);
+  }
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
   // ---- Branch graph
 
