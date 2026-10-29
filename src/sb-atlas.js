@@ -20,6 +20,7 @@
     "Your account": "The account the token reads as: its public GitHub profile, its public activity of the last 90 days by your local day, and its latest public events. GitHub activity, not progress; private activity is not read.",
     "Atlas": "Pictures of a repository as GitHub has it now: its branch graph to start with. Read live, not at the commit a project pins. Nothing here changes anything, and none of it is progress.",
     "Code tree": "The repository's files as a tree, played back commit by commit: folders joined by lines, files as dots coloured by type, and each coder (shown by their initial) flying to the files they change. Read live from the default branch's newest commits, only after Play is pressed.",
+    "Versions": "One graph per version branch you pick (say the default branch for one version and a staging branch for the next): the commits behind that branch, each pull request merged into it as its own lane, the open ones that target it, and the list of every pull request whose base is that branch. Read live; nothing here changes anything.",
     "Branch graph": "The newest commits of the branches drawn, a lane each, coloured by the kind of branch: main red, hotfix green, release orange, develop blue, feature purple, any other its own colour. Merges join lanes; tags sit above their commit, branch names below.",
   });
 
@@ -64,7 +65,7 @@
       el("label", {}, "Repository ", el("select", { id: "atlas-repo", onchange: e => A.setAtlasRepo(e.target.value) },
         rows.map(x => el("option", { value: x.repo, selected: x.repo === r.repo }, x.repo)))),
       tip(el("span", { class: "qual muted" }, "Read live from GitHub now"), "Atlas")));
-    sec.append(graphPanel(S, A, r), treePanel(S, A, r));
+    sec.append(graphPanel(S, A, r), versionsPanel(S, A, r), treePanel(S, A, r));
     return sec;
   }
 
@@ -407,6 +408,124 @@
   }
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+  // ---- Versions: one graph per version branch, each with the pull requests that target it.
+
+  function versionsPanel(S, A, r) {
+    const repo = r.repo, def = r.meta.branch;
+    const v = SB.atlasVersions(A.live, repo, def, A.atlasVersionPick(repo), name => A.atlasVersionShow(repo, name), A.atlasVersionPrPages(repo), name => A.atlasVersionShared(repo, name));
+    const head = el("div", { class: "ph" }, tip(el("h2", { id: "av-h" }, "Versions"), "Versions"));
+    const panel = el("section", { class: "card atlas-panel", id: "av-panel", "aria-labelledby": "av-h" }, head);
+    if (v.state !== "current") {
+      panel.append(v.state === "loading" ? notice("loading", "Reading the branches.")
+        : v.state === "empty" ? notice("empty", "This repository has no branches yet.")
+        : notice(v.state, "The branches could not be read" + (v.error ? ": " + v.error : "") + "."));
+      if (v.retry) panel.append(el("p", {}, el("button", { type: "button", class: "linkbtn", id: "av-retry", onclick: () => A.atlasRetry(repo) }, "Read again")));
+      return panel;
+    }
+    panel.append(versionPicker(A, repo, def, v));
+    if (!v.picked.length) { panel.append(notice("empty", "Pick at least one branch to draw it as a version.")); return panel; }
+    const prs = v.prs;
+    if (prs.state === "loading") panel.append(el("div", { class: "qual plain" }, "Reading the pull requests."));
+    else if (prs.failed) panel.append(el("div", { class: "qual plain", role: "alert" }, "The pull requests could not be read" + (prs.error ? " (" + prs.error + ")" : "") + ", so none are listed. ",
+      el("button", { type: "button", class: "linkbtn", id: "av-retry", onclick: () => A.atlasRetry(repo) }, "Read again")));
+    else if (!prs.end) panel.append(el("div", { class: "qual plain", id: "av-prs-cut" }, "Pull requests are taken from the newest " + (prs.pages * 100).toLocaleString("en") + " of this repository's; older ones are not listed. ",
+      prs.more ? el("button", { type: "button", class: "linkbtn", id: "av-prs-more", onclick: () => A.atlasVersionPrMore(repo) }, "Read 100 more") : null));
+    if (v.tagState.failed) panel.append(el("div", { class: "qual plain", role: "alert" }, "The tags could not be read (" + (v.tagState.error || v.tagState.state) + "), so none are drawn. ",
+      el("button", { type: "button", class: "linkbtn", onclick: () => A.atlasRetry(repo) }, "Read again")));
+    v.versions.forEach((ver, i) => panel.append(versionCard(A, r, v, ver, i)));
+    return panel;
+  }
+
+  // The branches to draw as versions: the ones picked, the ones whose names say version, then the rest.
+  function versionPicker(A, repo, def, v) {
+    const picked = new Set(v.picked), full = v.picked.length >= v.max;
+    const box = name => el("label", { class: "vpick" }, el("input", { type: "checkbox", value: name, "data-key": "vpick|" + name, checked: picked.has(name),
+      disabled: !picked.has(name) && full, onchange: e => A.atlasVersionToggle(repo, name, e.target.checked, v.picked) }), " ", el("span", { class: "mono" }, name),
+      name === def ? el("span", { class: "muted" }, " (default)") : null);
+    const first = [...new Set([...v.picked, ...v.start])], rest = v.branches.filter(n => !first.includes(n));
+    return el("fieldset", { class: "vpicker", id: "av-pick" }, el("legend", {}, "Version branches (up to " + v.max + ")"),
+      el("div", { class: "vpicks" }, first.map(box)),
+      rest.length ? el("details", { id: "av-more" }, el("summary", {}, "Other branches (" + rest.length.toLocaleString("en") + (v.partialBranches ? "+" : "") + ")"),
+        el("div", { class: "vpicks" }, rest.map(box))) : null);
+  }
+
+  const PULL_LOOK = { draft: ["Draft", "st-not hollow"], open: ["Open", "st-progress"], merged: ["Merged", "st-done"], closed: ["Closed without merging", "st-removed"] };
+  const dayOf = t => typeof t === "string" ? SB.localWhen(t) || t : "";
+
+  function versionCard(A, r, v, ver, i) {
+    const repo = r.repo, slot = "v|" + repo + "|" + ver.name, id = "av-" + i;
+    const card = el("section", { class: "vcard", id: id, "aria-labelledby": id + "-h", "data-version": ver.name });
+    const c = ver.count, total = ver.pulls.length;
+    card.append(el("div", { class: "ph" }, el("h3", { id: id + "-h" }, "Version " + (i + 1) + ": ", el("span", { class: "mono" }, ver.name), ver.isDefault ? el("span", { class: "muted" }, " (default branch)") : null),
+      el("div", { class: "legend" },
+        el("span", {}, el("b", {}, ver.shown.toLocaleString("en")), " " + (ver.apart ? (ver.more ? "newest commits" : ver.shown === 1 ? "commit" : "commits") + " not on " + v.def
+          : ver.more ? "newest commits" : ver.shown === 1 ? "commit (whole history)" : "commits (whole history)")),
+        el("span", {}, el("b", {}, total.toLocaleString("en")), total === 1 ? " pull request" : " pull requests"),
+        c.merged ? el("span", {}, c.merged + " merged") : null, c.open ? el("span", {}, c.open + " open") : null,
+        c.draft ? el("span", {}, c.draft + " draft") : null, c.closed ? el("span", {}, c.closed + " closed") : null,
+        ver.more ? el("button", { type: "button", class: "btn ghost small", id: id + "-older", "aria-disabled": ver.reading ? "true" : null,
+          onclick: () => { if (!ver.reading) A.atlasVersionOlder(repo, ver.name); } }, ver.reading ? "Loading older commits…" : "Load older commits") : null)));
+    if (ver.canApart) card.append(el("label", { class: "vshare" }, el("input", { type: "checkbox", "data-shared": ver.name, "data-key": "vshare|" + ver.name, checked: !ver.apart,
+      onchange: e => A.atlasVersionShare(repo, ver.name, e.target.checked) }), " Also show the history it shares with ", el("span", { class: "mono" }, v.def)));
+    if (ver.failed) card.append(el("div", { class: "qual plain", role: "alert" }, "The commits of " + ver.failed.branch + " could not be read" + (ver.failed.error ? " (" + ver.failed.error + ")" : "") + ". ",
+      el("button", { type: "button", class: "linkbtn", onclick: () => A.atlasRetry(repo) }, "Read again")));
+    if (!ver.win.length) {
+      if (!ver.failed) card.append(notice(ver.reading ? "loading" : "empty", ver.reading ? "Reading the newest commits of " + ver.name + "."
+        : ver.apart ? ver.name + " has no commits that " + v.def + " does not have." : "No commits to draw."));
+    } else {
+      const lay = SB.atlasLayout(ver.name, ver.win, ver.heads, [...v.tags, ...ver.marks]);
+      const sig = JSON.stringify([ver.name, r.web, lay.W, lay.H, ver.win.map(x => x.sha).join(","), ver.heads, v.tags, ver.marks]);
+      const holder = A.atlasBox(slot, sig, () => drawGraph(A, repo, r.web, lay, id + "-box", "Graph of " + ver.name));
+      const box = holder.box;
+      // A graph kept from an earlier drawing takes this card's place in the list, so it takes its name too.
+      box.id = id + "-box";
+      box.atlasMore = ver.more && !ver.reading;
+      box.atlasOlder = () => A.atlasVersionOlder(repo, ver.name);
+      filesTips(A, repo, box);
+      card.append(box, keyTable(lay));
+      Promise.resolve().then(() => place(box));
+    }
+    // What the graph leaves out, said in words.
+    const L = ver.lanes, gaps = [
+      ver.unknown ? plural(ver.unknown, "commit read is", "commits read are") + " not drawn: from what was read it is not yet proved whether " + (ver.unknown === 1 ? "it is" : "they are") + " on " + v.def + (ver.more ? " (Load older commits reads further)" : "") : null,
+      ver.apart && ver.ahead !== null && ver.ahead > ver.shown && !ver.more ? "GitHub counts " + ver.ahead.toLocaleString("en") + " commits on " + ver.name + " that " + v.def + " does not have; " + ver.shown.toLocaleString("en") + " are drawn" : null,
+      L.cut.length ? "The line" + (L.cut.length === 1 ? " of " : "s of ") + L.cut.map(n => "#" + n).join(", ") + " could not be followed back to " + ver.name + "'s commits drawn here (it is longer than the " + SB.ATLAS.OPEN_PAGES * 100 + " commits read, or than the newest 100 drawn, or leaves the version further back than is shown), so " + (L.cut.length === 1 ? "it is" : "they are") + " drawn cut off" : null,
+      L.capped ? plural(L.capped, "more open pull request is", "more open pull requests are") + " listed but not drawn (at most " + SB.ATLAS.OPEN_LANES + " are)" : null,
+      L.forks ? plural(L.forks, "open pull request comes", "open pull requests come") + " from another repository, so " + (L.forks === 1 ? "it is" : "they are") + " listed but not drawn" : null,
+      L.failed.length ? "The commits of " + L.failed.map(f => "#" + f.number + " (" + (f.error || f.state) + ")").join(", ") + " could not be read, so " + (L.failed.length === 1 ? "it is" : "they are") + " not drawn" : null,
+    ].filter(Boolean);
+    if (gaps.length) card.append(el("p", { class: "qual plain", id: id + "-gaps", role: L.failed.length ? "alert" : null }, gaps.join(". ") + ". ",
+      L.failed.length ? el("button", { type: "button", class: "linkbtn", onclick: () => A.atlasRetry(repo) }, "Read again") : null));
+    card.append(versionPulls(r.web, ver, v.prs));
+    return card;
+  }
+
+  // Every pull request whose base is this version's branch, newest first.
+  const PR_SHOW = 25;
+  function versionPulls(web, ver, prs) {
+    if (prs.state === "loading" || prs.failed) return null;
+    if (!ver.pulls.length) return el("p", { class: "muted vnone" }, "No pull request" + (prs.end ? "" : " among those read") + " targets " + ver.name + ".");
+    const row = pr => {
+      const [text, cls] = PULL_LOOK[SB.pullState(pr)];
+      const href = SB.repoHref(web, "pull", pr.number);
+      const lane = ver.heads.some(h => h.pr === pr.number) ? " · drawn as a lane" : ver.marks.some(m => m.name === "PR #" + pr.number) ? " · marked on its commit" : "";
+      return el("tr", { "data-pull": String(pr.number) },
+        el("th", { scope: "row" }, href ? el("a", { href, target: "_blank", rel: "noopener noreferrer" }, "#" + pr.number) : "#" + pr.number),
+        el("td", { class: "wide" }, pr.title, lane ? el("span", { class: "qual muted" }, lane) : null),
+        el("td", {}, el("span", { class: "pill " + cls }, text), pr.merged ? el("div", { class: "qual muted" }, dayOf(pr.merged)) : null),
+        el("td", { class: "mono" }, pr.headRef || "?", " → ", pr.baseRef || "?"),
+        el("td", {}, pr.author || el("span", { class: "muted" }, "Not given")),
+        el("td", { class: "num" }, pr.created ? dayOf(pr.created) : el("span", { class: "muted" }, "Not given")));
+    };
+    const shown = ver.pulls.slice(0, PR_SHOW), rest = ver.pulls.slice(PR_SHOW);
+    const table = list => el("div", { class: "table-wrap" }, el("table", { class: "grid-table" },
+      el("caption", { class: "sr" }, "Pull requests into " + ver.name),
+      el("thead", {}, el("tr", {}, ["Number", "Title", "State", "From → into", "Author", "Opened"].map(h => el("th", { scope: "col" }, h)))),
+      el("tbody", {}, list.map(row))));
+    return el("div", { class: "vpulls" }, el("h4", {}, "Pull requests into ", el("span", { class: "mono" }, ver.name)), table(shown),
+      rest.length ? el("details", {}, el("summary", {}, "Show " + rest.length.toLocaleString("en") + " older"), table(rest)) : null);
+  }
+
   // ---- Branch graph
 
   function graphPanel(S, A, r) {
@@ -494,7 +613,7 @@
         lay.hidden ? el("tr", {}, el("td", {}), el("td", {}), el("td", { class: "muted" }, "+" + plural(lay.hidden, "older deleted branch", "older deleted branches") + " (hover a dot to see its branch)")) : null));
   }
 
-  function drawGraph(A, repo, web, lay) {
+  function drawGraph(A, repo, web, lay, id, title) {
     const edges = svg("g", { fill: "none", "stroke-width": 2.5, "stroke-linecap": "round", opacity: ".85" },
       lay.edges.map(e => svg("path", { "data-s": e.s, d: e.d, stroke: e.color, "stroke-dasharray": e.dashed ? "3 4" : null })));
     // Each commit is one focusable item named by its details: a link to the commit on GitHub when there is
@@ -513,10 +632,11 @@
       svg("rect", { x: f.x, y: f.y, width: f.w, height: f.h, rx: 3, fill: f.color }),
       svg("text", { class: "fl", fill: "#fff", x: f.x + f.w / 2, y: f.y + 11.5, "text-anchor": "middle" }, f.text)));
     const guides = lay.guides.map(y => svg("line", { class: "guide", x1: 0, x2: lay.W, y1: y, y2: y, "stroke-dasharray": "3 6" }));
-    const pic = svg("svg", { viewBox: "0 0 " + lay.W + " " + lay.H, width: lay.W, height: lay.H, role: "img", "aria-label": "Branch graph of the " + plural(lay.commits, "commit") + " drawn" },
+    const name = title || "Branch graph";
+    const pic = svg("svg", { viewBox: "0 0 " + lay.W + " " + lay.H, width: lay.W, height: lay.H, role: "img", "aria-label": name + " of the " + plural(lay.commits, "commit") + " drawn" },
       guides, edges, nodes, flags);
-    const box = el("div", { class: "atlas-graph", id: "ag-box", tabindex: "0", role: "group",
-      "aria-label": "Branch graph. Plus and minus zoom, arrow keys move, 0 resets the zoom. Tab moves to the newest commit; Left and Right move between commits, and each commit's details and changed files are read out." }, pic);
+    const box = el("div", { class: "atlas-graph", id: id || "ag-box", tabindex: "0", role: "group",
+      "aria-label": name + ". Plus and minus zoom, arrow keys move, 0 resets the zoom. Tab moves to the newest commit; Left and Right move between commits, and each commit's details and changed files are read out." }, pic);
     box.steps = lay.steps;
     box.zoom = 1;
     setup(box);

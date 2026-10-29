@@ -519,3 +519,16 @@ rect.ac-l4 { fill: var(--accent); } i.ac-l4 { background: var(--accent); }
 .notice.info[data-state="empty"] .glyph, .notice.info[data-state="no-match"] .glyph, .notice.info[data-state="none"] .glyph {
   width: 40px; height: 40px; border-radius: 12px; background: var(--sunken); color: var(--muted); display: grid; place-items: center; font-size: 1.1rem; }
 .notice.info[data-state="empty"] > div > div, .notice.info[data-state="no-match"] > div > div, .notice.info[data-state="none"] > div > div { color: var(--muted); }
+
+/* Atlas versions: the branches picked, then one card per version with its graph and pull requests. */
+.vpicker { border: 1px solid var(--line); border-radius: var(--r); padding: 6px 12px 8px; margin: 0; min-width: 0; }
+.vpicker legend { font-size: 0.8rem; font-weight: 600; color: var(--muted); padding: 0 4px; }
+.vpicks { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 0.85rem; }
+.vpick { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; overflow-wrap: anywhere; }
+.vpicker details { margin-top: 6px; font-size: 0.85rem; }
+.vcard { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; min-width: 0; }
+.vcard .ph { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.vcard h3 { margin: 0; font-size: 0.95rem; overflow-wrap: anywhere; }
+.vpulls h4 { margin: 4px 0 6px; font-size: 0.85rem; }
+.vnone { margin: 0; font-size: 0.85rem; }
+.vshare { font-size: 0.85rem; display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
