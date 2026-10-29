@@ -375,7 +375,7 @@ class BrowserTest(unittest.TestCase):
     def test_untrusted_text_is_shown_as_text(self):
         p = self.r["progress"]
         self.assertIn('<script>alert("never runs")</script>', p["hostile"])
-        self.assertEqual((p["scripts"], p["imgs"]), (18, 0))
+        self.assertEqual((p["scripts"], p["imgs"]), (19, 0))
         self.assertEqual(p["writeControls"], [])
 
     def test_copy_is_exactly_the_shown_text_and_a_refusal_is_reported(self):
@@ -501,7 +501,7 @@ class BrowserTest(unittest.TestCase):
         f = self.r["firstUse"]
         self.assertEqual(f["expandAll"], 0)
         self.assertGreater(f["itemsExpanded"], 40)
-        self.assertEqual(f["itemsCollapsed"], ["g:projects", "p:demo", "p:second", "p:notes", "p:kit", "p:locked", "p:tools", "g:account", "a:portfolio", "a:activity", "a:inbox", "a:search"])
+        self.assertEqual(f["itemsCollapsed"], ["a:home", "g:projects", "p:demo", "p:second", "p:notes", "p:kit", "p:locked", "p:tools", "g:account", "a:portfolio", "a:activity", "a:inbox", "a:search"])
 
     def test_the_stage_filter_keeps_its_phases_and_never_changes_figures(self):
         f, v = self.r["firstUse"], self.r["private"]
@@ -1182,6 +1182,21 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(look["stored"], [["sandboard.look", '{"density":"compact","accent":"violet"}']])
         self.assertEqual(look["reloaded"], ["compact", "violet"])
         self.assertEqual(look["junk"], ["", ""])
+
+    def test_home_shows_every_project_on_one_page(self):
+        home = self.r["home"]
+        self.assertEqual(home["first"], ["a:home", "Home, 2 waiting on someone"], "Home leads the tree with its waiting count")
+        self.assertIn(home["head"], ["Good morning", "Good afternoon", "Good evening"])
+        self.assertEqual(home["counts"], ["5", "12", "4", "1"])
+        self.assertEqual(home["rows"], ["demo", "second", "notes", "kit", "locked", "tools"], "one row per project, in tree order")
+        self.assertEqual(home["tabs"], [["In review1", "true"], ["Blocked1", "false"], ["In progress3", "false"]])
+        self.assertEqual(home["blocked"], ["Blocked"])
+        self.assertTrue(home["days"])
+        self.assertEqual(home["markup"], [True, 0], "a title from GitHub stays text")
+        self.assertEqual(home["inline"], ["width: 14%;"], "the bar width is set from script, never as markup")
+        self.assertIn(home["phone"][0], ["Good morning", "Good afternoon", "Good evening"])
+        self.assertTrue(home["phone"][1], "no sideways page scroll on a phone")
+        self.assertEqual(home["opened"], "Demo Project")
 
     def test_text_grows_a_little_with_the_screen(self):
         size = {w: [float(v[:-2]) for v in vals] for w, vals in self.r["textSize"].items()}

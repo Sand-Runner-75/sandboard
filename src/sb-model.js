@@ -343,6 +343,29 @@
     return { events, untimed, other };
   }
 
+  // ---- Home: counts of task rows across every project whose plan and task table could be read, as the
+  // tables say. They are counts of rows, never a progress figure: those stay on each project's overview.
+  const tableRead = e => !!(e.w.plan && e.plan && e.plan.state === "current" && e.table && e.table.state === "current");
+  function homeFigures(entries) {
+    const rows = entries.filter(tableRead).flatMap(e => e.tasks.filter(t => !t.invalid));
+    const count = s => rows.filter(t => t.status === s).length;
+    const counted = rows.length - count("Removed");
+    return { plans: entries.filter(e => e.w.plan).length, read: entries.filter(tableRead).length,
+             codeOnly: entries.filter(e => !e.w.plan).length, tasks: counted, done: count("Done"), open: counted - count("Done"),
+             progress: count("In Progress"), review: count("Ready for Review"), blocked: count("Blocked") };
+  }
+  // The tasks with one status across those projects, in project order then table order.
+  const openWork = (entries, status) => entries.filter(tableRead).flatMap(e => e.tasks.filter(t => !t.invalid && t.status === status).map(t => ({ t, e })));
+  // Which local day a time falls on, seen from now: today, yesterday, earlier this week (2 to 6 days ago) or earlier.
+  function dayGroup(at, now) {
+    const a = localDay(at), n = localDay(now);
+    if (a === null || n === null) return null;
+    const back = Math.round((Date.parse(n) - Date.parse(a)) / 864e5);
+    return back <= 0 ? "today" : back === 1 ? "yesterday" : back < 7 ? "week" : "earlier";
+  }
+  // The greeting for a local hour.
+  const greeting = hour => hour >= 5 && hour < 12 ? "Good morning" : hour >= 12 && hour < 18 ? "Good afternoon" : "Good evening";
+
   // ---- History: the commits read, laid out in lanes, and what they say per week, per day and per login.
   // Nothing here is guessed: a parent that was not read leaves its lane open at the bottom, and every
   // figure says it covers only the commits read.
@@ -923,7 +946,7 @@
                       historyOrder, historyGraph, commitTimes, WEEKS_SHOWN, DAYS_SHOWN, contributors,
                       workKey, workList, pullState, reviewEvidence, runOutcome, inboxScope, inbox, historyKey, COMPARE_FIRST, comparedBranches, historyView,
                       ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
-                      approvals, resultHref, tabKey, stageOfPhase, short, localDay, localStamp, localWhen, zoneOf, savedOrder, keptOrder, orderedIds, moveId, LOOK_CHOICES, savedLook,
+                      approvals, resultHref, tabKey, stageOfPhase, short, localDay, localStamp, localWhen, zoneOf, savedOrder, keptOrder, orderedIds, moveId, LOOK_CHOICES, savedLook, homeFigures, openWork, dayGroup, greeting,
                       HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs,
                       codeKey, liveKeyRepo, MAX_TEXT_LINES, MAX_SEARCH, searchSources, searchFind, searchCoverage, MAX_DIFF_LINES, MAX_FOUND, MAX_READ_BYTES, codeTree, codeFind, codeOpenable, textLines, textPieces, diffLines });
 })(typeof window !== "undefined" ? window : globalThis);

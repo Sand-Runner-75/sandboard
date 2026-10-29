@@ -502,11 +502,11 @@ function privateRepos() {
   fu.escHides = await p.$eval("#tip", n => n.hidden);
   fu.detailsStillOpen = await p.$$eval("#inspector", n => n.length);
   // The tree shows no bubble on hover or click; the keyboard still gets one.
-  await p.hover("#tree .ti[data-tip]"); await p.waitForTimeout(1500);
+  await p.hover("#tree [role='treeitem']:not([data-id='a:home']) > .ti[data-tip]"); await p.waitForTimeout(1500);
   fu.treeHover = await p.$eval("#tip", n => n.hidden);
-  await p.click("#tree [role='treeitem'] > .ti[data-tip]"); await p.waitForTimeout(1500);
+  await p.click("#tree [role='treeitem']:not([data-id='a:home']) > .ti[data-tip]"); await p.waitForTimeout(1500);
   fu.treeClick = await p.$eval("#tip", n => n.hidden);
-  await p.focus("#tree [role='treeitem']:has(> .ti[data-tip])");
+  await p.focus("#tree [role='treeitem']:not([data-id='a:home']):has(> .ti[data-tip])");
   await p.keyboard.press("ArrowDown"); await p.keyboard.press("ArrowUp"); await p.waitForTimeout(100);
   fu.treeKey = await p.evaluate(() => [document.getElementById("tip").hidden, document.activeElement.getAttribute("role")]);
   await p.focus(".phase[data-phase='P1']"); await p.waitForTimeout(100);
@@ -1797,6 +1797,29 @@ function privateRepos() {
   await p.evaluate(() => localStorage.setItem("sandboard.look", '{"density":"huge","accent":"red"}'));
   await p.reload(); await p.waitForTimeout(200);
   look.junk = await p.evaluate(() => [document.documentElement.dataset.density || "", document.documentElement.dataset.accent || ""]);
+  await p.close();
+
+  // 15. Home: first in the tree, counts of task rows, one row per project, open work by status, activity
+  // grouped by local day; nothing from GitHub becomes markup, and no sideways page scroll on a phone.
+  p = await open();
+  await demo(p);
+  const home = out.home = {};
+  home.first = await p.$eval("#tree [role=treeitem]", n => [n.dataset.id, n.getAttribute("aria-label")]);
+  await p.click("#tree [role=treeitem][data-id='a:home'] > .ti"); await p.waitForTimeout(1500);
+  home.head = await text(p, "#view-h");
+  home.counts = await p.$$eval(".kcell .kv", n => n.map(x => x.textContent));
+  home.rows = await p.$$eval("[data-part=home-projects] tbody tr", n => n.map(x => x.dataset.project));
+  home.tabs = await p.$$eval("[data-part=home-work] [role=tab]", n => n.map(x => [x.textContent, x.getAttribute("aria-selected")]));
+  await p.click("[data-part=home-work] [role=tab]:has-text('Blocked')"); await p.waitForTimeout(100);
+  home.blocked = await p.$$eval("[data-part=home-work] [role=tabpanel] .pill", n => n.map(x => x.textContent));
+  home.days = await p.$$eval("[data-part=home-activity] .day-h", n => n.map(x => x.textContent));
+  home.markup = await p.$eval("[data-part=home-activity]", n => [n.textContent.includes("<b>draft</b>"), [...n.querySelectorAll("b")].filter(b => b.textContent === "draft").length]);
+  home.inline = await p.$$eval("[data-part=home-projects] [style]", n => n.map(x => x.getAttribute("style")));
+  await p.setViewportSize({ width: 390, height: 900 }); await p.waitForTimeout(200);
+  home.phone = await p.evaluate(() => [document.getElementById("view-h").textContent, document.documentElement.scrollWidth <= window.innerWidth]);
+  await p.setViewportSize({ width: 1280, height: 900 });
+  await p.click("[data-home-project='demo']"); await p.waitForTimeout(500);
+  home.opened = await text(p, "#view-h");
   await p.close();
 
   // Text grows a little with the screen, from the browser's own size to an eighth more.
