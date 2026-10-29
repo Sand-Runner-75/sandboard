@@ -105,9 +105,10 @@ def demo_repos(fixture_dir):
             if "tags" in r:
                 repos[name]["tags"] = tags
     out = {"sign_in": spec["sign_in"], "repos": repos}
-    # The made-up account the Atlas shows: its profile, and its events in hours before the demo is opened.
+    # The made-up account the Atlas shows: its profile, its events in hours before the demo is opened, the
+    # repositories it starred (pushed days before) and its public gists (updated days before).
     if "account" in spec:
-        out["account"] = {"profile": spec["account"]["profile"], "events": spec["account"]["events"]}
+        out["account"] = {key: spec["account"][key] for key in ("profile", "events", "starred", "gists") if key in spec["account"]}
     return out
 
 

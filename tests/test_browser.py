@@ -822,6 +822,22 @@ class BrowserTest(unittest.TestCase):
         self.assertTrue(all(re.search(r"\d{4}-\d\d-\d\d \d\d:\d\d$", x) for x in d["feed"]), d["feed"])
         self.assertFalse(d["gaps"] or d["retry"])
         self.assertEqual(a["daysOpen"], [True, d["days"]], "the days with activity, as a list by keyboard")
+        self.assertEqual(a["extrasBefore"], [True, False, False], "starred repositories and gists only offered until asked for")
+        st = a["stars"]
+        self.assertEqual(st["count"], "5 repositories read")
+        self.assertEqual(st["live"], "polite")
+        self.assertEqual(len(st["shown"]), 5)
+        self.assertIn("archived", st["shown"][3])
+        self.assertIn("fork", st["shown"][4])
+        self.assertEqual(a["gistHead"], "3 gists read")
+        self.assertEqual(len(a["gists"]), 3)
+        self.assertIn("2 files: notes.md (Markdown), plan.txt (Text)", a["gists"][1], "a gist without a description is named by its first file")
+        self.assertIn("3 comments", a["gists"][2])
+        self.assertEqual([a["starsSvg"]["count"], a["starsSvg"]["shown"], a["starsSvg"]["focus"]], ["1 of 5 repositories read", ["sample-labs/chart-bits"], "ac-star-q"],
+                         "the starred list narrows by description as words are typed and the box keeps focus")
+        self.assertEqual([a["starsKit"]["count"], len(a["starsKit"]["shown"])], ["2 of 5 repositories read", 2], "every word must match, in any case")
+        self.assertEqual([a["starsNone"]["count"], a["starsNone"]["shown"]], ["0 of 5 repositories read", []])
+        self.assertEqual([a["starsAll"]["count"], len(a["starsAll"]["shown"]), a["starsAll"]["focus"]], ["5 repositories read", 5, "ac-star-q"])
         self.assertEqual(a["phone"], 0, "no sideways page scroll on a phone")
         self.assertEqual(a["goto"][0], "Your account (Atlas)Atlas")
         self.assertEqual(a["gotoShown"], ["true", "true", True])
@@ -846,6 +862,19 @@ class BrowserTest(unittest.TestCase):
         ev = "GET /users/synthetic-user/events/public?per_page=100&page="
         self.assertEqual(a["urls"], ["GET /users/synthetic-user", ev + "1", ev + "1", ev + "2", ev + "1", ev + "2"],
                          "Read again reads only the events again; the profile is read once")
+        ef = a["extrasFailed"]
+        self.assertIn("Your public gists could not be read (HTTP 500)", ef["text"])
+        self.assertIn("1 repository not in the expected form was left out", ef["text"])
+        self.assertIn("<img src=x onerror=alert(2)>", ef["text"], "GitHub's description stays text")
+        self.assertEqual([ef["retry"], ef["imgs"], ef["links"], ef["gists"]], [True, 0, [], 0], "a starred page address that is not https is never linked")
+        ea = a["extrasAgain"]
+        self.assertEqual([ea["retry"], ea["imgs"], ea["gists"]], [False, 0, 2])
+        self.assertEqual(ea["gistFiles"], ["1 file: a.txt (Text)", "At least 2 files: b.txt (Text), c.txt, and more GitHub did not list"],
+                         "a gist whose file list GitHub cut says its count is only a lower bound; a complete one does not")
+        self.assertEqual(ea["links"], ["https://gist.example.invalid/synthetic-user/abc123"])
+        self.assertIn("1 gist not in the expected form was left out", ea["text"])
+        self.assertEqual(a["extraUrls"], ["GET /users/synthetic-user/starred?per_page=100&page=1", "GET /users/synthetic-user/gists?per_page=100&page=1",
+                                          "GET /users/synthetic-user/gists?per_page=100&page=1"], "Read again reads only the gists again")
         self.assertEqual(a["methods"], ["GET"])
 
     def test_projects_can_be_put_in_order_by_dragging_or_the_keyboard_and_it_is_kept_in_this_browser_only(self):

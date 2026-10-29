@@ -69,7 +69,7 @@
       // The two main tabs, and the Atlas: its part (a repository's pictures or the account), the repository
       // it shows, how many commits each repository's branch graph shows, each drawn graph kept with what it
       // was drawn from, and whether the account's public profile and activity were asked for.
-      major: "dashboard", atlas: { part: "repo", repo: null, show: new Map(), boxes: new Map(), trees: new Map(), account: false },
+      major: "dashboard", atlas: { part: "repo", repo: null, show: new Map(), boxes: new Map(), trees: new Map(), account: false, extras: false, starQ: "" },
     };
   }
   let S = freshState();
@@ -320,6 +320,10 @@
     if (!login) return;
     loadLive(SB.accountKey.profile(login), ctx => SB.readProfile(ctx, client, login));
     loadLive(SB.accountKey.events(login), ctx => SB.readPublicEvents(ctx, client, login));
+    // The starred repositories and public gists only once they are asked for too.
+    if (!S.atlas.extras) return;
+    loadLive(SB.accountKey.starred(login), ctx => SB.readStarred(ctx, client, login));
+    loadLive(SB.accountKey.gists(login), ctx => SB.readGists(ctx, client, login));
   }
 
   // A repository's history reads what its view still wants: pages, the branch and tag lists, each
@@ -810,6 +814,13 @@
       render();
       announce("Reading your public profile and activity.");
     },
+    atlasAccountExtras() {
+      S.atlas.extras = true;
+      render();
+      announce("Reading your starred repositories and public gists.");
+    },
+    // The words the starred list is narrowed by; the list narrows itself, so nothing is drawn again.
+    atlasStarQuery(q) { if (q !== undefined) S.atlas.starQ = String(q); return S.atlas.starQ; },
     // What the account could not read is dropped, so it is read again, with an event list a later page of
     // which failed; what worked, and the profile, are kept.
     atlasAccountRetry() {

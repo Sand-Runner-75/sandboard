@@ -85,7 +85,8 @@
     const prof = login ? A.live(SB.accountKey.profile(login)) : null, evs = login ? A.live(SB.accountKey.events(login)) : null;
     // A failure to read again: a read that gave nothing, or an event list a later page of which failed
     // (GitHub's own 300-event limit is not a failure).
-    const failed = [user, prof, evs].some(x => x && x.state !== "loading" && (!x.data || !!x.data.stopped));
+    const stars = login && S.atlas.extras ? A.live(SB.accountKey.starred(login)) : null, gists = login && S.atlas.extras ? A.live(SB.accountKey.gists(login)) : null;
+    const failed = [user, prof, evs, stars, gists].some(x => x && x.state !== "loading" && (!x.data || !!x.data.stopped));
     const retry = failed ? el("button", { type: "button", class: "linkbtn", id: "ac-retry", onclick: () => A.atlasAccountRetry() }, "Read again") : null;
     if (!login) {
       panel.append(!user || user.state === "loading" ? notice("loading", "Reading who the token reads as.")
@@ -96,8 +97,89 @@
     if (!evs || evs.state === "loading") panel.append(notice("loading", "Reading your public events."));
     else if (!evs.data) panel.append(notice(evs.state, "Your public events could not be read" + (evs.error ? " (" + evs.error + ")" : "") + ". The activity calendar and the feed need them."));
     else panel.append(activityBlock(evs));
+    panel.append(extrasBlock(S, A, stars, gists));
     if (retry) panel.append(el("p", {}, retry));
     return panel;
+  }
+
+  // What a list about the account leaves out, in words: a later page that failed, GitHub's 300 read, and
+  // entries not in the expected form.
+  function listGaps(res, one, many) {
+    const said = [];
+    if (res.state === "partial") said.push(res.data.stopped ? "A later page could not be read (" + res.data.stopped + "), so some are missing" : "Only the first 300 are read");
+    if (res.data.skipped) said.push(plural(res.data.skipped, one, many) + " not in the expected form " + (res.data.skipped === 1 ? "was" : "were") + " left out");
+    return said.length ? el("p", { class: "qual" }, said.join(". ") + ".") : null;
+  }
+
+  // The starred repositories and public gists, read only once asked for.
+  function extrasBlock(S, A, stars, gists) {
+    const out = el("div", { class: "stack", id: "ac-extras" });
+    if (!S.atlas.extras) {
+      out.append(el("div", { class: "ct-start" },
+        el("button", { type: "button", class: "btn ghost", id: "ac-extras-start", onclick: () => A.atlasAccountExtras() }, "Show your starred repositories and public gists"),
+        el("p", { class: "muted" }, "Reads up to 3 pages of each (300 at most): up to 6 GitHub reads, only after you press it. Secret gists are not read.")));
+      return out;
+    }
+    out.append(starBlock(A, stars), gistBlock(gists));
+    return out;
+  }
+
+  function starBlock(A, res) {
+    const box = el("section", { class: "stack", id: "ac-starred", "aria-labelledby": "ac-star-h" });
+    const head = el("div", { class: "ph" }, el("h3", { id: "ac-star-h" }, "Starred repositories"));
+    box.append(head);
+    if (!res || res.state === "loading") { box.append(notice("loading", "Reading the repositories you starred.")); return box; }
+    if (!res.data) { box.append(notice(res.state, "The repositories you starred could not be read" + (res.error ? " (" + res.error + ")" : "") + ".")); return box; }
+    const R = res.data.repos;
+    const count = el("span", { class: "legend", id: "ac-star-count", "aria-live": "polite" });
+    head.append(count);
+    const gaps = listGaps(res, "repository", "repositories");
+    if (gaps) box.append(gaps);
+    if (!R.length) { box.append(notice("empty", "You have not starred any repository.")); return box; }
+    const rows = R.map(r => el("li", {},
+      el("div", { class: "ac-star-name" }, r.web ? el("a", { href: r.web, target: "_blank", rel: "noopener noreferrer" }, r.repo) : r.repo,
+        r.archived ? el("span", { class: "ref" }, "archived") : null, r.fork ? el("span", { class: "ref" }, "fork") : null),
+      r.description ? el("div", { class: "muted" }, r.description) : null,
+      el("div", { class: "ac-meta" }, r.language ? el("span", {}, r.language) : null, r.stars !== null ? el("span", {}, "★ " + r.stars.toLocaleString("en")) : null,
+        r.pushed !== null ? el("span", {}, "Last push " + (SB.localDay(r.pushed) || "")) : null)));
+    const list = el("ul", { class: "ac-list", id: "ac-star-list" }, rows);
+    // The list narrows itself as words are typed, so the box keeps its focus and nothing is read.
+    const narrow = q => {
+      let shown = 0;
+      R.forEach((r, i) => { const hit = SB.starMatch(r, q); rows[i].hidden = !hit; if (hit) shown++; });
+      count.textContent = (q.trim() ? shown.toLocaleString("en") + " of " : "") + plural(R.length, "repository", "repositories") + " read";
+    };
+    const input = el("input", { type: "search", id: "ac-star-q", value: A.atlasStarQuery(), "aria-controls": "ac-star-list",
+      oninput: e => { A.atlasStarQuery(e.target.value); narrow(e.target.value); } });
+    box.append(el("label", { class: "ac-search" }, "Search starred ", input), list);
+    narrow(A.atlasStarQuery());
+    return box;
+  }
+
+  function gistBlock(res) {
+    const box = el("section", { class: "stack", id: "ac-gists", "aria-labelledby": "ac-gist-h" });
+    const head = el("div", { class: "ph" }, el("h3", { id: "ac-gist-h" }, "Public gists"));
+    box.append(head);
+    if (!res || res.state === "loading") { box.append(notice("loading", "Reading your public gists.")); return box; }
+    if (!res.data) { box.append(notice(res.state, "Your public gists could not be read" + (res.error ? " (" + res.error + ")" : "") + ".")); return box; }
+    const G = res.data.gists;
+    head.append(el("span", { class: "legend" }, plural(G.length, "gist") + " read"));
+    const gaps = listGaps(res, "gist", "gists");
+    if (gaps) box.append(gaps);
+    if (!G.length) { box.append(notice("empty", "You have no public gists.")); return box; }
+    box.append(el("ul", { class: "ac-list", id: "ac-gist-list" }, G.map(g => {
+      const title = g.description || (g.files[0] ? g.files[0].name : g.id);
+      const names = g.files.map(f => f.name + (f.language ? " (" + f.language + ")" : "")).join(", ") + (g.more ? ", and " + g.more + " more" : "") +
+        (g.cut ? ", and more GitHub did not list" : "");
+      // GitHub cuts the file list of a very large gist, so its total is then only a lower bound.
+      const files = (g.cut ? "At least " : "") + plural(g.files.length + g.more, "file");
+      return el("li", {},
+        el("div", { class: "ac-star-name" }, g.web ? el("a", { href: g.web, target: "_blank", rel: "noopener noreferrer" }, title) : title),
+        el("div", { class: "muted" }, files + (names ? ": " + names : "")),
+        el("div", { class: "ac-meta" }, g.updated !== null ? el("span", { title: SB.localWhen(g.updated) }, "Updated " + (SB.localStamp(g.updated) || "")) : null,
+          g.comments ? el("span", {}, plural(g.comments, "comment")) : null));
+    })));
+    return box;
   }
 
   function profileBlock(prof, login) {

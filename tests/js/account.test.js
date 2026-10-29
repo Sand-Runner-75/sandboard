@@ -126,3 +126,55 @@ test("the demo answers the made-up account's profile and events, dated before th
   assert.deepEqual(await (await serve(SB.API + "/users/demo-user/events/public?per_page=100&page=2")).json(), []);
   assert.equal((await SB.demoServer({ repos: {} })(SB.API + "/users/demo-user")).status, 404);
 });
+
+test("starred repositories and public gists are read only by these paths, three pages at most", () => {
+  for (const ok of ["/users/a-1/starred?per_page=100&page=1", "/users/a-1/gists?per_page=100&page=3"]) assert.equal(SB.allowed(ok), true, ok);
+  for (const bad of ["/users/a/starred?per_page=100&page=4", "/users/a/gists", "/users/a/starred", "/user/starred?per_page=100&page=1",
+                     "/gists?per_page=100&page=1", "/gists/abc", "/users/a/gists?per_page=30&page=1", "/user/starred/a/b"]) assert.equal(SB.allowed(bad), false, bad);
+});
+
+test("a starred repository keeps its name, short text, counts, times and its page at GitHub's own address", async () => {
+  const star = (name, more) => Object.assign({ full_name: name, description: "d".repeat(400), language: "JavaScript", stargazers_count: 7, pushed_at: "2026-01-02T03:04:05Z",
+    archived: false, fork: false, html_url: WEB + "/" + name, owner: { login: "not kept" } }, more || {});
+  const s = setup([[/starred/, () => json([star("acme/garden"), star("acme/x", { html_url: WEB + "/someone/else", archived: true, stargazers_count: -2 }), star("not a repo"), "x"])]]);
+  const r = await SB.readStarred(s.ctx, s.client, "synthetic-user");
+  assert.equal(r.state, "current");
+  assert.equal(r.data.skipped, 2);
+  assert.deepEqual(r.data.repos[0], { repo: "acme/garden", description: "d".repeat(300), language: "JavaScript", stars: 7, pushed: Date.parse("2026-01-02T03:04:05Z"),
+                                      archived: false, fork: false, web: WEB + "/acme/garden" });
+  assert.deepEqual([r.data.repos[1].web, r.data.repos[1].archived, r.data.repos[1].stars], [null, true, null]);
+  assert.deepEqual(paths(s), ["/users/synthetic-user/starred?per_page=100&page=1"]);
+});
+
+test("a public gist keeps its files by name, its times and its page only at an address ending in its ID", async () => {
+  const gist = (id, more) => Object.assign({ id, description: "Notes", public: true, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-03T00:00:00Z", comments: 2,
+    html_url: WEB + "/" + id, files: { "a.md": { filename: "a.md", language: "Markdown", size: 12, content: "not kept" }, "b.sh": { filename: "b.sh", language: null, size: 3 } } }, more || {});
+  const many = {}; for (let i = 0; i < 60; i++) many["f" + i] = { filename: "f" + i, size: 1 };
+  const s = setup([[/gists/, () => json([gist("abc123"), gist("def456", { html_url: WEB + "/synthetic-user/def456", description: null }),
+    gist("0a0a", { html_url: WEB + "/someone/0a0a", files: many, truncated: true }), gist("not-hex"), gist("fff", { files: null })])]]);
+  const r = await SB.readGists(s.ctx, s.client, "synthetic-user");
+  assert.equal(r.data.skipped, 2);
+  assert.deepEqual(r.data.gists[0], { id: "abc123", description: "Notes", files: [{ name: "a.md", language: "Markdown", size: 12 }, { name: "b.sh", language: null, size: 3 }],
+                                      more: 0, cut: false, created: Date.parse("2026-01-01T00:00:00Z"), updated: Date.parse("2026-01-03T00:00:00Z"), comments: 2, web: WEB + "/abc123" });
+  assert.deepEqual([r.data.gists[1].web, r.data.gists[1].description], [WEB + "/synthetic-user/def456", null], "the owner's own path is GitHub's too");
+  assert.deepEqual([r.data.gists[2].web, r.data.gists[2].files.length, r.data.gists[2].more], [null, 50, 10], "another account's path is not linked; 50 file names at most");
+  assert.deepEqual([r.data.gists[0].cut, r.data.gists[1].cut, r.data.gists[2].cut], [false, false, true], "GitHub's own cut list is kept per gist, a complete one is not");
+});
+
+test("the starred list narrows by every word typed, in name, description or language", () => {
+  const r = { repo: "acme/Garden-Tools", description: "Charts for plants", language: "TypeScript" };
+  assert.equal(SB.starMatch(r, ""), true);
+  assert.equal(SB.starMatch(r, "  garden\tcharts "), true);
+  assert.equal(SB.starMatch(r, "typescript plants"), true);
+  assert.equal(SB.starMatch(r, "garden python"), false);
+  assert.equal(SB.starMatch({ repo: "a/b", description: null, language: null }, "b"), true);
+});
+
+test("the demo answers the made-up account's starred repositories and gists", async () => {
+  const serve = SB.demoServer({ repos: {}, account: { profile: {}, events: [], starred: [["acme/x", "d", "Go", 3, 2, false], ["acme/fork-y", null, null, 0, 9, true]],
+    gists: [["abc", "g", [["a.md", "Markdown", 5]], 1, 0]] } });
+  const st = await (await serve(SB.API + "/users/demo-user/starred?per_page=100&page=1")).json();
+  assert.deepEqual(st.map(r => [r.full_name, r.archived, r.fork]), [["acme/x", false, false], ["acme/fork-y", true, true]]);
+  const gs = await (await serve(SB.API + "/users/demo-user/gists?per_page=100&page=1")).json();
+  assert.deepEqual([gs[0].id, Object.keys(gs[0].files), gs[0].html_url], ["abc", ["a.md"], undefined]);
+});

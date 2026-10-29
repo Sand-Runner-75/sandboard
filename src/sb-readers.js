@@ -470,38 +470,77 @@
     }, source);
   }
 
-  // Public events, newest first, 100 a page and at most 3 pages: GitHub keeps at most 300, from the last
-  // 90 days. An event not in the expected form is left out and counted.
+  // A list about the account, 100 a page and at most 3 pages, newest first as GitHub gives it: each entry
+  // kept by pick, or left out and counted when it is not in the expected form. A later page that fails
+  // keeps what came before it, said as partial with why; three full pages are partial too.
   const EVENT_PAGES = 3;
-  function readPublicEvents(ctx, client, login) {
-    return SB.guard(readPublicEventsUnguarded(ctx, client, login), { login });
-  }
-  async function readPublicEventsUnguarded(ctx, client, login) {
+  async function userPages(ctx, client, login, path, name, pick) {
     const source = { login };
     if (typeof login !== "string" || !LOGIN.test(login)) return result("invalid", null, source, { error: "not a login" });
-    const events = [];
+    const items = [];
     let skipped = 0;
     for (let page = 1; page <= EVENT_PAGES; page++) {
-      const res = await client.get(ctx, "/users/" + login + "/events/public?per_page=100&page=" + page);
+      const res = await client.get(ctx, "/users/" + login + path + "?per_page=100&page=" + page);
       if (!res.ok) {
-        // A later page that fails keeps what came before it, said as partial.
-        if (page > 1) return result("partial", { events, skipped, stopped: "HTTP " + res.status }, source, { error: "HTTP " + res.status });
+        if (page > 1) return result("partial", { [name]: items, skipped, stopped: "HTTP " + res.status }, source, { error: "HTTP " + res.status });
         return result(client.stateFor(res), null, source, { error: "HTTP " + res.status });
       }
       const body = await client.json(ctx, res);
-      if (!Array.isArray(body) || body.length > 100) return result("invalid", null, source, { error: "unexpected event list" });
-      for (const e of body) {
-        const p = isObject(e) && isObject(e.payload) ? e.payload : {};
-        const at = isObject(e) && typeof e.created_at === "string" && isTime(e.created_at) ? Date.parse(e.created_at) : NaN;
-        if (!isObject(e) || typeof e.type !== "string" || !/^[A-Za-z]{1,40}$/.test(e.type) || Number.isNaN(at) || !isObject(e.repo) || !SB.validRepo(e.repo.name)) { skipped++; continue; }
-        const size = nonNegative(p.size) || nonNegative(p.distinct_size) || null;
-        events.push({ type: e.type, at, repo: e.repo.name, size: size && size <= 100000 ? size : null,
-                      action: typeof p.action === "string" && /^[a-z_]{1,30}$/.test(p.action) ? p.action : null,
-                      refType: ["branch", "tag", "repository"].includes(p.ref_type) ? p.ref_type : null });
-      }
-      if (body.length < 100) return result(events.length ? "current" : "empty", { events, skipped, stopped: null }, source);
+      if (!Array.isArray(body) || body.length > 100) return result("invalid", null, source, { error: "unexpected " + name + " list" });
+      for (const x of body) { const v = isObject(x) ? pick(x, login) : null; if (v) items.push(v); else skipped++; }
+      if (body.length < 100) return result(items.length ? "current" : "empty", { [name]: items, skipped, stopped: null }, source);
     }
-    return result("partial", { events, skipped, stopped: null }, source, { coverage: { shown: events.length, total: null } });
+    return result("partial", { [name]: items, skipped, stopped: null }, source, { coverage: { shown: items.length, total: null } });
+  }
+
+  // Public events: GitHub keeps at most 300, from the last 90 days. An event keeps its type, time,
+  // repository, a push's commit count, the action word and the kind of ref; never a message or actor.
+  function readPublicEvents(ctx, client, login) {
+    return SB.guard(userPages(ctx, client, login, "/events/public", "events", e => {
+      const p = isObject(e.payload) ? e.payload : {};
+      const at = typeof e.created_at === "string" && isTime(e.created_at) ? Date.parse(e.created_at) : NaN;
+      if (typeof e.type !== "string" || !/^[A-Za-z]{1,40}$/.test(e.type) || Number.isNaN(at) || !isObject(e.repo) || !SB.validRepo(e.repo.name)) return null;
+      const size = nonNegative(p.size) || nonNegative(p.distinct_size) || null;
+      return { type: e.type, at, repo: e.repo.name, size: size && size <= 100000 ? size : null,
+               action: typeof p.action === "string" && /^[a-z_]{1,30}$/.test(p.action) ? p.action : null,
+               refType: ["branch", "tag", "repository"].includes(p.ref_type) ? p.ref_type : null };
+    }), { login });
+  }
+
+  const timeOf = v => typeof v === "string" && isTime(v) ? Date.parse(v) : null;
+
+  // Repositories the account starred, most recently starred first: name, description, language, stars,
+  // last push and its page at GitHub's own address.
+  function readStarred(ctx, client, login) {
+    return SB.guard(userPages(ctx, client, login, "/starred", "repos", r => {
+      if (!SB.validRepo(r.full_name)) return null;
+      return { repo: r.full_name, description: shortText(r.description, 300), language: shortText(r.language, 40),
+               stars: nonNegative(r.stargazers_count), pushed: timeOf(r.pushed_at), archived: r.archived === true, fork: r.fork === true,
+               web: SB.webAddress(r.html_url, r.full_name) };
+    }), { login });
+  }
+
+  // The account's public gists, newest first: description, file names with their language and size,
+  // whether GitHub cut its own list of the gist's files (then the count is only a lower bound), times,
+  // and the gist's page only when GitHub gives it at an https address ending in its ID.
+  const GIST_ID = /^[0-9a-f]{1,64}$/;
+  function gistPage(value, login, id) {
+    if (typeof value !== "string") return null;
+    let url;
+    try { url = new URL(value); } catch (e) { return null; }
+    const path = url.pathname.toLowerCase();
+    if (url.protocol.slice(0, -1) !== "https" || url.username || url.password || url.search || url.hash ||
+        !(path === "/" + id || path === "/" + login.toLowerCase() + "/" + id)) return null;
+    return url.origin + url.pathname;
+  }
+  function readGists(ctx, client, login) {
+    return SB.guard(userPages(ctx, client, login, "/gists", "gists", (g, who) => {
+      if (typeof g.id !== "string" || !GIST_ID.test(g.id) || !isObject(g.files)) return null;
+      const files = Object.values(g.files).filter(f => isObject(f) && typeof f.filename === "string" && f.filename && f.filename.length <= 255)
+        .slice(0, 50).map(f => ({ name: f.filename, language: shortText(f.language, 40), size: nonNegative(f.size) }));
+      return { id: g.id, description: shortText(g.description, 300), files, more: Math.max(0, Object.keys(g.files).length - files.length), cut: g.truncated === true,
+               created: timeOf(g.created_at), updated: timeOf(g.updated_at), comments: nonNegative(g.comments), web: gistPage(g.html_url, who, g.id) };
+    }), { login });
   }
 
   // ---- The repositories the token can read, as GitHub lists them: names only, 100 a page, up to 9
@@ -1003,7 +1042,7 @@
 
   Object.assign(SB, { WORKSPACES_FILE, STATUSES, SCOPES, readWorkspace, readTaskFile, isPath, validateWorkspaces, readWorkspaces, splitRow, parsePlanTables, readPlan,
                       validateProgress, readProgress, readCheckRuns, readPulls, readComments,
-                      COMMIT_LIMIT, REPO_COMMENT_LIMIT, readLanguages, readCommits, readRepoComments, readUser, readProfile, EVENT_PAGES, readPublicEvents, readAccountRepos, FIND_LIMIT, findPlanRepos,
+                      COMMIT_LIMIT, REPO_COMMENT_LIMIT, readLanguages, readCommits, readRepoComments, readUser, readProfile, EVENT_PAGES, readPublicEvents, readStarred, readGists, readAccountRepos, FIND_LIMIT, findPlanRepos,
                       HISTORY_PAGE, historyCommit, readHistoryPage, readRefs, readCompare,
                       WORK_PAGE, MAX_WORK_PAGES, readPullPage, readPullCommits, readReviews, readIssuePage, readRunPage, readReleasePage, assetLink,
                       MAX_DIFF_FILES, readTree, readCodeFile, readCommitChanges, readCompareChanges });
