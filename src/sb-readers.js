@@ -653,7 +653,7 @@
         !(pr.draft === undefined || typeof pr.draft === "boolean") ||
         !["merged_at", "created_at", "updated_at", "closed_at"].every(k => isTime(time(pr[k])))) return null;
     return { number: pr.number, title: pr.title.slice(0, 300), state: pr.state, draft: pr.draft === true, merged: time(pr.merged_at),
-             head: pr.head.sha, headRef: pr.head.ref || null, baseRef: pr.base && pr.base.ref ? pr.base.ref : null, author: loginOf(pr.user),
+             head: pr.head.sha, headRef: pr.head.ref || null, headRepo: isObject(pr.head.repo) && SB.validRepo(pr.head.repo.full_name) ? pr.head.repo.full_name : null, baseRef: pr.base && pr.base.ref ? pr.base.ref : null, author: loginOf(pr.user),
              reviewers: logins(pr.requested_reviewers), teams: Array.isArray(pr.requested_teams) ? pr.requested_teams.length : 0,
              created: time(pr.created_at), updated: time(pr.updated_at), closed: time(pr.closed_at) };
   }

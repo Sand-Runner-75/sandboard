@@ -1004,14 +1004,15 @@
         : notice(S.list.state, "Workspace list (" + SB.WORKSPACES_FILE + ")" + (S.planRepo ? " in " + S.planRepo : "") + ": " + (S.list.error || (STATE[S.list.state] || STATE.failed)[3])));
       return;
     }
+    if (S.major === "atlas") { box.replaceChildren(V.majorTabs(S, A), V.atlas(S, A)); return; }
     if (!S.activeTab && ["portfolio", "activity", "inbox", "search"].includes(S.view.kind)) {
-      box.replaceChildren(tabBar(S, A), S.view.kind === "portfolio" ? V.portfolio(S, A) : S.view.kind === "inbox" ? V.inbox(S, A)
+      box.replaceChildren(V.majorTabs(S, A), tabBar(S, A), S.view.kind === "portfolio" ? V.portfolio(S, A) : S.view.kind === "inbox" ? V.inbox(S, A)
         : S.view.kind === "search" ? V.search(S, A) : V.activity(S, A));
       return;
     }
     const entry = S.entries.find(e => e.w.id === S.current);
-    if (!entry) { box.replaceChildren(notice("missing", "Pick a project in the tree.")); return; }
-    const parts = [tabBar(S, A)];
+    if (!entry) { box.replaceChildren(V.majorTabs(S, A), notice("missing", "Pick a project in the tree.")); return; }
+    const parts = [V.majorTabs(S, A), tabBar(S, A)];
     const tab = S.activeTab && A.visibleTabs().find(t => t.key === S.activeTab);
     if (tab) parts.push(taskTab(S, A, tab, entry));
     else if (S.view.kind === "tasks") parts.push(tasks(S, A, entry));

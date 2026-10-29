@@ -1328,6 +1328,105 @@ function privateRepos() {
   one.afterForget = await p.evaluate(() => document.body.innerText);
   await p.close();
 
+  // 6d. The Atlas: a second main tab beside the dashboard, with the branch graph of a repository the
+  // projects read. Its tabs work by keyboard; the graph draws every commit with git-flow colours, labels,
+  // tags and a key; zoom, replay and a commit's files work; leaving takes it all away.
+  const atl = out.atlas = {};
+  p = await open();
+  await demo(p);
+  atl.tabs = await p.$$eval("#workspace .major [role=tab]", n => n.map(x => [x.textContent, x.getAttribute("aria-selected")]));
+  atl.dashboardFirst = await p.evaluate(() => { const m = document.querySelector("#workspace .major"); return m && m.nextElementSibling && m.nextElementSibling.className; });
+  await p.focus("#major-dashboard"); await p.keyboard.press("ArrowRight"); await p.waitForTimeout(300);
+  atl.byKey = await p.evaluate(() => [document.activeElement.id, document.getElementById("major-atlas").getAttribute("aria-selected"), !!document.getElementById("atlas-panel")]);
+  await p.waitForFunction(() => document.querySelectorAll(".atlas-graph .gn").length > 0, null, { timeout: 8000 }).catch(() => {});
+  atl.repo = await p.$eval("#atlas-repo", n => n.value);
+  atl.graph = await p.evaluate(() => ({
+    dots: document.querySelectorAll(".atlas-graph .gn").length,
+    colours: [...new Set([...document.querySelectorAll(".atlas-graph .gn circle")].map(c => c.getAttribute("fill")))].sort(),
+    labels: [...document.querySelectorAll(".atlas-graph text.fl")].map(t => t.textContent).sort(),
+    key: [...document.querySelectorAll(".gkey tbody tr")].map(r => [...r.cells].slice(1).map(c => c.textContent)),
+    summary: document.getElementById("ag-sum").textContent,
+    links: [...new Set([...document.querySelectorAll(".atlas-graph a")].map(a => a.getAttribute("target") + " " + a.getAttribute("rel")))],
+    html: [...document.querySelectorAll(".atlas-graph *")].some(n => n.namespaceURI !== "http://www.w3.org/2000/svg"),
+  }));
+  const width = () => p.$eval(".atlas-graph svg", n => parseFloat(n.style.width));
+  atl.zoom = { start: await width() };
+  await p.click("#ag-zin"); await p.waitForTimeout(100); atl.zoom.in = await width();
+  await p.click("#ag-zreset"); await p.waitForTimeout(100); atl.zoom.reset = await width();
+  await p.focus("#ag-box"); await p.keyboard.press("+"); await p.waitForTimeout(100); atl.zoom.key = await width();
+  await p.keyboard.press("0"); await p.waitForTimeout(100);
+  // The zoom stays when the page is drawn again for another reason.
+  await p.click("#ag-zin"); await p.waitForTimeout(100);
+  await p.click("#major-dashboard"); await p.waitForTimeout(200); await p.click("#major-atlas"); await p.waitForTimeout(400);
+  atl.zoom.kept = await width();
+  await p.click("#ag-zreset"); await p.waitForTimeout(100);
+  // Replay: everything is hidden, then shown commit by commit, then all of it again.
+  await p.click("#ag-replay"); await p.waitForTimeout(150);
+  atl.replay = { during: await p.$eval("#ag-replay", n => [n.textContent, n.getAttribute("aria-pressed")]),
+                hidden: await p.$$eval(".atlas-graph [data-s]", n => n.filter(x => x.style.opacity === "0").length) };
+  await p.waitForFunction(() => document.getElementById("ag-replay").textContent === "Replay history", null, { timeout: 8000 }).catch(() => {});
+  atl.replay.after = await p.$$eval(".atlas-graph [data-s]", n => n.filter(x => x.style.opacity === "0").length);
+  // A commit's files show in its bubble once the pointer rests on its dot.
+  const dot = (await p.$$(".atlas-graph .gn"))[0];
+  await dot.hover(); await p.waitForTimeout(1200);
+  atl.bubble = await p.evaluate(() => { const t = document.getElementById("tip"); return t.hidden ? null : t.textContent; });
+  // The keyboard reaches the same details: Tab goes from the graph to its newest commit, its files are read
+  // at once, and Left moves to the commit before.
+  await p.mouse.move(0, 0); await p.focus("#ag-box"); await p.keyboard.press("Tab"); await p.waitForTimeout(1200);
+  const focused = () => p.evaluate(() => { const n = document.activeElement; return { sha: n.getAttribute("data-sha"), s: n.getAttribute("data-s"), label: n.getAttribute("aria-label"),
+    tabbable: document.querySelectorAll(".atlas-graph [data-sha][tabindex='0']").length, tip: document.getElementById("tip").hidden ? null : document.getElementById("tip").textContent }; });
+  atl.keys = { first: await focused() };
+  await p.keyboard.press("ArrowLeft"); await p.waitForTimeout(1200);
+  atl.keys.left = await focused();
+  // In the Atlas, a repository picked in the tree is shown there; a project's overview goes to the dashboard.
+  await tree(p, "r:demo:example-org/demo-plan").catch(() => {}); await p.waitForTimeout(500);
+  atl.treePick = await p.evaluate(() => [document.getElementById("major-atlas").getAttribute("aria-selected"), (document.getElementById("atlas-repo") || {}).value || null]);
+  await tree(p, "v:demo:overview"); await p.waitForTimeout(300);
+  atl.overview = await p.evaluate(() => [document.getElementById("major-dashboard").getAttribute("aria-selected"), !!document.getElementById("atlas-panel")]);
+  // Go to reaches it, and a phone screen has no sideways page scroll.
+  await p.keyboard.press("Control+k"); await p.fill("#goto-q", "branch graph"); await p.waitForTimeout(100);
+  atl.goto = await p.$$eval("#goto-list [role=option]", n => n.map(x => x.textContent).slice(0, 3));
+  await p.keyboard.press("Enter"); await p.waitForTimeout(400);
+  atl.gotoShown = await p.evaluate(() => !!document.getElementById("atlas-panel"));
+  await p.setViewportSize({ width: 390, height: 800 }); await p.waitForTimeout(300);
+  atl.phone = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  await p.setViewportSize({ width: 1280, height: 900 });
+  await p.click("#forget"); await p.waitForTimeout(300);
+  atl.afterLeave = await p.evaluate(() => [document.querySelectorAll(".atlas-graph, .major").length, document.getElementById("workspace").textContent]);
+  await demo(p);
+  atl.again = await p.evaluate(() => document.getElementById("major-dashboard").getAttribute("aria-selected"));
+  await p.close();
+  // On a mocked private run, reads that fail are said with their error and read again on request: first the
+  // only commit page, then the tags and the pull requests, which are never shown as none.
+  const arepos = F.planRepos();
+  const ahead = { sha: F.CODE_COMMIT, commit: { message: "Only commit", committer: { date: "2026-01-20T00:00:00Z" } }, parents: [], author: null };
+  arepos["acme/garden"].history = { [F.CODE_COMMIT]: [429] };
+  arepos["acme/garden"].branchList = [{ name: "main", commit: { sha: F.CODE_COMMIT }, protected: true }];
+  arepos["acme/garden"].tagList = 403;
+  arepos["acme/garden"].work = { "/pulls?state=all&per_page=100&page=1": 429 };
+  const agh = mockGitHub(arepos);
+  p = await open();
+  await p.route("https://api.github.com/**", async route => {
+    const req = route.request();
+    const res = await agh.fetch(req.url(), { method: req.method() });
+    await route.fulfill({ status: res.status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }, body: await res.text() });
+  });
+  await p.fill("#plan-repo", "acme/garden-plan"); await p.fill("#token", "synthetic-token"); await p.click("#connect button[type=submit]");
+  await finished(); await p.waitForTimeout(400);
+  await garden();
+  await p.click("#major-atlas"); await p.waitForTimeout(1200);
+  const aNow = () => p.evaluate(() => ({ text: (document.getElementById("atlas-panel") || {}).textContent || "", dots: document.querySelectorAll(".atlas-graph [data-sha]").length,
+    retry: !!document.getElementById("ag-retry"), failed: (document.getElementById("ag-failed") || {}).textContent || null, sum: (document.getElementById("ag-sum") || {}).textContent || null }));
+  atl.fail = { first: await aNow() };
+  arepos["acme/garden"].history = { [F.CODE_COMMIT]: [[ahead]] };
+  await p.click("#ag-retry"); await p.waitForTimeout(1200);
+  atl.fail.commits = await aNow();
+  arepos["acme/garden"].tagList = [];
+  delete arepos["acme/garden"].work;
+  await p.click("#ag-retry"); await p.waitForTimeout(1200);
+  atl.fail.all = await aNow();
+  await p.close();
+
   // 7. Framed: the page refuses to show.
   p = await open();
   await p.goto(BASE + "/frame.html"); await p.waitForTimeout(400);
