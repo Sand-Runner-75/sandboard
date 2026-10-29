@@ -229,3 +229,23 @@ test("an open pull request whose commits cannot be read, past the limit or from 
   assert.deepEqual([L.failed[0].error, L.capped, L.forks], ["HTTP 403", 2, 1]);
   assert.deepEqual([v.tagState.failed, v.tagState.error, v.retry], [true, "HTTP 502", true]);
 });
+
+test("an open line is joined by parents only: older or mixed commit dates never hide it or its cut notice", () => {
+  const base = [c("r0", [], 0)];
+  for (let i = 1; i <= 10; i++) base.push(c("b" + i, ["b" + (i - 1) === "b0" ? "r0" : "b" + (i - 1)], 100 + i));
+  const make = (prefix, dateOf) => { const l = []; for (let i = 0; i < 400; i++) l.push(c(prefix + i, [i ? prefix + (i - 1) : "zz"], dateOf(i))); return l.reverse(); };
+  const older = make("o", i => 1 + i / 1000);                    // every commit dated before the version's window
+  const mixed = make("n", i => i === 399 ? 500 : 1 + i / 1000);   // a newer head on older parents
+  const live = new Map([
+    [K.refs(REPO, "branches"), refs([["main", "b10"]])], [K.refs(REPO, "tags"), refs([])],
+    [SB.workKey.list("pulls", REPO, "all", 1), { state: "current", data: { pulls: [pr(21, "old-line", "o399", "main", { state: "open" }), pr(22, "new-head", "n399", "main", { state: "open" })], end: true } }],
+    [K.lane(REPO, sha("b10"), 1), { state: "current", data: { commits: behind(base, "b10"), end: true } }],
+  ]);
+  for (const [head, list] of [["o399", older], ["n399", mixed]])
+    for (let pg = 1; pg <= 3; pg++) live.set(K.lane(REPO, sha(head), pg), { state: "partial", data: { commits: list.slice((pg - 1) * 100, pg * 100), end: false } });
+  const v = SB.atlasVersions(key => live.get(key), REPO, "main", ["main"], () => 100, 3);
+  const m = v.versions[0];
+  assert.deepEqual(m.lanes.cut, [21, 22], "both lines are said to be cut off");
+  assert.deepEqual(m.heads.filter(h => h.open).map(h => h.pr), [21, 22], "neither head is dropped");
+  assert.equal(m.win.length, 10 + 1 + 2 * 100, "each line draws its newest hundred commits");
+});

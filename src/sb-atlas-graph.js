@@ -259,7 +259,7 @@
 
   // Branch names that usually hold a version, offered first and picked to start with.
   const VERSION = /^(main|master|trunk|staging|stage|stg|develop|development|dev|next|preview|beta|alpha|production|prod|live|v\d+(?:\.\d+)*|version[-_/]?\d+)$/i;
-  const VERSIONS = 6, START = 4, PR_FIRST = 3, PR_MAX = 9, OPEN_LANES = 8, VERSION_PAGES = 30, OPEN_PAGES = 3;
+  const VERSIONS = 6, START = 4, PR_FIRST = 3, PR_MAX = 9, OPEN_LANES = 8, VERSION_PAGES = 30, OPEN_PAGES = 3, OPEN_DRAW = 100;
 
   // The version branches to start with: the default branch, then the others whose names say version.
   function versionStart(list, def) {
@@ -379,36 +379,35 @@
       const openAll = mine.filter(p => p.state === "open"), ownOpen = openAll.filter(p => !p.headRepo || p.headRepo === repo);
       const open = ownOpen.slice(0, OPEN_LANES);
       const lanes = { forks: openAll.length - ownOpen.length, capped: ownOpen.length - open.length, failed: [] };
-      const oldest = win.length ? Date.parse(win[win.length - 1].date) || 0 : 0;
       let openReading = false;
       lanes.cut = [];
       for (const p of open) {
         // Its newest commits, page by page (at most OPEN_PAGES), until its first-parent line reaches this version.
         const by = new Map();
-        let pageEnd = false, stop = null;
+        let stop = null;
         for (let pg = 1; pg <= OPEN_PAGES; pg++) {
           const res = live(K().lane(repo, p.head, pg));
           if (!res) { wanted.push({ kind: "lane", head: p.head, page: pg }); stop = "wait"; break; }
           if (res.state === "loading") { stop = "wait"; break; }
           if (!res.data) { stop = { state: res.state, error: res.error || null }; break; }
           for (const c of res.data.commits) by.set(c.sha, c);
-          if (res.data.end) { pageEnd = true; break; }
+          if (res.data.end) break;
           let c = by.get(p.head);
           while (c && !inWin.has(c.sha) && by.has(c.parents[0])) c = by.get(c.parents[0]);
           if (c && (inWin.has(c.sha) || inWin.has(c.parents[0]) || !c.parents.length)) break;
         }
         if (stop === "wait") { openReading = true; continue; }
         if (stop) { lanes.failed.push(Object.assign({ number: p.number }, stop)); continue; }
+        // Joined only by parent evidence: its first-parent line reaches a commit drawn for this version, or
+        // its first commit. Anything else (not read that far, or longer than is drawn) is drawn cut off and said.
         const extra = [];
         let joined = false, c = by.get(p.head);
-        for (; c && !inWin.has(c.sha); c = by.get(c.parents[0])) {
-          if ((Date.parse(c.at) || 0) < oldest) { joined = true; break; }
+        for (; c && !inWin.has(c.sha) && extra.length < OPEN_DRAW; c = by.get(c.parents[0])) {
           extra.push({ sha: c.sha, parents: c.parents, date: c.at, msg: c.title, author: c.author || "" });
+          if (!c.parents.length) { joined = true; break; }
         }
         if (c && inWin.has(c.sha)) joined = true;
-        if (!c && extra.length && !extra[extra.length - 1].parents.length) joined = true;
-        // A line that never reached this version in what was read is drawn, and said to be cut.
-        if (!joined && !pageEnd) lanes.cut.push(p.number);
+        if (!joined) lanes.cut.push(p.number);
         if (!extra.length) continue;
         for (const c of extra) if (!inWin.has(c.sha)) { inWin.set(c.sha, c); win.push(c); }
         heads.push({ name: p.headRef || "PR #" + p.number, sha: p.head, pr: p.number, open: true });
