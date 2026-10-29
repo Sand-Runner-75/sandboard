@@ -156,8 +156,15 @@
       tip(el("span", {}, KIND[w.kind] || w.kind), w.kind === "project" ? "A project in use, with its own plan." : w.kind === "kit" ? "A reusable starting kit, not a project in use." : "Code only: there is no plan, so no tasks or progress."));
   }
 
-  function header(id, title, entry, extra) {
-    return el("header", { class: "head" }, el("div", { class: "row1" }, el("h1", { id }, title), extra || null), entry ? sourceLine(entry) : null);
+  function header(id, title, entry, ...extra) {
+    return el("header", { class: "head" }, el("div", { class: "row1" }, el("h1", { id }, title), extra), entry ? sourceLine(entry) : null);
+  }
+
+  // Reads only this project again (its plan and repositories), not the workspace list or other projects.
+  function refreshOne(A, entry) {
+    const what = "Refresh only " + entry.w.label + ": read its plan and repositories again from GitHub";
+    return el("button", { type: "button", class: "tool round", id: "refresh-one", "aria-label": what, title: what, "aria-disabled": entry.loading ? "true" : "false",
+                          onclick: () => A.refreshProject(entry.w.id) }, el("span", { "aria-hidden": "true" }, "\u21bb"));
   }
 
   // ---- Progress shapes: every figure exactly as the producer stored it
@@ -419,7 +426,7 @@
     const stages = p.state === "current" && Array.isArray(p.data.stages) ? p.data.stages : null;
     const st = stages && S.view.stage ? stages.find(x => x.id === S.view.stage) : null;
     const sec = el("section", { class: "stack", "aria-labelledby": "view-h" },
-      header("view-h", st ? w.label + ": " + st.name : w.label, entry, el("span", { class: "stage-tag" }, "Overview")));
+      header("view-h", st ? w.label + ": " + st.name : w.label, entry, el("span", { class: "stage-tag" }, "Overview"), refreshOne(A, entry)));
     const plan = planState(entry);
     if (plan !== "current" && plan !== "none" && plan !== "loading") {
       sec.append(notice(plan, plan === "denied" ? "Your token cannot read the plan repository " + w.plan.repo +
@@ -947,7 +954,7 @@
 
   function repo(S, A, entry, name) {
     const sec = el("section", { class: "stack", "aria-labelledby": "view-h" },
-      header("view-h", name, entry, el("span", { class: "stage-tag" }, "Repository")));
+      header("view-h", name, entry, el("span", { class: "stage-tag" }, "Repository"), refreshOne(A, entry)));
     const isPlan = entry.w.plan && entry.w.plan.repo === name;
     const code = entry.code.find(c => c.c.repo === name);
     const pinned = isPlan ? entry.plan : code ? code.pinned : null;
