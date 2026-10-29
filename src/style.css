@@ -187,7 +187,7 @@ dl.props.wide { background: var(--surface); border: 1px solid var(--line); borde
 .glossary { margin-top: 6px; max-height: 40vh; overflow: auto; }
 /* Explanation bubble */
 .tip { position: fixed; z-index: 60; max-width: min(22rem, calc(100vw - 16px)); background: var(--fg); color: var(--bg); padding: 6px 9px; border-radius: var(--r);
-  font-size: 0.8rem; line-height: 1.4; box-shadow: 0 2px 8px rgb(0 0 0 / 0.25); }
+  font-size: 0.8rem; line-height: 1.4; white-space: pre-line; box-shadow: 0 2px 8px rgb(0 0 0 / 0.25); }
 .facts { display: grid; gap: 4px; font-size: 0.84rem; }
 .facts ul, .needs { margin: 4px 0 0; padding-left: 1.1em; display: grid; gap: 4px; }
 .doc { background: var(--sunken); border-radius: var(--r); padding: 10px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.85rem; max-height: 16rem; overflow: auto; margin: 0; }
@@ -332,3 +332,27 @@ pre.diff .hunk, pre.diff .note { color: var(--muted); }
 .found-list .hit { flex-basis: 100%; font-size: 0.82rem; overflow-wrap: anywhere; }
 @media (max-width: 860px) { .files { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 520px) { .cmp-form label, .cmp-form input { width: 100%; } }
+/* The two main tabs: the dashboard as it was, and the Atlas. */
+.major { display: flex; border: 1px solid var(--control); border-radius: var(--r); width: max-content; max-width: 100%; overflow: hidden; }
+.major button { background: none; border: 0; padding: 6px 18px; min-height: 34px; cursor: pointer; font-weight: 600; }
+.major button + button { border-left: 1px solid var(--control); }
+.major button[aria-selected="true"] { background: var(--accent); color: var(--accent-fg); }
+.major button:focus-visible { outline-offset: -3px; }
+/* Atlas panels: a title row with a summary and actions, the picture, its key and how to move in it. */
+.atlas-panel .ph { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.atlas-panel h2 { margin: 0; font-size: 1rem; }
+.atlas-panel .phacts { margin-left: auto; display: flex; gap: 6px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.8rem; color: var(--muted); align-items: center; }
+.legend b { color: var(--fg); font-family: var(--font-data); font-weight: 600; }
+.btn.small { min-height: 28px; padding: 3px 10px; font-size: 0.8rem; }
+.atlas-graph { max-height: 35rem; overflow: auto; cursor: grab; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.atlas-graph.dragging { cursor: grabbing; user-select: none; }
+.atlas-graph svg { display: block; max-width: none; }
+.atlas-graph .gn circle { stroke: var(--surface); stroke-width: 3; }
+.atlas-graph .gn:hover circle { stroke: var(--fg); }
+.atlas-graph text.fl { font: 600 10px var(--font-data); }
+.atlas-graph .guide { stroke: var(--line); }
+.gkey { border-collapse: collapse; font-size: 0.8rem; }
+.gkey th { text-align: left; font-weight: 600; color: var(--muted); padding: 0 14px 4px 0; }
+.gkey td { padding: 2px 14px 2px 0; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cthint { color: var(--muted); font-size: 0.78rem; }

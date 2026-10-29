@@ -56,6 +56,9 @@
       code: new Map(),
       // Search: the words typed, every project or only the current one, and whether task details count.
       search: { q: "", all: false, inside: false },
+      // The two main tabs, and the Atlas: the repository it shows, how many commits each repository's
+      // branch graph shows, and each drawn graph kept with what it was drawn from.
+      major: "dashboard", atlas: { repo: null, show: new Map(), boxes: new Map() },
     };
   }
   let S = freshState();
@@ -72,10 +75,13 @@
     $("signed-out").hidden = S.signedIn;
     $("workspace").hidden = !S.signedIn;
     const focus = focusMark();
+    // A bubble goes with its node; a node kept across drawing (the Atlas graph's dots) keeps its bubble.
+    const tipped = tipFor;
     hideTip();
     V.tree(S, A);
     V.main(S, A);
     restoreFocus(focus);
+    if (tipped && tipped.isConnected) showTip(tipped, null);
     ensureReads();
     if (gotoBox.open) renderGoto();  // an open Go to never keeps places the current access no longer allows
   }
@@ -235,7 +241,9 @@
 
   // The reads the shown view needs and does not have yet. Called after every render; each read starts once.
   function ensureReads() {
-    if (!S.signedIn || !session || !S.run || !S.entries.length || S.activeTab) return;
+    if (!S.signedIn || !session || !S.run || !S.entries.length) return;
+    if (S.major === "atlas") return atlasReads();
+    if (S.activeTab) return;
     if (S.view.kind === "search") return;  // a search reads nothing
     const feed = r => loadLive(SB.feedKey(r.repo, r.pinned.data.commit), readFeed(r.repo, r.pinned.data.commit));
     if (S.view.kind === "activity") {
@@ -262,6 +270,21 @@
       loadLive("lang|" + r.repo, ctx => SB.readLanguages(ctx, client, r.repo)); feed(r);
     } else if (S.view.kind === "overview") {
       for (const r of mine) feed(r);
+    }
+  }
+
+  // The Atlas reads what its branch graph still wants: the branch and tag lists, pages of each drawn
+  // branch's commits, and the pull requests that name branches. They share the history's and the work
+  // evidence's reads, so a refresh drops them the same way.
+  function atlasReads() {
+    const r = A.atlasRepo();
+    if (!r) return;
+    const K = SB.historyKey, repo = r.repo;
+    const g = SB.atlasGraph(key => S.live.get(key), repo, r.meta.branch, A.atlasShow(repo));
+    for (const w of g.wanted) {
+      if (w.kind === "refs") loadLive(K.refs(repo, w.list), ctx => SB.readRefs(ctx, client, repo, w.list));
+      else if (w.kind === "lane") loadLive(K.lane(repo, w.head, w.page), ctx => SB.readHistoryPage(ctx, client, repo, w.head, w.page));
+      else if (w.kind === "pulls") workRead(repo, "pulls", w.state, w.page);
     }
   }
 
@@ -655,6 +678,7 @@
     },
     // The account views (all mapped repositories, their activity, and the inbox) belong to no single project.
     goAccount(kind) {
+      S.major = "dashboard";
       S.view = { kind };
       S.activeTab = null;
       render();
@@ -709,11 +733,59 @@
       A.openCodeFile(repo, path);
     },
     closeMenu: () => setMenu(false),
+    setMajor(kind, focus) {
+      S.major = kind;
+      render();
+      const n = $("major-" + kind);
+      if (focus && n) n.focus();
+    },
+    // The repositories the Atlas can show: every one a project has read, once each.
+    atlasRepos: () => SB.portfolio(S.entries).filter(r => r.meta && r.meta.branch && r.pinned && r.pinned.data),
+    // The one it shows: the one picked, else the open repository, else the open project's first, else the first.
+    atlasRepo() {
+      const rows = A.atlasRepos();
+      const e = entryOf(S.current);
+      const mine = e ? [S.view.kind === "repo" ? S.view.repo : null, ...e.w.code.map(c => c.repo), planRepo(e.w)] : [];
+      for (const want of [S.atlas.repo, ...mine]) { const r = want && rows.find(x => x.repo === want); if (r) return Object.assign({ web: r.pinned.data.web }, r); }
+      return rows[0] ? Object.assign({ web: rows[0].pinned.data.web }, rows[0]) : null;
+    },
+    setAtlasRepo(repo) { S.atlas.repo = repo; render(); },
+    atlasShow: repo => S.atlas.show.get(repo) || SB.ATLAS.FIRST,
+    atlasOlder(repo) {
+      S.atlas.show.set(repo, SB.ATLAS.older(A.atlasShow(repo)));
+      render();
+      announce("Reading older commits.");
+    },
+    // Failed pages of a repository's branch commits are dropped, so they are read again.
+    atlasRetry(repo) {
+      for (const [key, res] of [...S.live]) if (key.startsWith("lane|" + repo + "@") && res.state !== "loading" && !res.data) S.live.delete(key);
+      render();
+    },
+    // The graph drawn for a repository, kept while what it is drawn from is the same, so its zoom, scroll
+    // and replay survive the page being drawn again. A new drawing keeps the old one's zoom and place.
+    atlasBox(repo, sig, build) {
+      const old = S.atlas.boxes.get(repo) || null;
+      if (sig === undefined || (old && old.sig === sig)) return old;
+      const box = build();
+      if (old) {
+        if (old.box.replay) { clearInterval(old.box.replay.timer); old.box.replay = null; }
+        Object.assign(box, { zoom: old.box.zoom, fromRight: old.box.fromRight, top: old.box.top, asked: old.box.asked });
+      }
+      const holder = { sig, box };
+      S.atlas.boxes.set(repo, holder);
+      return holder;
+    },
+    atlasFiles(repo, sha) { loadLive(SB.codeKey.commit(repo, sha), ctx => SB.readCommitChanges(ctx, client, repo, sha)); render(); },
+    // A bubble showing for a node gets the node's new text.
+    retip(node) { if (tipFor === node && !tipBox.hidden) tipBox.textContent = node.getAttribute("data-tip"); },
     go(project, view, opts) {
       if (project !== S.current) { S.filters = noFilters(); S.selected = null; }
       S.current = project;
       S.view = view;
       S.activeTab = null;
+      // In the Atlas, a repository picked in the tree is shown there; anything else is on the dashboard.
+      if (S.major === "atlas" && view.kind === "repo") S.atlas.repo = view.repo;
+      else S.major = "dashboard";
       // A phase picked from the tree or a phase card brings its stage with it, as the filters show it.
       if (opts && opts.phase !== undefined) S.filters = Object.assign(noFilters(), { stage: V.stageIdOf(entryOf(project), opts.phase), phase: opts.phase });
       // A stage picked from the tree or a stage chip opens its tasks with the filters, like a phase.
@@ -835,6 +907,8 @@
     S.histDepth = new Map();
     S.histScroll = new Map();
     S.workDepth = new Map();
+    S.atlas.show = new Map();
+    S.atlas.boxes = new Map();
     S.search = freshState().search;  // a new run searches nothing read before it
     const ctx = session.start();  // same token, new run: replies to the old run are dropped
     announce("Refreshing.");
@@ -855,6 +929,7 @@
     for (const key of [...S.live.keys()]) if (repos.includes(SB.liveKeyRepo(key))) S.live.delete(key);
     for (const m of [S.histDepth, S.histScroll]) for (const key of [...m.keys()]) if (repos.includes(key.split("@")[0])) m.delete(key);
     for (const key of [...S.workDepth.keys()]) if (repos.includes(key.split("|")[1])) S.workDepth.delete(key);
+    for (const m of [S.atlas.show, S.atlas.boxes]) for (const repo of repos) m.delete(repo);
     for (const [key, res] of [...S.docs]) {
       if (key.startsWith(id + "|") && (!["current", "empty", "missing", "invalid"].includes(res.state) || key.includes("|live|"))) S.docs.delete(key);
     }
@@ -898,7 +973,8 @@
 
   function places() {
     const out = [["All repositories", "Account", () => A.goAccount("portfolio")], ["Activity and languages", "Account", () => A.goAccount("activity")],
-                 ["Inbox", "Account", () => A.goAccount("inbox")], ["Search what is read", "Account", () => A.goAccount("search")]];
+                 ["Inbox", "Account", () => A.goAccount("inbox")], ["Search what is read", "Account", () => A.goAccount("search")],
+                 ["Atlas", "View", () => A.setMajor("atlas")], ["Dashboard", "View", () => A.setMajor("dashboard")]];
     for (const e of S.entries) {
       const w = e.w;
       if (w.plan) {
@@ -908,6 +984,7 @@
       for (const r of [w.plan && w.plan.repo, ...w.code.map(c => c.repo)].filter(Boolean)) {
         out.push([r + " (" + w.label + ")", "Repository", () => A.go(w.id, { kind: "repo", repo: r })]);
         out.push([r + " history (" + w.label + ")", "Repository", () => A.go(w.id, { kind: "repo", repo: r, sub: "history" })]);
+        out.push([r + " branch graph (Atlas)", "Atlas", () => { S.atlas.repo = r; A.setMajor("atlas"); $("main").focus(); }]);
         for (const [sub, label] of [["pulls", "pull requests"], ["issues", "issues"], ["runs", "Actions"], ["releases", "releases"], ["files", "files"]]) {
           out.push([r + " " + label + " (" + w.label + ")", "Repository", () => A.go(w.id, { kind: "repo", repo: r, sub })]);
         }
@@ -1008,7 +1085,8 @@
     const node = tipNode(e.target, false);
     if (node === tipFor) { clearTimeout(tipTimer); return; }
     clearTimeout(tipTimer);
-    tipTimer = node ? setTimeout(() => showTip(node, null), TIP_WAIT) : setTimeout(hideTip, 200);
+    // The branch graph's dots and labels answer quickly, as a picture's details do.
+    tipTimer = node ? setTimeout(() => showTip(node, null), node.closest(".atlas-graph") ? 150 : TIP_WAIT) : setTimeout(hideTip, 200);
   });
   document.addEventListener("focusin", e => {
     const node = tipNode(e.target, true);

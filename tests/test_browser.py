@@ -279,10 +279,44 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(o["afterRace"]["disabled"], "false", "the held late answer changes nothing")
         self.assertIn("Refresh only Example Garden Planner", o["onRepo"] or "")
 
+    def test_atlas_tab_draws_the_branch_graph_beside_the_dashboard(self):
+        a = self.r["atlas"]
+        self.assertEqual(a["tabs"], [["Dashboard", "true"], ["Atlas", "false"]], "the dashboard is shown first")
+        self.assertEqual(a["dashboardFirst"], "tabs", "the dashboard below the main tabs is as it was")
+        self.assertEqual(a["byKey"], ["major-atlas", "true", True], "Right moves to the Atlas and keeps the focus on its tab")
+        self.assertEqual(a["repo"], "example-org/demo-app", "the open project's code repository is shown first")
+        g = a["graph"]
+        self.assertEqual(g["dots"], 8)
+        self.assertEqual(g["colours"], ["#17a2a2", "#9b59c9", "#e5534b"], "main red, feature purple, another branch its own colour")
+        self.assertEqual(g["labels"], ["PR #3", "PR #6", "main", "v0.1.0", "v0.2.0"])
+        self.assertEqual(g["key"], [["main", "main"], ["PR #6", "feature/search"], ["PR #3", "list-data"]])
+        self.assertIn("8 commits (whole history)", g["summary"])
+        self.assertIn(g["links"], [[], ["_blank noopener noreferrer"]], "a dot links to its commit only in a new tab without the opener")
+        self.assertFalse(g["html"], "the picture is drawn with picture elements only")
+        z = a["zoom"]
+        self.assertGreater(z["in"], z["start"])
+        self.assertEqual(z["reset"], z["start"])
+        self.assertGreater(z["key"], z["start"], "plus zooms in from the keyboard")
+        self.assertGreater(z["kept"], z["start"], "the zoom stays when the page is drawn again")
+        self.assertEqual(a["replay"]["during"], ["Stop", "true"])
+        self.assertGreater(a["replay"]["hidden"], 0)
+        self.assertEqual(a["replay"]["after"], 0, "the whole graph shows again at the end")
+        self.assertIsNotNone(a["bubble"])
+        self.assertRegex(a["bubble"], r"on main|on feature/search|on list-data")
+        self.assertRegex(a["bubble"], r"files? changed|No files changed|could not be read")
+        self.assertEqual(a["treePick"], ["true", "example-org/demo-plan"])
+        self.assertEqual(a["overview"], ["true", False])
+        self.assertTrue(any("branch graph (Atlas)" in x for x in a["goto"]), a["goto"])
+        self.assertTrue(a["gotoShown"])
+        self.assertLessEqual(a["phone"], 0, "no sideways page scroll on a phone")
+        self.assertEqual(a["afterLeave"][0], 0)
+        self.assertNotIn("demo-app", a["afterLeave"][1])
+        self.assertEqual(a["again"], "true", "a new visit starts on the dashboard")
+
     def test_untrusted_text_is_shown_as_text(self):
         p = self.r["progress"]
         self.assertIn('<script>alert("never runs")</script>', p["hostile"])
-        self.assertEqual((p["scripts"], p["imgs"]), (13, 0))
+        self.assertEqual((p["scripts"], p["imgs"]), (15, 0))
         self.assertEqual(p["writeControls"], [])
 
     def test_copy_is_exactly_the_shown_text_and_a_refusal_is_reported(self):

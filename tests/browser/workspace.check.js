@@ -1328,6 +1328,67 @@ function privateRepos() {
   one.afterForget = await p.evaluate(() => document.body.innerText);
   await p.close();
 
+  // 6d. The Atlas: a second main tab beside the dashboard, with the branch graph of a repository the
+  // projects read. Its tabs work by keyboard; the graph draws every commit with git-flow colours, labels,
+  // tags and a key; zoom, replay and a commit's files work; leaving takes it all away.
+  const atl = out.atlas = {};
+  p = await open();
+  await demo(p);
+  atl.tabs = await p.$$eval("#workspace .major [role=tab]", n => n.map(x => [x.textContent, x.getAttribute("aria-selected")]));
+  atl.dashboardFirst = await p.evaluate(() => { const m = document.querySelector("#workspace .major"); return m && m.nextElementSibling && m.nextElementSibling.className; });
+  await p.focus("#major-dashboard"); await p.keyboard.press("ArrowRight"); await p.waitForTimeout(300);
+  atl.byKey = await p.evaluate(() => [document.activeElement.id, document.getElementById("major-atlas").getAttribute("aria-selected"), !!document.getElementById("atlas-panel")]);
+  await p.waitForFunction(() => document.querySelectorAll(".atlas-graph .gn").length > 0, null, { timeout: 8000 }).catch(() => {});
+  atl.repo = await p.$eval("#atlas-repo", n => n.value);
+  atl.graph = await p.evaluate(() => ({
+    dots: document.querySelectorAll(".atlas-graph .gn").length,
+    colours: [...new Set([...document.querySelectorAll(".atlas-graph .gn circle")].map(c => c.getAttribute("fill")))].sort(),
+    labels: [...document.querySelectorAll(".atlas-graph text.fl")].map(t => t.textContent).sort(),
+    key: [...document.querySelectorAll(".gkey tbody tr")].map(r => [...r.cells].slice(1).map(c => c.textContent)),
+    summary: document.getElementById("ag-sum").textContent,
+    links: [...new Set([...document.querySelectorAll(".atlas-graph a")].map(a => a.getAttribute("target") + " " + a.getAttribute("rel")))],
+    html: [...document.querySelectorAll(".atlas-graph *")].some(n => n.namespaceURI !== "http://www.w3.org/2000/svg"),
+  }));
+  const width = () => p.$eval(".atlas-graph svg", n => parseFloat(n.style.width));
+  atl.zoom = { start: await width() };
+  await p.click("#ag-zin"); await p.waitForTimeout(100); atl.zoom.in = await width();
+  await p.click("#ag-zreset"); await p.waitForTimeout(100); atl.zoom.reset = await width();
+  await p.focus("#ag-box"); await p.keyboard.press("+"); await p.waitForTimeout(100); atl.zoom.key = await width();
+  await p.keyboard.press("0"); await p.waitForTimeout(100);
+  // The zoom stays when the page is drawn again for another reason.
+  await p.click("#ag-zin"); await p.waitForTimeout(100);
+  await p.click("#major-dashboard"); await p.waitForTimeout(200); await p.click("#major-atlas"); await p.waitForTimeout(400);
+  atl.zoom.kept = await width();
+  await p.click("#ag-zreset"); await p.waitForTimeout(100);
+  // Replay: everything is hidden, then shown commit by commit, then all of it again.
+  await p.click("#ag-replay"); await p.waitForTimeout(150);
+  atl.replay = { during: await p.$eval("#ag-replay", n => [n.textContent, n.getAttribute("aria-pressed")]),
+                hidden: await p.$$eval(".atlas-graph [data-s]", n => n.filter(x => x.style.opacity === "0").length) };
+  await p.waitForFunction(() => document.getElementById("ag-replay").textContent === "Replay history", null, { timeout: 8000 }).catch(() => {});
+  atl.replay.after = await p.$$eval(".atlas-graph [data-s]", n => n.filter(x => x.style.opacity === "0").length);
+  // A commit's files show in its bubble once the pointer rests on its dot.
+  const dot = (await p.$$(".atlas-graph .gn"))[0];
+  await dot.hover(); await p.waitForTimeout(1200);
+  atl.bubble = await p.evaluate(() => { const t = document.getElementById("tip"); return t.hidden ? null : t.textContent; });
+  // In the Atlas, a repository picked in the tree is shown there; a project's overview goes to the dashboard.
+  await tree(p, "r:demo:example-org/demo-plan").catch(() => {}); await p.waitForTimeout(500);
+  atl.treePick = await p.evaluate(() => [document.getElementById("major-atlas").getAttribute("aria-selected"), (document.getElementById("atlas-repo") || {}).value || null]);
+  await tree(p, "v:demo:overview"); await p.waitForTimeout(300);
+  atl.overview = await p.evaluate(() => [document.getElementById("major-dashboard").getAttribute("aria-selected"), !!document.getElementById("atlas-panel")]);
+  // Go to reaches it, and a phone screen has no sideways page scroll.
+  await p.keyboard.press("Control+k"); await p.fill("#goto-q", "branch graph"); await p.waitForTimeout(100);
+  atl.goto = await p.$$eval("#goto-list [role=option]", n => n.map(x => x.textContent).slice(0, 3));
+  await p.keyboard.press("Enter"); await p.waitForTimeout(400);
+  atl.gotoShown = await p.evaluate(() => !!document.getElementById("atlas-panel"));
+  await p.setViewportSize({ width: 390, height: 800 }); await p.waitForTimeout(300);
+  atl.phone = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  await p.setViewportSize({ width: 1280, height: 900 });
+  await p.click("#forget"); await p.waitForTimeout(300);
+  atl.afterLeave = await p.evaluate(() => [document.querySelectorAll(".atlas-graph, .major").length, document.getElementById("workspace").textContent]);
+  await demo(p);
+  atl.again = await p.evaluate(() => document.getElementById("major-dashboard").getAttribute("aria-selected"));
+  await p.close();
+
   // 7. Framed: the page refuses to show.
   p = await open();
   await p.goto(BASE + "/frame.html"); await p.waitForTimeout(400);
