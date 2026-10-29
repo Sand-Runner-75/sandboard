@@ -15,6 +15,15 @@ test("saved text that is not a list of short IDs counts as no order", () => {
   assert.equal(SB.savedOrder(JSON.stringify(Array.from({ length: 2000 }, (_, i) => "p" + i))).length, 1000);
 });
 
+test("only the workspace list's own project IDs are kept; found and opened repositories hold their place for the visit", () => {
+  const visit = ["~found-acme/private-thing", "garden", "~opened-1", "recipes"];
+  assert.deepEqual(SB.keptOrder(visit), ["garden", "recipes"], "no repository name or visit place is kept");
+  assert.deepEqual(SB.savedOrder(JSON.stringify(visit)), ["garden", "recipes"], "an older saved order with them is read without them");
+  // The next visit opens another repository by name as ~opened-1: it does not take the first one's place.
+  const next = SB.orderedIds(["garden", "recipes", "~opened-1"], SB.savedOrder(JSON.stringify(SB.keptOrder(visit))));
+  assert.deepEqual(next, ["garden", "recipes", "~opened-1"]);
+});
+
 test("saved projects come first in their saved order, then the rest as the list gives them", () => {
   assert.deepEqual(SB.orderedIds(["a", "b", "c", "d"], []), ["a", "b", "c", "d"]);
   assert.deepEqual(SB.orderedIds(["a", "b", "c", "d"], ["c", "gone", "a"]), ["c", "a", "b", "d"]);
