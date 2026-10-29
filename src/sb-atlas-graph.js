@@ -170,7 +170,9 @@
     };
     // Of two branches of one kind sharing commits, the one with the older pull request claims them.
     const byPr = (a, b) => (a.pr ? 0 : 1) - (b.pr ? 0 : 1) || (a.pr || 0) - (b.pr || 0);
-    for (const b of heads.slice().sort((a, b) => rankOf(a.name, def) - rankOf(b.name, def) || byPr(a, b))) walk(b.sha, { name: b.name, flow: flowOf(b.name, def), pr: b.pr });
+    // The branch the graph is drawn for claims its commits before any other.
+    const own = b => b.name === def ? 0 : 1;
+    for (const b of heads.slice().sort((a, b) => own(a) - own(b) || rankOf(a.name, def) - rankOf(b.name, def) || byPr(a, b))) walk(b.sha, { name: b.name, flow: flowOf(b.name, def), pr: b.pr });
     // The first commit that merged each commit in.
     const mergedBy = new Map();
     for (const k of order) for (const p of k.parents.slice(1)) if (!mergedBy.has(p)) mergedBy.set(p, k);
@@ -250,5 +252,181 @@
              steps: order.map(c => ({ date: c.date, msg: c.msg, x: X(c) })) };
   }
 
-  Object.assign(SB, { ATLAS: { FLOW, OTHER, RANK, FIRST, MORE, BRANCHES, flowOf, rankOf, older }, atlasGraph, atlasLayout });
+  // ---- Versions: the long-lived branches a repository keeps a version of its product on (its default
+  // branch and, say, a staging branch), each drawn on its own: the commits behind that branch, the pull
+  // requests merged into it as lanes of their own, the open ones that target it, and every pull request
+  // whose base is that branch. Plain data from the same cached reads as the branch graph.
+
+  // Branch names that usually hold a version, offered first and picked to start with.
+  const VERSION = /^(main|master|trunk|staging|stage|stg|develop|development|dev|next|preview|beta|alpha|production|prod|live|v\d+(?:\.\d+)*|version[-_/]?\d+)$/i;
+  const VERSIONS = 6, START = 4, PR_FIRST = 3, PR_MAX = 9, OPEN_LANES = 8, VERSION_PAGES = 30, OPEN_PAGES = 3, OPEN_DRAW = 100;
+
+  // The version branches to start with: the default branch, then the others whose names say version.
+  function versionStart(list, def) {
+    const named = list.filter(b => b.name !== def && VERSION.test(b.name)).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    return [...list.filter(b => b.name === def), ...named].slice(0, START).map(b => b.name);
+  }
+
+  // What the versions of a repository can show from the reads in live, and the reads they still want.
+  // picked: the chosen branch names (null: the starting ones); showOf(name): how many commits that version
+  // shows; prPages: how many pages of the repository's pull requests (newest first) are read.
+  function atlasVersions(live, repo, def, picked, showOf, prPages, sharedOf) {
+    const wanted = [];
+    const br = live(K().refs(repo, "branches"));
+    if (!br) return { state: "loading", wanted: [{ kind: "refs", list: "branches" }] };
+    if (br.state === "loading") return { state: "loading", wanted };
+    if (!br.data) return { state: br.state, error: br.error || null, wanted, retry: true };
+    const list = br.data.refs;
+    if (!list.length) return { state: "empty", wanted };
+    const byName = new Map(list.map(b => [b.name, b]));
+    const start = versionStart(list, def);
+    const names = (picked || start).filter(n => byName.has(n)).slice(0, VERSIONS);
+    // The repository's pull requests, newest first, page by page: one list serves every version.
+    const pulls = [], pages = Math.max(1, Math.min(PR_MAX, prPages || PR_FIRST));
+    let prState = "current", prError = null, prEnd = false, prRead = 0;
+    for (let p = 1; p <= pages; p++) {
+      const res = live(SB.workKey.list("pulls", repo, "all", p));
+      if (!res) { wanted.push({ kind: "pulls", state: "all", page: p }); prState = "loading"; break; }
+      if (res.state === "loading") { prState = "loading"; break; }
+      if (!res.data) { prState = res.state; prError = res.error || null; break; }
+      pulls.push(...res.data.pulls); prRead = p;
+      if (res.data.end) { prEnd = true; break; }
+    }
+    const prs = { state: prState, error: prError, failed: !["current", "loading"].includes(prState), end: prEnd, pages: prRead, more: !prEnd && prRead >= pages && pages < PR_MAX };
+    let failed = null;
+    const defBranch = byName.get(def);
+    const versions = names.map(name => {
+      const b = byName.get(name), show = showOf(name) || FIRST;
+      // A version other than the default branch shows only its own commits: those not in the default
+      // branch's history. sharedOf(name) shows the shared ones too.
+      const apart = name !== def && !!defBranch && !(sharedOf && sharedOf(name)) && defBranch.sha !== b.sha;
+      // Which commits are its own is proved from ancestry, never from dates. GitHub's comparison of the two
+      // heads gives their merge base and how many commits the version has that the default branch has not.
+      // A commit the merge base reaches is shared; one that reaches the merge base, or reaches a commit
+      // proved its own, is its own; once the merge base's whole history is read, or as many own commits are
+      // proved as the comparison counts, every other commit read is known too. Anything else is unknown:
+      // counted and said, never drawn as the version's own. (With more than one merge base, which a criss-
+      // cross merge can make, GitHub names one; the shared side is then still never shown as own.)
+      let cmp = null, cmpFailed = null;
+      if (apart) {
+        const res = live(K().compare(repo, defBranch.sha, b.sha));
+        if (!res) wanted.push({ kind: "compare", base: defBranch.sha, head: b.sha });
+        else if (res.state !== "loading" && !res.data) cmpFailed = { branch: name, state: res.state, error: res.error || null };
+        else if (res.data) cmp = res.data;
+      }
+      const seen = [];
+      let reading = false, end = false, broke = null, pB = 0;
+      let mark = new Map();  // sha => "own" | "shared"
+      const prove = () => {
+        mark = new Map();
+        if (!cmp) return;
+        const at = new Map(seen.map(c => [c.sha, c]));
+        if (cmp.base === null) { for (const c of seen) mark.set(c.sha, "own"); return; }
+        // The merge base and everything it reaches inside what was read is shared.
+        let whole = at.has(cmp.base);
+        for (const st = [cmp.base]; st.length;) {
+          const sha = st.pop();
+          if (mark.has(sha)) continue;
+          const c = at.get(sha);
+          if (!c) { whole = false; continue; }
+          mark.set(sha, "shared"); st.push(...c.parents);
+        }
+        // Oldest first: a commit with a parent that is the merge base or its own is its own.
+        for (let i = seen.length - 1; i >= 0; i--) {
+          const c = seen[i];
+          if (!mark.has(c.sha) && c.parents.some(p => p === cmp.base || mark.get(p) === "own")) mark.set(c.sha, "own");
+        }
+        for (let again = true; again;) {
+          again = false;
+          for (const c of seen) if (!mark.has(c.sha) && c.parents.some(p => mark.get(p) === "own")) { mark.set(c.sha, "own"); again = true; }
+        }
+        const owned = seen.filter(c => mark.get(c.sha) === "own").length, left = seen.filter(c => !mark.has(c.sha));
+        if (owned >= cmp.ahead) for (const c of left) mark.set(c.sha, "shared");
+        // The merge base's whole history read: the rest are its own, if their count agrees with GitHub's.
+        else if (whole && owned + left.length === cmp.ahead) for (const c of left) mark.set(c.sha, "own");
+      };
+      const own = () => apart ? seen.filter(c => mark.get(c.sha) === "own") : seen;
+      const allKnown = () => !apart || (cmp && own().length >= cmp.ahead);
+      while (!cmpFailed && !(apart && !cmp) && own().length < show && !(apart && allKnown()) && !end && pB < VERSION_PAGES) {
+        const res = live(K().lane(repo, b.sha, pB + 1));
+        if (!res) { wanted.push({ kind: "lane", head: b.sha, page: pB + 1 }); reading = true; break; }
+        if (res.state === "loading") { reading = true; break; }
+        if (!res.data) { broke = { branch: name, state: res.state, error: res.error || null }; break; }
+        pB++; seen.push(...res.data.commits);
+        if (res.data.end) end = true;
+        prove();
+      }
+      if (apart && cmp && !pB) prove();
+      broke = broke || cmpFailed;
+      if (apart && !cmp && !cmpFailed) reading = true;
+      const unknown = apart ? seen.filter(c => !mark.has(c.sha)).length : 0;
+      failed = failed || broke;
+      const mineAll = own();
+      const win = mineAll.slice(0, show).map(c => ({ sha: c.sha, parents: c.parents, date: c.at, msg: c.title, author: c.author || "" }));
+      const inWin = new Map(win.map(c => [c.sha, c]));
+      const mine = pulls.filter(p => p.baseRef === name);
+      // Merged pull requests whose last commit is in the window are lanes of their own; one merged by
+      // squash or rebase left no commit of its own here, so its mark sits on the commit it became.
+      const heads = [{ name, sha: b.sha }], marks = [];
+      for (const p of mine) {
+        if (!p.merged) continue;
+        if (inWin.has(p.head)) heads.push({ name: p.headRef || "PR #" + p.number, sha: p.head, pr: p.number });
+        else if (p.mergeCommit && inWin.has(p.mergeCommit)) marks.push({ name: "PR #" + p.number, sha: p.mergeCommit });
+      }
+      // Open pull requests from this repository's own branches: their newest commits, down to where they
+      // leave this version, drawn as lanes too (at most OPEN_LANES of them).
+      // What is not drawn is said: open ones from forks, those past the limit, and those whose commits could not be read.
+      const openAll = mine.filter(p => p.state === "open"), ownOpen = openAll.filter(p => !p.headRepo || p.headRepo === repo);
+      const open = ownOpen.slice(0, OPEN_LANES);
+      const lanes = { forks: openAll.length - ownOpen.length, capped: ownOpen.length - open.length, failed: [] };
+      let openReading = false;
+      lanes.cut = [];
+      for (const p of open) {
+        // Its newest commits, page by page (at most OPEN_PAGES), until its first-parent line reaches this version.
+        const by = new Map();
+        let stop = null;
+        for (let pg = 1; pg <= OPEN_PAGES; pg++) {
+          const res = live(K().lane(repo, p.head, pg));
+          if (!res) { wanted.push({ kind: "lane", head: p.head, page: pg }); stop = "wait"; break; }
+          if (res.state === "loading") { stop = "wait"; break; }
+          if (!res.data) { stop = { state: res.state, error: res.error || null }; break; }
+          for (const c of res.data.commits) by.set(c.sha, c);
+          if (res.data.end) break;
+          let c = by.get(p.head);
+          while (c && !inWin.has(c.sha) && by.has(c.parents[0])) c = by.get(c.parents[0]);
+          if (c && (inWin.has(c.sha) || inWin.has(c.parents[0]) || !c.parents.length)) break;
+        }
+        if (stop === "wait") { openReading = true; continue; }
+        if (stop) { lanes.failed.push(Object.assign({ number: p.number }, stop)); continue; }
+        // Joined only by parent evidence: its first-parent line reaches a commit drawn for this version, or
+        // its first commit. Anything else (not read that far, or longer than is drawn) is drawn cut off and said.
+        const extra = [];
+        let joined = false, c = by.get(p.head);
+        for (; c && !inWin.has(c.sha) && extra.length < OPEN_DRAW; c = by.get(c.parents[0])) {
+          extra.push({ sha: c.sha, parents: c.parents, date: c.at, msg: c.title, author: c.author || "" });
+          if (!c.parents.length) { joined = true; break; }
+        }
+        if (c && inWin.has(c.sha)) joined = true;
+        if (!joined) lanes.cut.push(p.number);
+        if (!extra.length) continue;
+        for (const c of extra) if (!inWin.has(c.sha)) { inWin.set(c.sha, c); win.push(c); }
+        heads.push({ name: p.headRef || "PR #" + p.number, sha: p.head, pr: p.number, open: true });
+      }
+      const count = { open: 0, draft: 0, merged: 0, closed: 0 };
+      for (const p of mine) count[p.merged ? "merged" : p.state === "open" ? (p.draft ? "draft" : "open") : "closed"]++;
+      return { name, sha: b.sha, isDefault: name === def, apart, canApart: name !== def && !!defBranch, show, win, heads, marks, pulls: mine, count,
+               unknown, ahead: cmp ? cmp.ahead : null, lanes, more: (mineAll.length > show || (!end && pB < VERSION_PAGES && !allKnown())) && !broke, reading: reading || openReading, failed: broke, shown: Math.min(mineAll.length, show) };
+    });
+    const tags = live(K().refs(repo, "tags"));
+    if (!tags) wanted.push({ kind: "refs", list: "tags" });
+    const tagList = tags && tags.data ? tags.data.refs.map(t => ({ name: t.name, sha: t.sha })) : [];
+    const tagState = readState(tags);
+    const laneFailed = versions.some(x => x.lanes.failed.length);
+    // One read is wanted once, however many versions want it.
+    const once = [...new Map(wanted.map(w => [JSON.stringify(w), w])).values()];
+    return { state: "current", wanted: once, def, branches: list.map(b => b.name), start, picked: names, max: VERSIONS,
+             partialBranches: br.state === "partial", versions, prs, tags: tagList, tagState, failed, retry: !!failed || prs.failed || tagState.failed || laneFailed };
+  }
+
+  Object.assign(SB, { ATLAS: { FLOW, OTHER, RANK, FIRST, MORE, BRANCHES, VERSIONS, PR_FIRST, PR_MAX, OPEN_LANES, VERSION_PAGES, OPEN_PAGES, flowOf, rankOf, older, versionStart }, atlasGraph, atlasLayout, atlasVersions });
 })(typeof window !== "undefined" ? window : globalThis);
