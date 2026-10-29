@@ -90,7 +90,7 @@
       return el("li", { "data-result": "pull" }, open(el("span", {}, el("span", { class: "mono" }, it.repo + " #" + it.number), " ", shown(it.title)),
           () => A.go(project.id, { kind: "repo", repo: it.repo, sub: "pulls" }), { "data-open": "pull|" + project.id + "|" + it.repo + "#" + it.number }),
         el("span", { class: "qual muted" }, (it.merged ? "merged" : it.state) + " · head ", el("span", { class: "mono", title: it.head }, short(it.head)),
-          " · as GitHub listed it " + (it.readAt ? "at " + it.readAt.slice(0, 16).replace("T", " ") + " UTC" : "on this visit")), where);
+          " · as GitHub listed it " + (it.readAt ? "at " + (SB.localWhen(it.readAt) || it.readAt) : "on this visit")), where);
     }
     const label = el("span", { class: "mono" }, it.path);
     return el("li", { "data-result": it.kind }, open(label, () => A.openFound(project.id, it.repo, it.path), { "data-open": it.kind + "|" + project.id + "|" + it.repo + "|" + it.path }),

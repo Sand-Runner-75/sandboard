@@ -399,10 +399,27 @@
 
   // A UTC day as GitHub-style ISO text; years past 9999 or before 0 keep their sign and six digits.
   const isoDay = t => new Date(t).toISOString().split("T")[0];
-  // The Monday that starts a time's week, or the earliest day a date can hold when that Monday is before it.
-  const mondayOf = t => { const d = new Date(t); const back = (d.getUTCDay() + 6) % 7;
-    const m = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - back);
-    return isoDay(Number.isNaN(m) ? -864e13 : m); };
+  // Times are shown in the viewer's own time zone, as the device reports it (no location is looked up).
+  // A time moved by its zone offset, kept inside the range a date can hold.
+  const EDGE = 864e13;
+  const shifted = t => Math.max(-EDGE, Math.min(EDGE, t - new Date(t).getTimezoneOffset() * 6e4));
+  const stamp = t => { const v = typeof t === "string" ? Date.parse(t) : t;
+    return typeof v === "number" && !Number.isNaN(v) && Math.abs(v) <= EDGE ? v : null; };
+  // The local calendar day a time falls on, in the same ISO text.
+  const localDay = t => { const v = stamp(t); return v === null ? null : isoDay(shifted(v)); };
+  // The zone a time is shown in: "UTC", "UTC+3" or "UTC-9:30".
+  const zoneOf = t => { const v = stamp(t), off = -new Date(v === null ? Date.now() : v).getTimezoneOffset();
+    if (!off) return "UTC";
+    const a = Math.abs(off), m = a % 60;
+    return "UTC" + (off < 0 ? "-" : "+") + Math.floor(a / 60) + (m ? ":" + String(m).padStart(2, "0") : ""); };
+  // A local date and time to the minute, "2026-10-29 05:20", and the same with its zone.
+  const localStamp = t => { const v = stamp(t); if (v === null) return null;
+    const iso = new Date(shifted(v)).toISOString(), i = iso.indexOf("T");
+    return iso.slice(0, i) + " " + iso.slice(i + 1, i + 6); };
+  const localWhen = t => { const s = localStamp(t); return s === null ? "" : s + " " + zoneOf(t); };
+  // The Monday that starts a time's local week, or the earliest day a date can hold when that Monday is before it.
+  const mondayOf = t => { const back = (new Date(shifted(t)).getUTCDay() + 6) % 7;
+    return isoDay(Math.max(-EDGE, Date.parse(localDay(t)) - back * 864e5)); };
 
   // Live reads for a repository's history, by what each one is read at.
   const historyKey = {
@@ -472,7 +489,7 @@
     return { state, error, end, pages, main, branches, tags, compared, graph, wanted, more: !end && !error && pages === depth };
   }
 
-  // Commits read per week (Monday, UTC) and per day, for the latest weeks and days of the window from the
+  // Commits read per local week (from Monday) and per local day, for the latest weeks and days of the window from the
   // oldest commit read to the newest: WEEKS_SHOWN weeks and DAYS_SHOWN days, each counting 0 when none was
   // read. Only the shown buckets are built, however far apart the dates are; weekSpan and daySpan say how
   // many weeks and days the whole window has, so the view can say how many it did not draw.
@@ -482,14 +499,14 @@
     if (!times.length) return { weeks: [], days: [], weekSpan: 0, daySpan: 0, from: null, to: null, untimed: commits.length };
     const lo = times.reduce((a, b) => Math.min(a, b)), hi = times.reduce((a, b) => Math.max(a, b));
     const byWeek = new Map(), byDay = new Map();
-    for (const t of times) { const w = mondayOf(t), d = isoDay(t); byWeek.set(w, (byWeek.get(w) || 0) + 1); byDay.set(d, (byDay.get(d) || 0) + 1); }
+    for (const t of times) { const w = mondayOf(t), d = localDay(t); byWeek.set(w, (byWeek.get(w) || 0) + 1); byDay.set(d, (byDay.get(d) || 0) + 1); }
     const span = (first, last, step) => Math.round((Date.parse(last) - Date.parse(first)) / step) + 1;
     const fill = (last, n, step, counts, key) => Array.from({ length: n }, (_, i) => {
       const at = isoDay(Date.parse(last) - (n - 1 - i) * step); return { [key]: at, n: counts.get(at) || 0 }; });
-    const weekSpan = span(mondayOf(lo), mondayOf(hi), 7 * DAY), daySpan = span(isoDay(lo), isoDay(hi), DAY);
+    const weekSpan = span(mondayOf(lo), mondayOf(hi), 7 * DAY), daySpan = span(localDay(lo), localDay(hi), DAY);
     return { weeks: fill(mondayOf(hi), Math.min(weekSpan, WEEKS_SHOWN), 7 * DAY, byWeek, "week"),
-             days: fill(isoDay(hi), Math.min(daySpan, DAYS_SHOWN), DAY, byDay, "day"),
-             weekSpan, daySpan, from: isoDay(lo), to: isoDay(hi), untimed: commits.length - times.length };
+             days: fill(localDay(hi), Math.min(daySpan, DAYS_SHOWN), DAY, byDay, "day"),
+             weekSpan, daySpan, from: localDay(lo), to: localDay(hi), untimed: commits.length - times.length };
   }
 
   // Commits read per GitHub login, most first. A commit not linked to a GitHub account is counted, never named.
@@ -886,7 +903,7 @@
                       historyOrder, historyGraph, commitTimes, WEEKS_SHOWN, DAYS_SHOWN, contributors,
                       workKey, workList, pullState, reviewEvidence, runOutcome, inboxScope, inbox, historyKey, COMPARE_FIRST, comparedBranches, historyView,
                       ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
-                      approvals, resultHref, tabKey, stageOfPhase, short,
+                      approvals, resultHref, tabKey, stageOfPhase, short, localDay, localStamp, localWhen, zoneOf,
                       HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs,
                       codeKey, liveKeyRepo, MAX_TEXT_LINES, MAX_SEARCH, searchSources, searchFind, searchCoverage, MAX_DIFF_LINES, MAX_FOUND, MAX_READ_BYTES, codeTree, codeFind, codeOpenable, textLines, textPieces, diffLines });
 })(typeof window !== "undefined" ? window : globalThis);

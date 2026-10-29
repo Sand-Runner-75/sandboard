@@ -416,7 +416,7 @@
       ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
       ctx.fillStyle = ink; ctx.font = "600 18px " + FONT; ctx.fillText(clip(ctx, r.repo, W - 200), PAD, 30);
       ctx.fillStyle = muted; ctx.font = "13px " + MONO;
-      ctx.fillText(clip(ctx, String(shown[k].date || "").slice(0, 10) + " · " + shown[k].msg, W - PAD * 2), PAD, 52);
+      ctx.fillText(clip(ctx, (SB.localDay(shown[k].date) || "") + " · " + shown[k].msg, W - PAD * 2), PAD, 52);
       ctx.textAlign = "right"; ctx.fillText((k + 1) + "/" + n, W - PAD, 30);
       if (img) ctx.drawImage(img, PAD, HEAD, W0 * scale, H0 * scale);
       ctx.textAlign = "left"; ctx.font = "12px " + MONO;
@@ -518,7 +518,7 @@
       const s = V.sim, c = data.commits[Math.max(0, s.k - 1)];
       range.value = String(s.k);
       at.textContent = s.k + "/" + n;
-      cv.setAttribute("aria-label", "Code tree at commit " + s.k + " of " + n + (s.k && c ? ": " + String(c.date || "").slice(0, 10) + ", " + c.msg + " by " + c.author : "") +
+      cv.setAttribute("aria-label", "Code tree at commit " + s.k + " of " + n + (s.k && c ? ": " + (SB.localDay(c.date) || "no time given") + ", " + c.msg + " by " + c.author : "") +
         ". " + s.files.size.toLocaleString("en") + " files. " + TREE_HINT);
     }
     function seek(k) {

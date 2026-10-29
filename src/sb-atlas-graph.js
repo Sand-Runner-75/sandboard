@@ -145,7 +145,7 @@
   // ---- Layout: where everything goes, as plain data.
 
   const COL = 34, ROW = 62, PADL = 46, TOP = 40, R = 8;
-  const day = t => typeof t === "string" ? t.slice(0, 10) : "no time given";
+  const day = t => typeof t === "string" ? SB.localDay(t) || t.slice(0, 10) : "no time given";
   const cut = (s, n) => s.length > n ? s.slice(0, n - 1) + "…" : s;
 
   function atlasLayout(def, all, heads, tags) {
