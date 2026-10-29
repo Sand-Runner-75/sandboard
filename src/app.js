@@ -57,7 +57,7 @@
       list: { state: "loading" }, entries: [], current: null,
       view: { kind: "overview" }, filters: noFilters(), selected: null,
       tabs: [], activeTab: null, docs: new Map(), mapped: new Map(),
-      expanded: new Set(["g:projects", "g:account"]), treeFocus: null, order: orderStore.read(),
+      expanded: new Set(["g:projects", "g:across", "g:account"]), treeFocus: null, order: orderStore.read(),
       // Repository overview: live reads by repository (languages, activity feed, the account), the
       // portfolio filters, and repositories opened by name for this visit only.
       live: new Map(), repoFilters: noRepoFilters(), opened: [],
@@ -275,7 +275,8 @@
     if (S.view.kind === "search") return;  // a search reads nothing
     const feed = r => loadLive(SB.feedKey(r.repo, r.pinned.data.commit), readFeed(r.repo, r.pinned.data.commit));
     // Home reads the activity of the listed projects' repositories, at most V.HOME_REPOS of them.
-    if (S.view.kind === "home") { for (const r of V.homeRepos(S).rows) if (r.meta) feed(r); return; }
+    // The timeline and calendar across projects read the same repositories as Home.
+    if (["home", "timeline", "calendar"].includes(S.view.kind)) { for (const r of V.homeRepos(S).rows) if (r.meta) feed(r); return; }
     if (S.view.kind === "activity") {
       loadLive("user", ctx => SB.readUser(ctx, client));
       for (const r of SB.portfolio(S.entries)) if (r.meta) loadLive("lang|" + r.repo, ctx => SB.readLanguages(ctx, client, r.repo));
@@ -828,7 +829,16 @@
     // The account views (all mapped repositories, their activity, and the inbox) belong to no single project.
     goAccount(kind) {
       S.major = "dashboard";
+      if (["timeline", "calendar"].includes(kind) && !["timeline", "calendar"].includes(S.view.kind)) { S.calMonth = null; S.calDay = null; }
       S.view = { kind };
+      S.activeTab = null;
+      render();
+      $("main").focus();
+    },
+    // A member's page: the tasks naming them across projects.
+    goMember(name) {
+      S.major = "dashboard";
+      S.view = { kind: "member", name: String(name) };
       S.activeTab = null;
       render();
       $("main").focus();
@@ -1240,8 +1250,11 @@
   function places() {
     const out = [["Home", "Every project", () => A.goAccount("home")], ["All repositories", "Account", () => A.goAccount("portfolio")], ["Activity and languages", "Account", () => A.goAccount("activity")],
                  ["Inbox", "Account", () => A.goAccount("inbox")], ["Search what is read", "Account", () => A.goAccount("search")],
+                 ["Timeline of every project", "Across projects", () => A.goAccount("timeline")], ["Calendar of every project", "Across projects", () => A.goAccount("calendar")],
+                 ["Members", "Across projects", () => A.goAccount("members")], ["Teams", "Across projects", () => A.goAccount("teams")],
                  ["Atlas", "View", () => A.setMajor("atlas")], ["Progress (main tab)", "View", () => A.setMajor("dashboard")],
                  ["Your account (Atlas)", "Atlas", () => { S.atlas.part = "account"; A.setMajor("atlas"); $("main").focus(); }]];
+    for (const m of SB.members(S.entries)) out.push([m.name, "Member", () => A.goMember(m.name)]);
     for (const e of S.entries) {
       const w = e.w;
       if (w.plan) {
@@ -1390,7 +1403,7 @@
   // ---- Events
 
   $("expand-all").addEventListener("click", () => { for (const id of V.treeGroups(S, A)) S.expanded.add(id); render(); });
-  $("collapse-all").addEventListener("click", () => { S.expanded = new Set(["g:projects", "g:account"]); render(); });
+  $("collapse-all").addEventListener("click", () => { S.expanded = new Set(["g:projects", "g:across", "g:account"]); render(); });
   $("connect").addEventListener("submit", connect);
   $("show-demo").addEventListener("click", showDemo);
   $("forget").addEventListener("click", () => { endSession(S.demo ? "demo" : "forget"); $("main").focus(); });

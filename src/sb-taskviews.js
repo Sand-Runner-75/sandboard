@@ -56,8 +56,8 @@
   }
 
   // The project's activity read so far, as Recent activity reads it, with what is still being read or failed.
-  function activity(S, A, entry) {
-    const rows = SB.portfolio([entry]);
+  function activity(S, A, entries, repoRows) {
+    const rows = repoRows || SB.portfolio(entries);
     const sources = [], parts = [];
     let loading = 0, failed = 0;
     for (const r of rows) {
@@ -72,9 +72,9 @@
     return { events: feed.events, untimed: feed.untimed, parts, loading, failed, read: sources.length };
   }
 
-  function coverage(act, found, rows) {
+  function coverage(act, found, total) {
     const out = [];
-    const none = rows.length - found;
+    const none = total - found;
     out.push(plural(found, "task") + " named by the activity read" + (none ? "; " + plural(none, "task") + " named by none, so not shown" : "") + ".");
     if (act.loading) out.push("Still reading " + plural(act.loading, "repository", "repositories") + ".");
     if (act.failed) out.push(plural(act.failed, "repository", "repositories") + " could not be read; the overview says why.");
@@ -84,20 +84,26 @@
     return out.map(t => el("p", { class: "qual muted plain" }, t));
   }
 
-  // A bar per task named by the activity read, from its first to its last day, grouped by phase.
-  function timeline(S, A, entry, rows) {
-    const box = el("div", { class: "stack tight", "data-part": "task-timeline" });
-    const act = activity(S, A, entry);
+  // A project's tasks named by its activity read, each with its dates, its phase and what opening it does.
+  function projectItems(S, A, act, rows) {
     const dates = SB.taskActivity(rows, act.events);
-    if (!dates.size) {
-      box.append(act.loading ? notice("loading", "Reading the project's activity.") : el("p", { class: "muted plain" }, "No activity read names any of these tasks, so there is nothing to place on a timeline."), ...coverage(act, 0, rows));
+    const items = rows.filter(t => dates.has(t.id)).map(t => ({ uid: t.id, t, d: dates.get(t.id), current: S.selected === t.id, open: () => A.select(t.id),
+      group: t.phase ? t.phase.id + " " + t.phase.name : t.section || "No phase" }));
+    return { items, found: dates.size, total: rows.length };
+  }
+
+  // A bar per task named by the activity read, from its first to its last day, grouped as the items say.
+  function timelineFrom(S, A, act, got, part, empty) {
+    const box = el("div", { class: "stack tight", "data-part": part });
+    const { items } = got;
+    if (!items.length) {
+      box.append(act.loading ? notice("loading", part.startsWith("task-") ? "Reading the project's activity." : "Reading the projects' activity.") : el("p", { class: "muted plain" }, empty), ...coverage(act, 0, got.total));
       return box;
     }
     const zoom = S.tlZoom;
     const today = SB.localDay(Date.now());
-    const days = [...dates.values()];
     // The scale covers the activity read; today is marked only when it falls inside it.
-    const first = days.map(d => d.first).sort()[0], last = days.map(d => d.last).sort().pop();
+    const first = items.map(x => x.d.first).sort()[0], last = items.map(x => x.d.last).sort().pop();
     const sc = SB.timelineScale(first, last, zoom, TIMELINE_COLS[zoom]);
     box.append(el("div", { class: "acts" },
       el("div", { class: "seg", role: "group", "aria-label": "Timeline scale" }, [["weeks", "Weeks"], ["months", "Months"]].map(([k, name]) =>
@@ -110,22 +116,19 @@
       n.style.left = (sc.at(c) * 100).toFixed(3) + "%"; return n; }));
     const lanes = el("div", { class: "tl-lanes" });
     const groups = [];
-    for (const t of rows) {
-      if (!dates.has(t.id)) continue;
-      const key = t.phase ? t.phase.id + " " + t.phase.name : t.section || "No phase";
-      let g = groups.find(x => x.key === key);
-      if (!g) groups.push(g = { key, tasks: [] });
-      g.tasks.push(t);
+    for (const x of items) {
+      let g = groups.find(y => y.key === x.group);
+      if (!g) groups.push(g = { key: x.group, items: [] });
+      g.items.push(x);
     }
     for (const g of groups) {
       lanes.append(el("h3", { class: "tl-group" }, g.key));
-      for (const t of g.tasks) {
-        const d = dates.get(t.id);
+      for (const { uid, t, d, current, open, tag } of g.items) {
         const cut = d.last < sc.start;
         const from = d.first < sc.start ? sc.start : d.first;
-        const label = t.id + " " + (t.title || "") + ", " + t.status + ", named from " + d.first + " to " + d.last + " (" + plural(d.events.length, "event") + ")";
-        const bar = cut ? null : pos(el("button", { type: "button", class: "tl-bar st-" + (STATUS_CLASS[t.status] || "invalid") + (S.selected === t.id ? " current" : ""),
-          "data-task": t.id, "aria-label": label, title: label, onclick: () => A.select(t.id) }, el("span", {}, t.id + " " + (t.title || ""))), from, d.last);
+        const label = t.id + " " + (t.title || "") + (tag ? " (" + tag + ")" : "") + ", " + t.status + ", named from " + d.first + " to " + d.last + " (" + plural(d.events.length, "event") + ")";
+        const bar = cut ? null : pos(el("button", { type: "button", class: "tl-bar st-" + (STATUS_CLASS[t.status] || "invalid") + (current ? " current" : ""),
+          "data-task": uid, "aria-label": label, title: label, onclick: open }, el("span", {}, t.id + " " + (t.title || ""))), from, d.last);
         lanes.append(el("div", { class: "tl-row" }, el("div", { class: "tl-name" }, t.id),
           el("div", { class: "tl-track" }, bar || el("span", { class: "muted qual" }, "Before the dates shown"))));
       }
@@ -138,20 +141,18 @@
     }
     box.append(el("div", { class: "table-wrap flat tl-wrap" }, track));
     if (sc.cut) box.append(el("p", { class: "qual muted plain" }, plural(sc.cut, zoom === "months" ? "older month is" : "older week is", zoom === "months" ? "older months are" : "older weeks are") + " not shown; bars that start there begin at the left edge."));
-    box.append(...coverage(act, dates.size, rows));
+    box.append(...coverage(act, got.found, got.total));
     return box;
   }
 
   // A month of local days with the events that name a task; the month starts at the newest event's.
-  function calendar(S, A, entry, rows) {
-    const box = el("div", { class: "stack tight", "data-part": "task-calendar" });
-    const act = activity(S, A, entry);
-    const dates = SB.taskActivity(rows, act.events);
+  function calendarFrom(S, A, act, got, part, what) {
+    const box = el("div", { class: "stack tight", "data-part": part });
     const byDay = new Map();
-    for (const t of rows) {
-      const d = dates.get(t.id);
-      if (!d) continue;
-      for (const ev of d.events) { const day = SB.localDay(ev.at); if (!byDay.has(day)) byDay.set(day, []); byDay.get(day).push({ t, ev }); }
+    for (const x of got.items) for (const ev of x.d.events) {
+      const day = SB.localDay(ev.at);
+      if (!byDay.has(day)) byDay.set(day, []);
+      byDay.get(day).push({ x, ev });
     }
     const newest = [...byDay.keys()].sort().pop();
     const month = S.calMonth || (newest || SB.localDay(Date.now())).slice(0, 7);
@@ -171,15 +172,59 @@
         inMonth += items.length;
         return el("td", { class: (day.slice(0, 7) !== month ? "out" : "") + (day === today ? " today" : ""), "aria-label": dayName(day) + (items.length ? ", " + plural(items.length, "event") : "") },
           el("div", { class: "cal-day" }, String(+day.slice(8))),
-          items.length ? el("ul", { class: "cal-items" }, (S.calDay === day ? items : items.slice(0, CAL_SHOWN)).map(({ t, ev }) => el("li", {},
-            el("button", { type: "button", class: "cal-chip st-" + (STATUS_CLASS[t.status] || "invalid"), "data-task": t.id,
-              title: EVENT[ev.kind] + " " + ev.id + ": " + ev.title, onclick: () => A.select(t.id) }, EVENT[ev.kind] + " " + t.id))),
+          items.length ? el("ul", { class: "cal-items" }, (S.calDay === day ? items : items.slice(0, CAL_SHOWN)).map(({ x, ev }) => el("li", {},
+            el("button", { type: "button", class: "cal-chip st-" + (STATUS_CLASS[x.t.status] || "invalid"), "data-task": x.uid,
+              title: EVENT[ev.kind] + " " + ev.id + ": " + ev.title + (x.tag ? " (" + x.tag + ")" : ""), onclick: x.open }, EVENT[ev.kind] + " " + x.t.id))),
             items.length > CAL_SHOWN ? el("li", {}, el("button", { type: "button", class: "linkbtn cal-more", id: "cal-more-" + day, "aria-expanded": String(S.calDay === day),
               onclick: () => A.calDay(S.calDay === day ? null : day, "cal-more-" + day) }, S.calDay === day ? "Show fewer" : "+" + (items.length - CAL_SHOWN) + " more")) : null) : null);
       })))))));
-    if (!inMonth) box.append(el("p", { class: "muted plain" }, act.loading && !act.events.length ? "Reading the project's activity." : "No activity read names these tasks in " + title + "."));
-    box.append(...coverage(act, dates.size, rows));
+    if (!inMonth) box.append(el("p", { class: "muted plain" }, act.loading && !act.events.length ? (part.startsWith("task-") ? "Reading the project's activity." : "Reading the projects' activity.") : "No activity read names " + what + " in " + title + "."));
+    box.append(...coverage(act, got.found, got.total));
     return box;
+  }
+
+  function timeline(S, A, entry, rows) {
+    const act = activity(S, A, [entry]);
+    return timelineFrom(S, A, act, projectItems(S, A, act, rows), "task-timeline", "No activity read names any of these tasks, so there is nothing to place on a timeline.");
+  }
+  function calendar(S, A, entry, rows) {
+    const act = activity(S, A, [entry]);
+    return calendarFrom(S, A, act, projectItems(S, A, act, rows), "task-calendar", "these tasks");
+  }
+
+  // ---- Across projects: every listed project's tasks on one timeline or calendar, grouped by project. The
+  // activity is the one Home reads (the listed projects' repositories, at most V.HOME_REPOS); a project's
+  // tasks are matched only against its own repositories' events, so the same ID in two projects stays apart.
+  function workspaceItems(S, A) {
+    const { rows, left } = V.homeRepos(S);
+    const act = activity(S, A, null, rows);
+    act.left = left;
+    const items = [];
+    let found = 0, total = 0;
+    V.orderedEntries(S).forEach(e => {
+      if (!V.rowsVisible(e)) return;
+      const tasks = e.tasks.filter(t => !t.invalid && t.status !== "Removed");
+      const own = new Set([e.w.plan && e.w.plan.repo, ...e.w.code.map(c => c.repo)].filter(Boolean));
+      const dates = SB.taskActivity(tasks, act.events.filter(ev => own.has(ev.repo)));
+      total += tasks.length; found += dates.size;
+      for (const t of tasks) if (dates.has(t.id)) items.push({ uid: e.w.id + ":" + t.id, t, d: dates.get(t.id), group: e.w.label, tag: e.w.label, current: false,
+        open: () => A.go(e.w.id, { kind: "tasks" }, { phase: "", select: t.id }) });
+    });
+    return { act, got: { items, found, total } };
+  }
+  function scopeSwitch(S, A) {
+    return el("div", { class: "seg layouts", role: "group", "aria-label": "Show every project's tasks as" }, [["timeline", "Timeline"], ["calendar", "Calendar"]].map(([k, name]) =>
+      el("button", { type: "button", id: "all-" + k, "aria-pressed": String(S.view.kind === k), onclick: () => A.goAccount(k) }, name)));
+  }
+  function workspaceView(S, A) {
+    const { act, got } = workspaceItems(S, A);
+    const kind = S.view.kind;
+    const head = el("header", { class: "head" }, el("h1", { id: "view-h", tabindex: "-1" }, kind === "calendar" ? "Calendar" : "Timeline"),
+      el("p", { class: "muted plain" }, "Every project's tasks, placed by the activity that names them. Not due dates and not progress."));
+    const body = kind === "calendar" ? calendarFrom(S, A, act, got, "all-calendar", "any project's tasks")
+      : timelineFrom(S, A, act, got, "all-timeline", "No activity read names any project's task, so there is nothing to place on a timeline.");
+    if (act.left) body.append(el("p", { class: "qual muted plain" }, "Read from the first " + V.HOME_REPOS + " repositories of the listed projects, in tree order; " + plural(act.left, "more is", "more are") + " not read here."));
+    return el("section", { class: "stack", "aria-labelledby": "view-h", "data-part": "all-" + kind }, head, el("div", { class: "acts" }, scopeSwitch(S, A)), body);
   }
 
   // The layout picked, for the rows the filters give; the list stays where it was.
@@ -191,5 +236,5 @@
     return null;
   }
 
-  Object.assign(V, { layoutSwitch, taskLayout, TASK_LAYOUTS: LAYOUTS.map(l => l[0]) });
+  Object.assign(V, { layoutSwitch, taskLayout, workspaceView, TASK_LAYOUTS: LAYOUTS.map(l => l[0]) });
 })(typeof window !== "undefined" ? window : globalThis);

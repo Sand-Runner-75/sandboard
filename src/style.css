@@ -558,6 +558,19 @@ rect.ac-l4 { fill: var(--accent); } i.ac-l4 { background: var(--accent); }
 .tbody { min-width: 0; overflow-wrap: anywhere; }
 .tbody .ev-title { color: var(--muted); }
 @media (max-width: 1150px) { .home-grid { grid-template-columns: minmax(0, 1fr); } }
+/* Members and teams */
+.pchips { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+button.linkchip { background: none; cursor: pointer; font: inherit; font-size: 0.74rem; min-height: 24px; }
+button.linkchip:hover { color: var(--fg); border-color: var(--control); }
+[data-member] { display: inline-flex; gap: 8px; align-items: center; }
+[data-member] .initial { margin-left: 0; }
+.member-head { display: flex; gap: 14px; align-items: center; }
+.initial.big { width: 3rem; height: 3rem; font-size: 1.05rem; margin-left: 0; }
+.team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: 14px; align-items: start; }
+.team-h { display: flex; gap: 8px; align-items: center; margin: 0 0 10px; font-size: 1rem; }
+.team-h .count { margin-left: auto; }
+.team-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.team-list li { display: flex; justify-content: space-between; gap: 8px; align-items: center; flex-wrap: wrap; }
 @media (max-width: 640px) { .kcells { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kcell:nth-child(3) { border-left: 0; } .kcell:nth-child(n+3) { border-top: 1px solid var(--line); } }
 
 /* Left pane: top-level groups read as section headings; projects carry a tile, a status dot and counts. */

@@ -388,7 +388,7 @@ class BrowserTest(unittest.TestCase):
     def test_untrusted_text_is_shown_as_text(self):
         p = self.r["progress"]
         self.assertIn('<script>alert("never runs")</script>', p["hostile"])
-        self.assertEqual((p["scripts"], p["imgs"]), (20, 0))
+        self.assertEqual((p["scripts"], p["imgs"]), (21, 0))
         self.assertEqual(p["writeControls"], [])
 
     def test_copy_is_exactly_the_shown_text_and_a_refusal_is_reported(self):
@@ -514,7 +514,7 @@ class BrowserTest(unittest.TestCase):
         f = self.r["firstUse"]
         self.assertEqual(f["expandAll"], 0)
         self.assertGreater(f["itemsExpanded"], 40)
-        self.assertEqual(f["itemsCollapsed"], ["a:home", "g:projects", "p:demo", "p:second", "p:notes", "p:kit", "p:locked", "p:tools", "g:account", "a:portfolio", "a:activity", "a:inbox", "a:search"])
+        self.assertEqual(f["itemsCollapsed"], ["a:home", "g:projects", "p:demo", "p:second", "p:notes", "p:kit", "p:locked", "p:tools", "g:across", "a:timeline", "a:calendar", "a:members", "a:teams", "g:account", "a:portfolio", "a:activity", "a:inbox", "a:search"])
 
     def test_the_stage_filter_keeps_its_phases_and_never_changes_figures(self):
         f, v = self.r["firstUse"], self.r["private"]
@@ -1268,6 +1268,28 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(tv["next"], ["February 2026", 0, "cal-next"])
         self.assertEqual(tv["latest"], ["January 2026", ["cal-h", -1]], "the focus lands on the month's heading when Latest activity goes")
         self.assertTrue(tv["phone"], "no sideways page scroll on a phone")
+
+    def test_views_across_projects_show_every_projects_tasks_members_and_teams(self):
+        ac = self.r["across"]
+        self.assertEqual(ac["group"], ["Across projects", ["a:timeline", "a:calendar", "a:members", "a:teams"]])
+        self.assertEqual(ac["head"], "Timeline")
+        self.assertEqual(ac["groups"], ["Demo Project"], "grouped by project")
+        self.assertEqual(ac["bars"], ["demo:DT101", "demo:DT103", "demo:DT201", "demo:DT201.1"], "a bar is keyed by its project, so the same ID in two projects stays apart")
+        self.assertTrue(ac["inline"], "positions are set from script as plain percentages")
+        self.assertEqual(ac["opened"], ["Demo Project: tasks", 1], "a bar opens the task in its project")
+        self.assertEqual(ac["calendar"], ["January 2026", 15, "true"])
+        self.assertEqual([r[0] for r in ac["members"]], ["AAAgent A", "ABAgent B"], "most open tasks first")
+        self.assertEqual(ac["members"][0][2:], ["7", "5", "2"])
+        self.assertEqual(ac["badge"], "Members, 2 members")
+        self.assertEqual(ac["member"][0], "Agent B")
+        self.assertEqual(len(ac["member"][1]), 4)
+        self.assertGreater(ac["member"][2], 0)
+        self.assertTrue(ac["member"][3], "a member's page keeps Members current in the tree")
+        self.assertEqual([t[0] for t in ac["teams"]], ["demo", "second", "notes", "kit"], "one team per project whose table could be read, in tree order")
+        self.assertEqual(ac["unread"], ["1 project's task table could not be read, so its people are not counted."])
+        self.assertEqual(ac["goto"], "Agent A", "Go to finds a member")
+        for k in ("timeline", "members", "teams"):
+            self.assertTrue(ac["phone_" + k], "no sideways page scroll on a phone: " + k)
 
     def test_text_grows_a_little_with_the_screen(self):
         size = {w: [float(v[:-2]) for v in vals] for w, vals in self.r["textSize"].items()}

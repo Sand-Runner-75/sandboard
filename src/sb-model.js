@@ -375,8 +375,35 @@
     const back = Math.round((Date.parse(n) - Date.parse(a)) / 864e5);
     return back <= 0 ? "today" : back === 1 ? "yesterday" : back < 7 ? "week" : "earlier";
   }
+  // ---- Members and teams: the names the task tables give as doer or reviewer, as written. Nothing else
+  // names a person here: not a GitHub account, not a guess. A cell may name several, split at commas.
+  const NO_NAME = new Set(["", "—", "-", "–", "TBE", "TBD", "n/a", "N/A", "none", "None"]);
+  const namesIn = cell => String(cell || "").split(",").map(x => x.trim()).filter(x => x && !NO_NAME.has(x) && x.length <= 60);
+  // Every member with each task naming them, in project order then table order. Removed rows are left out.
+  function members(entries) {
+    const out = new Map();
+    for (const e of entries.filter(tableRead)) for (const t of e.tasks) {
+      if (t.invalid || t.status === "Removed") continue;
+      for (const [role, cell] of [["doer", t.doer], ["reviewer", t.reviewer]]) for (const name of namesIn(cell)) {
+        if (!out.has(name)) out.set(name, { name, work: [] });
+        out.get(name).work.push({ t, e, role });
+      }
+    }
+    return [...out.values()].map(m => Object.assign(m, memberFigures(m.work))).sort((a, b) => b.open - a.open || a.name.localeCompare(b.name));
+  }
+  // A member's counts: open and done tasks they do, open tasks they review, and their projects in order.
+  function memberFigures(work) {
+    const doing = work.filter(w => w.role === "doer");
+    const projects = [];
+    for (const w of work) if (!projects.some(p => p.w.id === w.e.w.id)) projects.push(w.e);
+    return { open: doing.filter(w => w.t.status !== "Done").length, done: doing.filter(w => w.t.status === "Done").length,
+             reviewing: work.filter(w => w.role === "reviewer" && w.t.status !== "Done").length, projects };
+  }
+  // A project's team: the members its own table names, with their counts in that project only.
+  const team = entry => members([entry]);
+
   // The greeting for a local hour.
-  const greeting = hour => hour >= 5 && hour < 12 ? "Good morning" : hour >= 12 && hour < 18 ? "Good afternoon" : "Good evening";
+  const greeting =hour => hour >= 5 && hour < 12 ? "Good morning" : hour >= 12 && hour < 18 ? "Good afternoon" : "Good evening";
 
   // ---- Task views: the dates a task has are only those of the activity read that names it. A commit, a
   // pull request opened, merged or closed counts when its title names the task's ID; a handoff counts when
@@ -1048,7 +1075,7 @@
                       historyOrder, historyGraph, commitTimes, WEEKS_SHOWN, DAYS_SHOWN, contributors,
                       workKey, workList, RUN_RESULTS, RUN_EVENTS, noRunFilter, runQuery, runState, runFiltered, runSearch, pullState, reviewEvidence, runOutcome, inboxScope, inbox, historyKey, COMPARE_FIRST, comparedBranches, historyView,
                       ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
-                      approvals, resultHref, tabKey, stageOfPhase, short, localDay, localStamp, localWhen, zoneOf, savedOrder, keptOrder, orderedIds, moveId, LOOK_CHOICES, savedLook, homeFigures, openWork, dayGroup, greeting, feedGaps, taskActivity, timelineScale, monthWeeks, shiftMonth, weekStart,
+                      approvals, resultHref, tabKey, stageOfPhase, short, localDay, localStamp, localWhen, zoneOf, savedOrder, keptOrder, orderedIds, moveId, LOOK_CHOICES, savedLook, homeFigures, openWork, members, team, namesIn, dayGroup, greeting, feedGaps, taskActivity, timelineScale, monthWeeks, shiftMonth, weekStart,
                       HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs,
                       codeKey, liveKeyRepo, MAX_TEXT_LINES, MAX_SEARCH, searchSources, searchFind, searchCoverage, MAX_DIFF_LINES, MAX_FOUND, MAX_READ_BYTES, codeTree, codeFind, codeOpenable, textLines, textPieces, diffLines });
 })(typeof window !== "undefined" ? window : globalThis);
