@@ -33,8 +33,9 @@
   const MAX_OPENED = 10;
 
   // The one thing kept in the browser, by the owner's choice: the order of projects in the left tree, as
-  // their IDs, in this browser only. Never the token, a read or anything from GitHub. When storage is off
-  // or full, the order holds for this visit.
+  // the IDs the workspace list gives its projects, in this browser only. Never the token, a repository
+  // name found through the token or opened by name (their places hold for this visit), or any other read.
+  // When storage is off or full, the order holds for this visit.
   const ORDER_KEY = "sandboard.projectOrder";
   const orderStore = {
     read() { try { return SB.savedOrder(window.localStorage.getItem(ORDER_KEY)); } catch (e) { return []; } },
@@ -608,7 +609,7 @@
       const from = shown.indexOf(id);
       if (from < 0 || to < 0 || to >= shown.length || to === from) return;
       S.order = SB.moveId(shown, S.order, id, to);
-      orderStore.write(S.order);
+      orderStore.write(SB.keptOrder(S.order));
       S.treeFocus = "p:" + id;
       render(); V.focusTree(S);
       const entry = S.entries.find(e => e.w.id === id);
