@@ -344,6 +344,14 @@ class BrowserTest(unittest.TestCase):
         self.assertNotIn("could not be read", tb["sub"])
         self.assertEqual(a["lateGif"], [True, False, False, 0], "a GIF begun before leaving never shows up in the next session")
         self.assertEqual(a["treeReduced"], ["5/5", "false"], "with reduced motion, Play shows the finished tree still")
+        rr = a["replayReduced"]
+        self.assertRegex(rr["start"]["step"], r"^1/8 · ")
+        self.assertEqual(rr["start"]["prev"], "true", "no commit before the first")
+        self.assertLess(rr["next"]["hidden"], rr["start"]["hidden"], "Next shows the next commit's dot and lines")
+        self.assertRegex(rr["next"]["step"], r"^2/8 · ")
+        self.assertEqual(rr["still"], rr["next"], "nothing moves by itself")
+        self.assertEqual((rr["third"]["step"][:3], rr["third"]["focus"]), ("3/8", "ag-next"), "Enter on Next goes on and keeps the focus there")
+        self.assertEqual((rr["stopped"]["hidden"], rr["stopped"]["step"], rr["stopped"]["button"]), (0, None, "Replay history"))
         f = a["fail"]
         self.assertEqual(f["first"]["dots"], 0)
         self.assertIn("HTTP 429", f["first"]["text"], "a first commit page that failed says its error")
