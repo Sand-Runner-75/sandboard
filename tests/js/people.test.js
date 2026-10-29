@@ -30,3 +30,19 @@ test("members count open and done work they do, open work they review, and their
   assert.deepEqual(ms[0].work.map(w => [w.t.id, w.role]), [["A1", "reviewer"], ["A2", "reviewer"], ["A4", "doer"], ["B1", "doer"]]);
   assert.deepEqual(SB.team(entries[1]).map(m => [m.name, m.open]), [["Bo", 1]], "a team counts its own project only");
 });
+
+test("across projects, the same task ID in two projects keeps its own repository's events and its own project", () => {
+  const at = d => d + "T10:00:00Z";
+  const a = read("alpha", [task("XT1", "In Progress", "Ann", "Bo")]);
+  const b = read("beta", [task("XT1", "Ready for Review", "Bo", "Ann")]);
+  b.w.code = [{ repo: "o/beta-code" }];
+  const events = [
+    { kind: "commit", repo: "o/alpha", at: at("2026-01-05"), title: "XT1 first draft", id: "a1" },
+    { kind: "merged", repo: "o/beta-code", at: at("2026-02-10"), title: "XT1 build", id: "#2" },
+    { kind: "commit", repo: "o/elsewhere", at: at("2026-03-01"), title: "XT1 in a repository no project maps", id: "z" },
+  ];
+  const got = SB.acrossActivity([a, b], events);
+  assert.deepEqual(got.items.map(x => [x.e.w.id, x.t.id, x.t.status, x.d.first, x.d.last, x.d.events.map(ev => ev.id)]),
+    [["alpha", "XT1", "In Progress", "2026-01-05", "2026-01-05", ["a1"]], ["beta", "XT1", "Ready for Review", "2026-02-10", "2026-02-10", ["#2"]]]);
+  assert.deepEqual([got.found, got.total], [2, 2]);
+});

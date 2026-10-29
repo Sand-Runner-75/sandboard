@@ -1940,13 +1940,14 @@ function privateRepos() {
   ac.group = await p.$eval("#tree [data-id='g:across']", n => [n.getAttribute("aria-label"), [...n.querySelectorAll("[role=treeitem]")].map(x => x.dataset.id)]);
   await p.click("#tree [data-id='a:timeline'] > .ti"); await p.waitForTimeout(1500);
   ac.head = await text(p, "#view-h");
-  ac.groups = await p.$$eval("[data-part=all-timeline] .tl-group", n => n.map(x => x.textContent));
+  ac.groups = await p.$$eval("[data-part=all-timeline] .tl-group", n => n.map(x => [x.dataset.group, x.textContent]));
   ac.bars = await p.$$eval("[data-part=all-timeline] .tl-bar", n => n.map(b => b.dataset.task));
   ac.inline = await p.$$eval("[data-part=all-timeline] [style]", n => n.every(x => /^(left|width): [0-9.]+%; ?(width: [0-9.]+%;)?$/.test(x.getAttribute("style"))));
   await p.click(".tl-bar[data-task='demo:DT103']"); await p.waitForTimeout(800);
   ac.opened = [await text(p, "#view-h"), await p.$$eval("#inspector", n => n.length)];
   await p.click("#tree [data-id='a:calendar'] > .ti"); await p.waitForTimeout(800);
   ac.calendar = [await text(p, "#cal-h"), await p.$$eval("[data-part=all-calendar] .cal-chip", n => n.length), await p.$eval("#all-calendar", b => b.getAttribute("aria-pressed"))];
+  ac.chipName = await p.$eval("[data-part=all-calendar] .cal-chip", n => [n.dataset.task, n.getAttribute("aria-label"), n.textContent]);
   await p.click("#tree [data-id='a:members'] > .ti"); await p.waitForTimeout(500);
   ac.members = await p.$$eval("[data-part=members] tbody tr", n => n.map(r => [...r.children].map(c => c.textContent)));
   ac.badge = await p.$eval("#tree [data-id='a:members']", n => n.getAttribute("aria-label"));
