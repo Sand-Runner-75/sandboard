@@ -334,7 +334,11 @@
       const plan = planState(entry);
       const sub = entry.loading ? "loading" : plan !== "current" && plan !== "none" ? (STATE[plan] || STATE.failed)[2].toLowerCase()
         : w.kind === "kit" ? "kit" : w.kind === "standalone" ? "code only" : "";
+      // A coloured tile with the project's first letter, and a dot when tasks are blocked or in review.
+      const figs = SB.homeFigures([entry]);
+      const dot = figs.blocked ? ["blocked", figs.blocked + " blocked"] : figs.review ? ["review", figs.review + " in review"] : null;
       projects.kids.push({ id: "p:" + w.id, label: w.label, project: w.id, sub: w.opened ? "opened by name" : w.found ? [sub, "found"].filter(Boolean).join(", ") : sub, kids,
+        tile: { letter: (String(w.label).trim()[0] || "?").toUpperCase(), n: projects.kids.length % 6 }, dot,
         tip: w.found ? TIPS.Found : undefined,
         act: () => A.go(w.id, w.plan ? { kind: "overview" } : { kind: "repo", repo: w.code[0].repo }) });
     }
@@ -344,7 +348,11 @@
       { id: "a:activity", label: "Activity and languages", tip: TIPS.Activity, act: () => A.goAccount("activity"), cur: !S.activeTab && S.view.kind === "activity" },
       { id: "a:inbox", label: "Inbox", tip: TIPS.Inbox, act: () => A.goAccount("inbox"), cur: !S.activeTab && S.view.kind === "inbox" },
       { id: "a:search", label: "Search", tip: TIPS.Search, act: () => A.goAccount("search"), cur: !S.activeTab && S.view.kind === "search" }] };
-    return [projects, account];
+    const all = SB.homeFigures(S.entries), waits = all.review + all.blocked;
+    const home = { id: "a:home", label: "Home", tip: TIPS.Home, act: () => A.goAccount("home"), cur: !S.activeTab && S.view.kind === "home",
+                   badge: waits ? [String(waits), waits + " waiting on someone"] : null };
+    projects.badge = [String(projects.kids.length), projects.kids.length + " projects"];
+    return [home, projects, account];
   }
 
   // The IDs of every tree item that has children (for Expand all).
@@ -366,7 +374,7 @@
       const hasKids = !!(n.kids && n.kids.length);
       const open = hasKids && S.expanded.has(n.id);
       const li = el("li", { role: "treeitem", "aria-level": level, "aria-expanded": hasKids ? String(open) : null, "data-id": n.id,
-        tabindex: "-1", "aria-current": n.cur ? "page" : null, "aria-label": n.label + (n.sub ? ", " + n.sub : "") });
+        tabindex: "-1", "aria-current": n.cur ? "page" : null, "aria-label": n.label + (n.sub ? ", " + n.sub : "") + (n.dot ? ", " + n.dot[1] : "") + (n.badge ? ", " + n.badge[1] : "") });
       // The arrow opens and closes a group; the name goes to the place (and opens its group).
       // A project's row can be dragged to another place among the projects.
       const row = n.project ? { draggable: "true", ondragstart: e => drag(e, n), ondragend: () => drop(null) } : {};
@@ -375,7 +383,10 @@
         li.addEventListener(type, fn);
       li.append(el("span", Object.assign({ class: "ti" + (n.cur ? " current" : ""), "data-tip": n.tip || null, onclick: e => { e.stopPropagation(); activate(n); } }, row),
         el("span", { class: "tw", "aria-hidden": "true", onclick: hasKids ? e => { e.stopPropagation(); toggle(n); } : null }, hasKids ? (open ? "▾" : "▸") : ""),
-        el("span", { class: "tl" }, n.label), n.sub ? el("span", { class: "sub", "aria-hidden": "true" }, n.sub) : null));
+        n.tile ? el("span", { class: "ptile t" + (n.tile.n + 1), "aria-hidden": "true" }, n.tile.letter) : null,
+        el("span", { class: "tl" }, n.label), n.sub ? el("span", { class: "sub", "aria-hidden": "true" }, n.sub) : null,
+        n.dot ? el("span", { class: "pdot pd-" + n.dot[0], title: n.dot[1], "aria-hidden": "true" }) : null,
+        n.badge ? el("span", { class: "badge", "aria-hidden": "true" }, n.badge[0]) : null));
       flat.push({ n, li, parent });
       if (open) li.append(el("ul", { role: "group" }, build(n.kids, level + 1, n)));
       return li;
@@ -406,7 +417,7 @@
       let to = shown.indexOf(n.project) + (t.after ? 1 : 0);
       if (to > from) to -= 1;
       A.moveProject(d.project, to); };
-    const data = treeData(S, A), projects = data[0].kids;
+    const data = treeData(S, A), projects = data.find(n => n.id === "g:projects").kids;
     root.replaceChildren(...build(data, 1, null));
     const focusId = S.treeFocus && flat.some(f => f.n.id === S.treeFocus) ? S.treeFocus : (flat.find(f => f.n.cur) || flat[0]).n.id;
     for (const f of flat) if (f.n.id === focusId) f.li.tabIndex = 0;
@@ -918,7 +929,7 @@
 
   function tabBar(S, A) {
     const bar = el("div", { class: "tabs", role: "tablist", "aria-label": "Open items" });
-    const names = { overview: "Overview", tasks: "Tasks", repo: "Repository", portfolio: "All repositories", activity: "Activity", inbox: "Inbox", search: "Search" };
+    const names = { home: "Home", overview: "Overview", tasks: "Tasks", repo: "Repository", portfolio: "All repositories", activity: "Activity", inbox: "Inbox", search: "Search" };
     bar.append(el("div", { class: "tab" + (S.activeTab ? "" : " on") }, el("button", { type: "button", role: "tab", id: "tab-view",
       "aria-selected": String(!S.activeTab), tabindex: S.activeTab ? "-1" : "0", onclick: () => A.showTab(null),
       onkeydown: e => tabKeys(e, A) }, el("span", { class: "kind" }, "View"), names[S.view.kind] || "View")));
@@ -1034,8 +1045,8 @@
       return;
     }
     if (S.major === "atlas") { box.replaceChildren(V.majorTabs(S, A), V.atlas(S, A)); return; }
-    if (!S.activeTab && ["portfolio", "activity", "inbox", "search"].includes(S.view.kind)) {
-      box.replaceChildren(V.majorTabs(S, A), tabBar(S, A), S.view.kind === "portfolio" ? V.portfolio(S, A) : S.view.kind === "inbox" ? V.inbox(S, A)
+    if (!S.activeTab && ["home", "portfolio", "activity", "inbox", "search"].includes(S.view.kind)) {
+      box.replaceChildren(V.majorTabs(S, A), tabBar(S, A), S.view.kind === "home" ? V.home(S, A) : S.view.kind === "portfolio" ? V.portfolio(S, A) : S.view.kind === "inbox" ? V.inbox(S, A)
         : S.view.kind === "search" ? V.search(S, A) : V.activity(S, A));
       return;
     }
@@ -1050,5 +1061,5 @@
     box.replaceChildren(...parts);
   }
 
-  const V = SB.views = { el, notice, checksSummary, tree, treeGroups, focusTree, main, planState, tableState, rowsVisible, progressOf, stageIdOf, STATE, TIPS };
+  const V = SB.views = { el, notice, pill, checksSummary, tree, treeGroups, focusTree, main, planState, tableState, rowsVisible, progressOf, stageIdOf, STATE, TIPS };
 })(typeof window !== "undefined" ? window : globalThis);

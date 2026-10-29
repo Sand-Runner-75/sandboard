@@ -79,7 +79,7 @@
       // The two main tabs, and the Atlas: its part (a repository's pictures or the account), the repository
       // it shows, how many commits each repository's branch graph shows, each drawn graph kept with what it
       // was drawn from, and whether the account's public profile and activity were asked for.
-      major: "dashboard", atlas: { part: "repo", repo: null, show: new Map(), boxes: new Map(), trees: new Map(), account: false, extras: false, starQ: "", vs: null, vsAsk: "", vsSaid: null, badge: false, badgeTheme: "dark",
+      homeWork: "Ready for Review", major: "dashboard", atlas: { part: "repo", repo: null, show: new Map(), boxes: new Map(), trees: new Map(), account: false, extras: false, starQ: "", vs: null, vsAsk: "", vsSaid: null, badge: false, badgeTheme: "dark",
         // Versions: the branches picked per repository (none yet: the starting ones), how many commits each
         // version shows (by repository and branch), how many pages of pull requests are read per repository,
         // and the versions that also show the commits they share with the default branch.
@@ -272,6 +272,8 @@
     if (S.activeTab) return;
     if (S.view.kind === "search") return;  // a search reads nothing
     const feed = r => loadLive(SB.feedKey(r.repo, r.pinned.data.commit), readFeed(r.repo, r.pinned.data.commit));
+    // Home reads the activity of the listed projects' repositories, at most V.HOME_REPOS of them.
+    if (S.view.kind === "home") { for (const r of V.homeRepos(S).rows) if (r.meta) feed(r); return; }
     if (S.view.kind === "activity") {
       loadLive("user", ctx => SB.readUser(ctx, client));
       for (const r of SB.portfolio(S.entries)) if (r.meta) loadLive("lang|" + r.repo, ctx => SB.readLanguages(ctx, client, r.repo));
@@ -791,6 +793,12 @@
       const n = document.querySelector('[data-evidence="' + number + '"]');
       if (n) n.focus();
     },
+    // Home's open work: which status it lists.
+    homeWork(status, focus) {
+      S.homeWork = status;
+      render();
+      if (focus) { const n = $("work-tab-" + status.replace(/ /g, "-")); if (n) n.focus(); }
+    },
     // The account views (all mapped repositories, their activity, and the inbox) belong to no single project.
     goAccount(kind) {
       S.major = "dashboard";
@@ -1204,7 +1212,7 @@
   let gotoSel = 0;
 
   function places() {
-    const out = [["All repositories", "Account", () => A.goAccount("portfolio")], ["Activity and languages", "Account", () => A.goAccount("activity")],
+    const out = [["Home", "Every project", () => A.goAccount("home")], ["All repositories", "Account", () => A.goAccount("portfolio")], ["Activity and languages", "Account", () => A.goAccount("activity")],
                  ["Inbox", "Account", () => A.goAccount("inbox")], ["Search what is read", "Account", () => A.goAccount("search")],
                  ["Atlas", "View", () => A.setMajor("atlas")], ["Progress (main tab)", "View", () => A.setMajor("dashboard")],
                  ["Your account (Atlas)", "Atlas", () => { S.atlas.part = "account"; A.setMajor("atlas"); $("main").focus(); }]];
