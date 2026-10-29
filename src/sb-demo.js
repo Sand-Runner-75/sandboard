@@ -38,22 +38,32 @@
       if (!String(url).startsWith(SB.API + "/")) throw new TypeError("the demo answers only the GitHub API paths");
       const path = String(url).slice(SB.API.length);
       if (path === "/user") return reply({ login: "demo-user", type: "User" });
-      // The made-up account's public profile and events; each event is dated hours before now.
+      // The made-up accounts: the demo's own and the others it can be compared with, each with its public
+      // profile, events (dated hours before now), own public repositories, and the demo's own starred
+      // repositories and gists (dated days before now).
       const account = (demo && demo.account) || null;
-      if (path === "/users/demo-user") {
-        return account ? reply(Object.assign({ login: "demo-user", type: "User" }, account.profile)) : reply({ message: "Not Found" }, 404);
+      const accounts = account ? Object.assign({ "demo-user": account }, account.others || {}) : {};
+      const known = login => Object.prototype.hasOwnProperty.call(accounts, login) ? accounts[login] : null;
+      let who = /^[/]users[/]([A-Za-z0-9-]+)$/.exec(path);
+      if (who) {
+        const a = known(who[1]);
+        return a ? reply(Object.assign({ login: who[1], type: "User" }, a.profile)) : reply({ message: "Not Found" }, 404);
       }
-      let ev = /^[/]users[/]demo-user[/](events[/]public|starred|gists)[?]per_page=100&page=([1-3])$/.exec(path);
+      let ev = /^[/]users[/]([A-Za-z0-9-]+)[/](events[/]public|starred|gists|repos)[?](?:sort=pushed&)?per_page=100&page=([1-3])$/.exec(path);
       if (ev) {
-        const now = Date.now(), ago = (n, unit) => new Date(now - n * unit).toISOString(), page = Number(ev[2]);
-        const list = !account ? [] : ev[1] === "starred"
-          ? (account.starred || []).map(([full_name, description, language, stargazers_count, days, archived]) =>
+        const a = known(ev[1]);
+        if (!a) return reply({ message: "Not Found" }, 404);
+        const now = Date.now(), ago = (n, unit) => new Date(now - n * unit).toISOString(), page = Number(ev[3]);
+        const list = ev[2] === "starred"
+          ? (a.starred || []).map(([full_name, description, language, stargazers_count, days, archived]) =>
               ({ full_name, description, language, stargazers_count, pushed_at: ago(days, 864e5), archived, fork: /fork/.test(full_name) }))
-          : ev[1] === "gists"
-          ? (account.gists || []).map(([id, description, files, days, comments]) =>
+          : ev[2] === "gists"
+          ? (a.gists || []).map(([id, description, files, days, comments]) =>
               ({ id, description, comments, public: true, created_at: ago(days + 30, 864e5), updated_at: ago(days, 864e5),
                  files: Object.fromEntries(files.map(([filename, language, size]) => [filename, { filename, language, size }])) }))
-          : account.events.map(([hours, type, name, payload]) => ({ type, created_at: ago(hours, 36e5), repo: { name }, payload }));
+          : ev[2] === "repos"
+          ? (a.repos || []).map(([full_name, language, stargazers_count, days, fork]) => ({ full_name, language, stargazers_count, pushed_at: ago(days, 864e5), fork }))
+          : (a.events || []).map(([hours, type, name, payload]) => ({ type, created_at: ago(hours, 36e5), repo: { name }, payload }));
         return reply(list.slice((page - 1) * 100, page * 100));
       }
       // The demo token reads no repository beyond the demo's own workspace list.

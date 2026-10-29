@@ -474,13 +474,13 @@
   // kept by pick, or left out and counted when it is not in the expected form. A later page that fails
   // keeps what came before it, said as partial with why; three full pages are partial too.
   const EVENT_PAGES = 3;
-  async function userPages(ctx, client, login, path, name, pick) {
+  async function userPages(ctx, client, login, path, name, pick, query) {
     const source = { login };
     if (typeof login !== "string" || !LOGIN.test(login)) return result("invalid", null, source, { error: "not a login" });
     const items = [];
     let skipped = 0;
     for (let page = 1; page <= EVENT_PAGES; page++) {
-      const res = await client.get(ctx, "/users/" + login + path + "?per_page=100&page=" + page);
+      const res = await client.get(ctx, "/users/" + login + path + "?" + (query || "") + "per_page=100&page=" + page);
       if (!res.ok) {
         if (page > 1) return result("partial", { [name]: items, skipped, stopped: "HTTP " + res.status }, source, { error: "HTTP " + res.status });
         return result(client.stateFor(res), null, source, { error: "HTTP " + res.status });
@@ -518,6 +518,15 @@
                stars: nonNegative(r.stargazers_count), pushed: timeOf(r.pushed_at), archived: r.archived === true, fork: r.fork === true,
                web: SB.webAddress(r.html_url, r.full_name) };
     }), { login });
+  }
+
+  // An account's own public repositories, most recently pushed first (so a cut list keeps the newest
+  // work): name, fork, stars, language and last push. Used only to compare two accounts.
+  function readUserRepos(ctx, client, login) {
+    return SB.guard(userPages(ctx, client, login, "/repos", "repos", r => {
+      if (!SB.validRepo(r.full_name)) return null;
+      return { repo: r.full_name, fork: r.fork === true, stars: nonNegative(r.stargazers_count), language: shortText(r.language, 40), pushed: timeOf(r.pushed_at) };
+    }, "sort=pushed&"), { login });
   }
 
   // The account's public gists, newest first: description, file names with their language and size,
@@ -1042,7 +1051,7 @@
 
   Object.assign(SB, { WORKSPACES_FILE, STATUSES, SCOPES, readWorkspace, readTaskFile, isPath, validateWorkspaces, readWorkspaces, splitRow, parsePlanTables, readPlan,
                       validateProgress, readProgress, readCheckRuns, readPulls, readComments,
-                      COMMIT_LIMIT, REPO_COMMENT_LIMIT, readLanguages, readCommits, readRepoComments, readUser, readProfile, EVENT_PAGES, readPublicEvents, readStarred, readGists, readAccountRepos, FIND_LIMIT, findPlanRepos,
+                      COMMIT_LIMIT, REPO_COMMENT_LIMIT, readLanguages, readCommits, readRepoComments, readUser, readProfile, EVENT_PAGES, readPublicEvents, readStarred, readGists, readUserRepos, readAccountRepos, FIND_LIMIT, findPlanRepos,
                       HISTORY_PAGE, historyCommit, readHistoryPage, readRefs, readCompare,
                       WORK_PAGE, MAX_WORK_PAGES, readPullPage, readPullCommits, readReviews, readIssuePage, readRunPage, readReleasePage, assetLink,
                       MAX_DIFF_FILES, readTree, readCodeFile, readCommitChanges, readCompareChanges });

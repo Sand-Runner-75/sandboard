@@ -178,3 +178,58 @@ test("the demo answers the made-up account's starred repositories and gists", as
   const gs = await (await serve(SB.API + "/users/demo-user/gists?per_page=100&page=1")).json();
   assert.deepEqual([gs[0].id, Object.keys(gs[0].files), gs[0].html_url], ["abc", ["a.md"], undefined]);
 });
+
+test("to compare, only three pages of an account's own public repositories, most recently pushed first, may be read", () => {
+  for (const ok of ["/users/a-1/repos?sort=pushed&per_page=100&page=1", "/users/a-1/repos?sort=pushed&per_page=100&page=3"]) assert.equal(SB.allowed(ok), true, ok);
+  for (const bad of ["/users/a/repos?sort=pushed&per_page=100&page=4", "/users/a/repos?per_page=100&page=1", "/users/a/repos?type=all&sort=pushed&per_page=100&page=1",
+                     "/users/a/repos", "/orgs/a/repos?sort=pushed&per_page=100&page=1"]) assert.equal(SB.allowed(bad), false, bad);
+});
+
+test("an account's public repositories keep only name, fork, stars, language and last push; three full pages are partial", async () => {
+  const repo = (name, more) => Object.assign({ full_name: name, fork: false, stargazers_count: 4, language: "Go", pushed_at: "2026-01-02T00:00:00Z", description: "not kept" }, more || {});
+  let s = setup([[/\/repos\?/, () => json([repo("sam/one"), repo("sam/two", { fork: true, stargazers_count: -1, language: null }), repo("bad name")])]]);
+  let r = await SB.readUserRepos(s.ctx, s.client, "sam");
+  assert.equal(r.state, "current");
+  assert.deepEqual(r.data.repos, [{ repo: "sam/one", fork: false, stars: 4, language: "Go", pushed: Date.parse("2026-01-02T00:00:00Z") },
+                                  { repo: "sam/two", fork: true, stars: null, language: null, pushed: Date.parse("2026-01-02T00:00:00Z") }]);
+  assert.equal(r.data.skipped, 1);
+  assert.deepEqual(paths(s), ["/users/sam/repos?sort=pushed&per_page=100&page=1"]);
+  s = setup([[/\/repos\?/, path => json(Array.from({ length: 100 }, (_, i) => repo("sam/r" + path.slice(-1) + "-" + i)))]]);
+  r = await SB.readUserRepos(s.ctx, s.client, "sam");
+  assert.deepEqual([r.state, r.data.repos.length, paths(s).length], ["partial", 300, 3]);
+});
+
+test("two accounts are compared in eight rounds of public numbers; unknown wins nothing and a cut list is a lower bound", () => zone("UTC", () => {
+  const now = Date.parse("2026-10-29T12:00:00Z");
+  const live = (state, data) => ({ state, data });
+  const ev = (days, size) => ({ type: "PushEvent", at: now - days * DAY, repo: "x/y", size, action: null, refType: null });
+  const a = SB.accountStats({ login: "sam", name: "Sam", followers: 5, since: Date.parse("2019-05-01T00:00:00Z"), web: null },
+    live("current", { repos: [{ repo: "sam/a", fork: false, stars: 10, language: "Go", pushed: now - DAY }, { repo: "sam/b", fork: false, stars: 2, language: "Go", pushed: now - 40 * DAY },
+                              { repo: "sam/c", fork: true, stars: 99, language: "C", pushed: now - DAY }] }),
+    live("current", { events: [ev(0, 2), ev(1, null), ev(2, 1), ev(5, 1)] }), now);
+  assert.deepEqual([a.repos, a.stars, a.langCount, a.langs, a.top, a.active, a.actions, a.streak, a.since, a.reposCut],
+                   [3, 12, 1, [{ name: "Go", share: 1 }], { repo: "sam/a", stars: 10 }, 2, 5, 3, 2019, false], "forks add no stars or languages");
+  const b = SB.accountStats({ login: "kim", name: null, followers: null, since: Date.parse("2016-01-01T00:00:00Z"), web: null },
+    live("partial", { repos: [{ repo: "kim/a", fork: false, stars: 3, language: "Go", pushed: null }, { repo: "kim/b", fork: false, stars: 3, language: "Rust", pushed: now }] }),
+    live("current", { events: [] }), now);
+  assert.equal(b.name, "kim");
+  const rows = SB.duelRows(a, b, now);
+  assert.deepEqual(rows.map(r => [r.label, r.a, r.b, r.win]), [
+    ["Stars earned", 12, 6, "a"], ["Public repositories", 3, 2, "a"], ["Followers", 5, null, null], ["Actions, 90 days", 5, 0, "a"],
+    ["Best streak (days)", 3, 0, "a"], ["Languages", 1, 2, "b"], ["Years on GitHub", 7, 10, "b"], ["Active repositories, 30 days", 2, 1, "a"]]);
+  assert.deepEqual(rows.map(r => [r.cutA, r.cutB]).filter(([x, y]) => x || y).length, 4, "the four rounds from repositories are lower bounds for the cut side");
+  assert.deepEqual([rows[0].cutA, rows[0].cutB, rows[3].cutB, rows[2].cutB], [false, true, false, false]);
+}));
+
+test("the demo answers another made-up account and each one's own public repositories", async () => {
+  const serve = SB.demoServer({ repos: {}, account: { profile: {}, events: [], repos: [["demo-user/a", "Go", 3, 1, false]],
+    others: { "sample-x": { profile: { name: "X", created_at: "2020-01-01T00:00:00Z" }, events: [[1, "PushEvent", "sample-x/b", { size: 1 }]], repos: [["sample-x/b", "C", 9, 0, true]] } } } });
+  assert.equal((await (await serve(SB.API + "/users/sample-x")).json()).name, "X");
+  const mine = await (await serve(SB.API + "/users/demo-user/repos?sort=pushed&per_page=100&page=1")).json();
+  assert.deepEqual(mine.map(r => [r.full_name, r.language, r.stargazers_count, r.fork]), [["demo-user/a", "Go", 3, false]]);
+  const theirs = await (await serve(SB.API + "/users/sample-x/repos?sort=pushed&per_page=100&page=1")).json();
+  assert.deepEqual(theirs.map(r => [r.full_name, r.fork]), [["sample-x/b", true]]);
+  assert.equal((await (await serve(SB.API + "/users/sample-x/events/public?per_page=100&page=1")).json()).length, 1);
+  assert.equal((await serve(SB.API + "/users/nobody-here")).status, 404);
+  assert.equal((await serve(SB.API + "/users/nobody-here/repos?sort=pushed&per_page=100&page=1")).status, 404);
+});
