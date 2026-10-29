@@ -70,6 +70,7 @@
   const NAME = "[A-Za-z0-9_.-]+";
   const SHA = "[0-9a-f]{40}";
   const FILE_PATH = NAME + "(?:/" + NAME + ")*";
+  const RUN_TIME = "[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}%3A[0-9]{2}%3A[0-9]{2}Z";
   // The only reads the client makes. Later slices add their own entries here.
   const ALLOWED = [
     new RegExp("^/user$"),
@@ -102,6 +103,12 @@
     new RegExp("^/repos/" + NAME + "/" + NAME + "/pulls/[1-9][0-9]{0,8}/reviews[?]per_page=100&page=[1-3]$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/issues[?]state=(?:open|closed|all)&per_page=100&page=[1-9]$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/(?:actions/runs|releases)[?]per_page=100&page=[1-9]$"),
+    // Actions filtered by GitHub: a workflow's own runs, and a result, a trigger, a branch, who started it
+    // and a range of creation times, each in this order and form only; and the workflows to choose from.
+    new RegExp("^/repos/" + NAME + "/" + NAME + "/actions/(?:workflows/[1-9][0-9]{0,11}/)?runs[?]" +
+      "(?:status=[a-z_]{1,20}&)?(?:event=[a-z_]{1,30}&)?(?:branch=(?![^&]*[.]{2})[A-Za-z0-9%._!'()-]{1,750}&)?(?:actor=[A-Za-z0-9-]{1,39}(?:%5Bbot%5D)?&)?" +
+      "(?:created=(?:" + RUN_TIME + "|[*])[.]{2}(?:" + RUN_TIME + "|[*])&)?per_page=100&page=[1-9]$"),
+    new RegExp("^/repos/" + NAME + "/" + NAME + "/actions/workflows[?]per_page=100&page=1$"),
     // Code inspection: the whole file tree at a pinned commit. A file's text is read by readFile above,
     // and a commit's changes, or the changes between two commits, by the commit and compare reads above.
     new RegExp("^/repos/" + NAME + "/" + NAME + "/git/trees/" + SHA + "[?]recursive=1$"),
