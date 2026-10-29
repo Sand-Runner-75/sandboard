@@ -5,7 +5,7 @@ const crypto = require("node:crypto");
 const path = require("node:path");
 
 const SRC = path.join(__dirname, "..", "..", "src");
-const MODULES = ["sb-core.js", "sb-readers.js", "sb-render.js", "sb-model.js", "sb-demo.js", "sb-atlas-graph.js"];
+const MODULES = ["sb-core.js", "sb-readers.js", "sb-render.js", "sb-model.js", "sb-demo.js", "sb-gif.js", "sb-atlas-graph.js", "sb-atlas-tree.js"];
 const API = "https://api.github.com";
 const WEB = "https://github.example.invalid";  // synthetic web address; .invalid never resolves
 

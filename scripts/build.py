@@ -132,6 +132,9 @@ def demo_commits(name, spec, commit):
                  "parents": [{"sha": p} for p in parents]}
         if c.get("author"):
             entry["author"] = {"login": c["author"]}
+        # The files a commit changed, for the code tree: [path, status] pairs, in the commit reply's shape.
+        if c.get("files"):
+            entry["files"] = [{"filename": f, "status": st, "additions": 3 if st != "removed" else 0, "deletions": 1 if st != "added" else 0} for f, st in c["files"]]
         out.append(entry)
     refs = lambda key: [{"name": x["name"], "commit": {"sha": shas[0] if x["at"] == "head" else by_id[x["at"]]},
                          **({"protected": x["protected"]} if key == "branches" and "protected" in x else {})} for x in spec.get(key, [])]

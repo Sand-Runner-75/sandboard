@@ -311,6 +311,22 @@ class BrowserTest(unittest.TestCase):
         self.assertRegex(k["first"]["tip"] or "", r"files? changed|No files changed|could not be read", "focus reads and shows the commit's files")
         self.assertLess(int(k["left"]["s"]), int(k["first"]["s"]), "Left moves to the commit before")
         self.assertEqual(k["left"]["tabbable"], 1)
+        t = a["tree"]
+        self.assertEqual(t["before"], [True, False], "the code tree reads and draws nothing before Play")
+        self.assertIn("5 commits (whole history)", t["sub"])
+        self.assertEqual(t["played"][:2], ["5/5", "Play"], "Play plays every commit, then stops")
+        self.assertIn("Code tree at commit 5 of 5", t["played"][2])
+        self.assertEqual(t["seek"], "2/5")
+        self.assertEqual(t["speed"], ["false", "false", "true"])
+        self.assertEqual(t["keys"][0], "true", "Space plays from the keyboard")
+        self.assertLessEqual(int(t["keys"][1].split("/")[0]), 2, "Home went back to the start (it has just begun playing at 4×)")
+        self.assertEqual((t["gif"]["src"], t["gif"]["head"], t["gif"]["name"]), ("data:image/gif;", "GIF89a", "demo-app-tree.gif"))
+        self.assertIn("stays there after you sign out", t["gif"]["text"])
+        self.assertEqual((t["png"]["src"], t["png"]["head"][1:4], t["png"]["name"]), ("data:image/png;", "PNG", "demo-app-tree.png"))
+        self.assertEqual((t["graphGif"]["src"], t["graphGif"]["head"], t["graphGif"]["name"]), ("data:image/gif;", "GIF89a", "demo-app-history.gif"))
+        self.assertTrue(t["graphClosed"])
+        self.assertEqual(t["requests"], [], "saving sends nothing anywhere")
+        self.assertEqual(a["treeReduced"], ["5/5", "false"], "with reduced motion, Play shows the finished tree still")
         f = a["fail"]
         self.assertEqual(f["first"]["dots"], 0)
         self.assertIn("HTTP 429", f["first"]["text"], "a first commit page that failed says its error")
@@ -334,7 +350,7 @@ class BrowserTest(unittest.TestCase):
     def test_untrusted_text_is_shown_as_text(self):
         p = self.r["progress"]
         self.assertIn('<script>alert("never runs")</script>', p["hostile"])
-        self.assertEqual((p["scripts"], p["imgs"]), (15, 0))
+        self.assertEqual((p["scripts"], p["imgs"]), (17, 0))
         self.assertEqual(p["writeControls"], [])
 
     def test_copy_is_exactly_the_shown_text_and_a_refusal_is_reported(self):

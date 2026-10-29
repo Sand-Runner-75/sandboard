@@ -1378,6 +1378,33 @@ function privateRepos() {
   atl.keys = { first: await focused() };
   await p.keyboard.press("ArrowLeft"); await p.waitForTimeout(1200);
   atl.keys.left = await focused();
+  // The code tree reads nothing until Play; then it plays the demo's commits, seeks, changes speed, and saves
+  // the playback as a GIF and the tree as a picture; the branch graph's replay saves as a GIF too.
+  const ct = atl.tree = { before: await p.evaluate(() => [!!document.getElementById("ct-start"), !!document.getElementById("ct-canvas")]) };
+  await p.click("#ct-start");
+  await p.waitForFunction(() => document.getElementById("ct-where") && document.getElementById("ct-where").textContent === "5/5" &&
+    document.getElementById("ct-play").textContent === "Play", null, { timeout: 10000 }).catch(() => {});
+  ct.sub = await p.$eval("#ct-sub", n => n.textContent).catch(() => null);
+  ct.played = await p.evaluate(() => [document.getElementById("ct-where").textContent, document.getElementById("ct-play").textContent, document.getElementById("ct-canvas").getAttribute("aria-label")]);
+  await p.$eval("#ct-time", n => { n.value = "2"; n.dispatchEvent(new Event("input")); }); await p.waitForTimeout(100);
+  ct.seek = await p.$eval("#ct-where", n => n.textContent);
+  await p.click("#ct-speed-4"); ct.speed = await p.$$eval("[id^=ct-speed-]", n => n.map(x => x.getAttribute("aria-pressed")));
+  await p.focus("#ct-canvas"); await p.keyboard.press("Home"); await p.keyboard.press("Space"); await p.waitForTimeout(100);
+  ct.keys = await p.evaluate(() => [document.getElementById("ct-play").getAttribute("aria-pressed"), document.getElementById("ct-where").textContent]);
+  await p.keyboard.press("Space");
+  const saved = async (button, out) => {
+    await p.click(button); await p.waitForSelector(out + " img", { timeout: 60000 }).catch(() => {});
+    const info = await p.evaluate(o => { const n = document.querySelector(o); return n ? { src: (n.querySelector("img") || {}).src ? n.querySelector("img").src.slice(0, 15) : null, text: n.textContent } : null; }, out);
+    const [dl] = await Promise.all([p.waitForEvent("download", { timeout: 10000 }).catch(() => null), p.click(out + "-dl").catch(() => {})]);
+    if (dl && info) { const file = await dl.path(); info.name = dl.suggestedFilename(); info.head = file ? fs.readFileSync(file).slice(0, 6).toString("latin1") : null; }
+    return info;
+  };
+  ct.gif = await saved("#ct-gif", "#ct-saved");
+  ct.png = await saved("#ct-png", "#ct-saved");
+  ct.graphGif = await saved("#ag-gif", "#ag-saved");
+  await p.click("#ag-saved-close").catch(() => {}); await p.waitForTimeout(200);
+  ct.graphClosed = await p.evaluate(() => !document.getElementById("ag-saved"));
+  ct.requests = out.requests.filter(r => !/^GET /.test(r));
   // In the Atlas, a repository picked in the tree is shown there; a project's overview goes to the dashboard.
   await tree(p, "r:demo:example-org/demo-plan").catch(() => {}); await p.waitForTimeout(500);
   atl.treePick = await p.evaluate(() => [document.getElementById("major-atlas").getAttribute("aria-selected"), (document.getElementById("atlas-repo") || {}).value || null]);
@@ -1395,6 +1422,13 @@ function privateRepos() {
   atl.afterLeave = await p.evaluate(() => [document.querySelectorAll(".atlas-graph, .major").length, document.getElementById("workspace").textContent]);
   await demo(p);
   atl.again = await p.evaluate(() => document.getElementById("major-dashboard").getAttribute("aria-selected"));
+  await p.close();
+  // With reduced motion asked for, Play shows the finished tree still instead of playing it.
+  p = await open({ reducedMotion: "reduce" });
+  await demo(p);
+  await p.click("#major-atlas"); await p.waitForTimeout(800);
+  await p.click("#ct-start"); await p.waitForSelector("#ct-where", { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(400);
+  atl.treeReduced = await p.evaluate(() => [document.getElementById("ct-where").textContent, document.getElementById("ct-play").getAttribute("aria-pressed")]);
   await p.close();
   // On a mocked private run, reads that fail are said with their error and read again on request: first the
   // only commit page, then the tags and the pull requests, which are never shown as none.

@@ -1,7 +1,8 @@
 "use strict";
 // The Atlas: a second main view beside the dashboard, with the repository pictures the dashboard does not
-// have. First the branch graph: git-flow lanes, zoom, drag, the files a commit changed, older commits and
-// a replay of the history. Its look and controls are adapted from the owner's own earlier app (the same
+// have: the branch graph (git-flow lanes, zoom, drag, the files a commit changed, older commits, a replay
+// of the history and that replay saved as a GIF) and the code tree (the files played back commit by
+// commit, with speed, seeking, zoom, and the playback saved as a GIF or a picture). Its look and controls are adapted from the owner's own earlier app (the same
 // author's branch graph and its zoom), reused with the owner's permission; here it is drawn with DOM
 // calls, never parsed markup, and reads only through the read-only client. Text from GitHub only goes
 // into text nodes and attributes.
@@ -16,6 +17,7 @@
 
   Object.assign(V.TIPS, {
     "Atlas": "Pictures of a repository as GitHub has it now: its branch graph to start with. Read live, not at the commit a project pins. Nothing here changes anything, and none of it is progress.",
+    "Code tree": "The repository's files as a tree, played back commit by commit: folders joined by lines, files as dots coloured by type, and each coder (shown by their initial) flying to the files they change. Read live from the default branch's newest commits, only after Play is pressed.",
     "Branch graph": "The newest commits of the branches drawn, a lane each, coloured by the kind of branch: main red, hotfix green, release orange, develop blue, feature purple, any other its own colour. Merges join lanes; tags sit above their commit, branch names below.",
   });
 
@@ -53,7 +55,7 @@
       el("label", {}, "Repository ", el("select", { id: "atlas-repo", onchange: e => A.setAtlasRepo(e.target.value) },
         rows.map(x => el("option", { value: x.repo, selected: x.repo === r.repo }, x.repo)))),
       tip(el("span", { class: "qual muted" }, "Read live from GitHub now"), "Atlas")));
-    sec.append(graphPanel(S, A, r));
+    sec.append(graphPanel(S, A, r), treePanel(S, A, r));
     return sec;
   }
 
@@ -83,7 +85,8 @@
         onclick: () => { if (!g.reading) A.atlasOlder(repo); } }, g.reading ? "Loading older commits…" : "Load older commits") : null);
     head.append(sum, el("span", { class: "phacts" },
       el("button", { type: "button", class: "btn ghost small", id: "ag-replay", "aria-pressed": replaying ? "true" : "false",
-        onclick: () => toggleReplay(A, repo) }, replaying ? "Stop" : "Replay history")));
+        onclick: () => toggleReplay(A, repo) }, replaying ? "Stop" : "Replay history"),
+      el("button", { type: "button", class: "btn ghost small", id: "ag-gif", onclick: e => graphGif(A, r, lay, e.currentTarget) }, "Save as GIF")));
     const sig = JSON.stringify([def, r.web, lay.W, lay.H, g.win.map(c => c.sha).join(","), g.heads, g.tags]);
     const holder = A.atlasBox(repo, sig, () => drawGraph(A, repo, r.web, lay));
     const box = holder.box;
@@ -97,6 +100,7 @@
     if (g.retry) panel.append(retryRow(A, repo, g));
     else if (g.meta.pulls.state === "loading") panel.append(el("div", { class: "qual plain" }, "Reading the pull requests, to label branches with their pull request numbers."));
     else if (g.meta.pulls.state === "partial") panel.append(el("div", { class: "qual plain" }, "Branch labels name pull requests from the newest 100 and the open ones only; any other branch shows its name."));
+    if (box.saved) panel.append(box.saved);
     panel.append(keyTable(lay));
     panel.append(el("div", { class: "cthint" }, "Scroll to zoom · Drag to look around · Hover a dot to see the commit and its files" + (g.more ? " · Reaching the left edge loads older commits" : "") + " ",
       el("button", { type: "button", class: "linkbtn", id: "ag-zin", "aria-label": "Zoom in", onclick: () => zoomBy(box, 1.25) }, "Zoom in"), " ",
@@ -330,6 +334,310 @@
       if (k >= steps.length - 1) { stopReplay(box, true); A.render(); }
     }, Math.max(60, Math.min(220, 6000 / steps.length)));
     A.render();
+  }
+
+
+  // ---- Saving a picture: a preview, a download button and what the file shows. Nothing is sent anywhere;
+  // the file goes to the browser's downloads and stays there after signing out.
+
+  const readUrl = blob => new Promise(ok => { const fr = new root.FileReader(); fr.onload = () => ok(fr.result); fr.onerror = () => ok(null); fr.readAsDataURL(blob); });
+  function download(blob, name) {
+    const url = root.URL.createObjectURL(blob), a = doc.createElement("a");
+    // Not added to the page: it only hands the file to the browser.
+    a.href = url; a.download = name; a.click();
+    setTimeout(() => root.URL.revokeObjectURL(url), 30000);
+  }
+  async function savedOutput(id, blob, name, alt, about, close) {
+    const src = await readUrl(blob);
+    const box = el("div", { class: "saved", id, role: "group", "aria-label": "Saved picture" },
+      src ? el("img", { class: "preview", src, alt }) : null,
+      el("div", { class: "acts" },
+        el("button", { type: "button", class: "btn", id: id + "-dl", onclick: () => download(blob, name) }, "Download " + name.split(".").pop().toUpperCase()),
+        el("button", { type: "button", class: "btn ghost", id: id + "-close", onclick: close }, "Close")),
+      el("p", { class: "muted" }, about + " (" + (blob.size / 1048576).toFixed(1) + " MB). It shows this repository's name, its file paths or commit titles and who made them: anyone you send it to sees them. The file is saved by your browser and stays there after you sign out; nothing is posted or sent from here."));
+    return box;
+  }
+  const css = name => root.getComputedStyle(doc.documentElement).getPropertyValue(name).trim();
+  const MONO = "ui-monospace, Menlo, Consolas, monospace", FONT = "system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif";
+  function clip(ctx, text, max) {
+    if (ctx.measureText(text).width <= max) return text;
+    while (text.length > 1 && ctx.measureText(text + "…").width > max) text = text.slice(0, -1);
+    return text + "…";
+  }
+
+  // ---- The branch graph's history as an animated GIF: the newest commits (at most GIF_STEPS) appear one by
+  // one, with the repository, each commit's day and title, and the colour key. Drawn from a copy of the
+  // graph with its colours written in, since a picture cannot see the page's styles.
+
+  const GIF_STEPS = 60;
+  function standalone(copy, x0, k) {
+    for (const n of copy.querySelectorAll("[data-s]")) n.setAttribute("opacity", Number(n.getAttribute("data-s")) <= k ? "1" : "0");
+    return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(new root.XMLSerializer().serializeToString(copy));
+  }
+  function loadImage(src) {
+    return new Promise(ok => { const img = new root.Image(); img.onload = () => ok(img); img.onerror = () => ok(null); img.src = src; });
+  }
+  async function graphGif(A, r, lay, button) {
+    const holder = A.atlasBox(r.repo), box = holder && holder.box, pic = box && box.querySelector("svg");
+    if (!pic || button.getAttribute("aria-disabled") === "true") return;
+    stopReplay(box, true);
+    button.setAttribute("aria-disabled", "true"); button.textContent = "Making the GIF…";
+    const steps = lay.steps, first = Math.max(0, steps.length - GIF_STEPS), shown = steps.slice(first), x0 = first ? Math.max(0, shown[0].x - 46) : 0;
+    const W0 = lay.W - x0, H0 = lay.H;
+    // The copy: no links, no page styles, the theme's colours written in, cropped to the commits played.
+    const copy = pic.cloneNode(true);
+    copy.removeAttribute("style");
+    if (x0 > 0) { copy.setAttribute("viewBox", x0 + " 0 " + W0 + " " + H0); copy.setAttribute("width", W0); }
+    for (const a of copy.querySelectorAll("a")) a.replaceWith(...a.childNodes);
+    for (const n of copy.querySelectorAll("[style]")) n.removeAttribute("style");
+    for (const c of copy.querySelectorAll(".gn circle")) { c.setAttribute("stroke", css("--surface") || "#ffffff"); c.setAttribute("stroke-width", "3"); }
+    for (const g of copy.querySelectorAll(".guide")) g.setAttribute("stroke", css("--line") || "#cccccc");
+    for (const t of copy.querySelectorAll("text")) { t.setAttribute("font-family", MONO); t.setAttribute("font-size", "10"); t.setAttribute("font-weight", "600"); }
+    const scale = Math.min(1.5, 1100 / W0), PAD = 24, HEAD = 64, FOOT = 34;
+    const W = Math.round(Math.max(560, W0 * scale + PAD * 2));
+    const canvas = doc.createElement("canvas");
+    canvas.width = W;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.font = "12px " + MONO;
+    let kx = PAD, ky = 0;
+    const keyAt = lay.key.map(e => {
+      const text = clip(ctx, (e.label ? e.label + "  " : "") + e.name, W - PAD * 2 - 20), w = ctx.measureText(text).width + 34;
+      if (kx > PAD && kx + w > W - PAD) { kx = PAD; ky += 20; }
+      const at = { color: e.color, text, x: kx, y: ky };
+      kx += w;
+      return at;
+    });
+    const KEY = keyAt.length ? ky + 30 : 0, H = Math.round(H0 * scale + HEAD + KEY + FOOT);
+    canvas.height = H;
+    const bg = css("--surface") || "#ffffff", ink = css("--fg") || "#000000", muted = css("--muted") || "#666666", n = shown.length;
+    const frame = async k => {
+      const img = await loadImage(standalone(copy, x0, first + k));
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+      ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
+      ctx.fillStyle = ink; ctx.font = "600 18px " + FONT; ctx.fillText(clip(ctx, r.repo, W - 200), PAD, 30);
+      ctx.fillStyle = muted; ctx.font = "13px " + MONO;
+      ctx.fillText(clip(ctx, String(shown[k].date || "").slice(0, 10) + " · " + shown[k].msg, W - PAD * 2), PAD, 52);
+      ctx.textAlign = "right"; ctx.fillText((k + 1) + "/" + n, W - PAD, 30);
+      if (img) ctx.drawImage(img, PAD, HEAD, W0 * scale, H0 * scale);
+      ctx.textAlign = "left"; ctx.font = "12px " + MONO;
+      for (const e of keyAt) {
+        const y = HEAD + H0 * scale + 10 + e.y;
+        ctx.fillStyle = e.color; ctx.beginPath(); ctx.arc(e.x + 6, y + 6, 6, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = muted; ctx.fillText(e.text, e.x + 18, y + 10);
+      }
+      ctx.textAlign = "right"; ctx.fillStyle = muted; ctx.font = "600 12px " + FONT; ctx.fillText("Made with Sandboard", W - PAD, H - 12);
+      return ctx.getImageData(0, 0, W, H).data;
+    };
+    let blob = null;
+    try {
+      const gif = SB.gifWriter(W, H, SB.gifPalette(await frame(n - 1)));
+      for (let k = 0; k < n; k++) {
+        gif.add(await frame(k), k === n - 1 ? 2600 : Math.max(80, Math.min(200, 7000 / n)));
+        if (k % 8 === 0) await new Promise(ok => setTimeout(ok));
+      }
+      blob = new root.Blob([gif.finish()], { type: "image/gif" });
+    } catch (err) { blob = null; }
+    const name = r.repo.split("/")[1] + "-history.gif";
+    box.saved = blob ? await savedOutput("ag-saved", blob, name, "The branch history replayed commit by commit",
+      (first ? "The newest " + n : n) + " commits, " + n + " frames", () => { box.saved = null; A.render(); })
+      : el("div", { class: "qual plain", role: "alert", id: "ag-saved" }, "The GIF could not be made in this browser.");
+    A.render();
+    const dl = doc.getElementById("ag-saved-dl");
+    if (dl) dl.focus();
+  }
+
+  // ---- Code tree. Nothing is read until Play is pressed; then the commits, the files before them and each
+  // commit's files are read, and the playback runs on a canvas kept across the page being drawn again.
+
+  const TREE_HINT = "Scroll to zoom · Drag to look around · Hover a dot to see the file · With the tree focused: Space plays or pauses, plus and minus zoom, arrow keys move, F fits, Home and End go to the start and end";
+  function treePanel(S, A, r) {
+    const repo = r.repo, def = r.meta.branch;
+    const head = el("div", { class: "ph" }, tip(el("h2", { id: "ct-h" }, "Code tree"), "Code tree"));
+    const panel = el("section", { class: "card atlas-panel", "aria-labelledby": "ct-h" }, head);
+    const holder = A.atlasTree(repo);
+    if (!holder) {
+      const n = SB.TREE.WANT;
+      head.append(el("span", { class: "legend" }, "Every file as a dot, every coder flying to the files they change"));
+      panel.append(el("div", { class: "ct-start" },
+        el("button", { type: "button", class: "btn", id: "ct-start", onclick: () => A.atlasTreePlay(repo) }, "Play the code tree"),
+        el("p", { class: "muted" }, "Reads the newest " + n + " commits of " + def + " and the files each one changed: up to about " + SB.TREE.cost(n) +
+          " GitHub reads, only after you press Play. Coders are named by their GitHub login; work merged from an agent's branch (claude/, gpt/, copilot/ …) is credited to that agent and marked.")));
+      return panel;
+    }
+    const t = SB.atlasTree(A.live, repo, def);
+    if (!t.data) {
+      const p = t.progress;
+      if (t.state === "loading") panel.append(notice("loading", p && t.step === "files" ? "Reading the files each commit changed: " + p.done + " of " + p.of + "." : "Reading the newest commits."));
+      else if (t.state === "empty") panel.append(notice("empty", t.why === "branch" ? "The default branch " + def + " was not found among the branches." : "No commits to play."));
+      else panel.append(notice(t.state, "The code tree could not be read" + (t.error ? ": " + t.error : "") + "."),
+        el("button", { type: "button", class: "linkbtn", id: "ct-retry", onclick: () => A.atlasTreeRetry(repo) }, "Read again"));
+      return panel;
+    }
+    if (!holder.view) holder.view = treeView(A, r, t.data);
+    head.append(holder.view.sub);
+    panel.append(holder.view.node);
+    holder.view.shown();
+    return panel;
+  }
+
+  const views = new Set();
+  doc.addEventListener("visibilitychange", () => { if (doc.hidden) for (const v of views) v.pause(); });
+  const reduced = () => !!(root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+  function treeView(A, r, data) {
+    const T = SB.TREE, n = data.commits.length;
+    const V = { sim: null, keep: new Map(), cam: { x: 0, y: 0, s: 1 }, free: false, playing: false, speed: 1, raf: 0, last: 0, hits: [], acc: 0, settle: 0 };
+    const inferred = data.commits.some(c => c.inferred);
+    const sub = el("span", { class: "legend", id: "ct-sub" },
+      el("span", {}, el("b", {}, n.toLocaleString("en")), (n === 1 ? " commit" : " commits") + (data.whole ? " (whole history)" : " (the newest)")),
+      el("span", {}, data.initial.length ? el("b", {}, data.initial.length.toLocaleString("en")) : null, data.initial.length ? " files to start with" : data.treeMissing ? "The files before them could not be read; growing from the first commit" : "Growing from the first commit"),
+      data.treePartial ? el("span", {}, "GitHub listed only part of the files") : null,
+      data.failed ? el("span", {}, plural(data.failed, "commit's files", "commits' files") + " could not be read") : null,
+      inferred ? el("span", {}, "* named from the pull request's branch") : null);
+    const play = el("button", { type: "button", class: "btn", id: "ct-play", "aria-pressed": "false", onclick: () => toggle() }, "Play");
+    const speeds = el("div", { class: "seg", role: "group", "aria-label": "Speed" }, [1, 2, 4].map(x =>
+      el("button", { type: "button", class: "btn ghost small", id: "ct-speed-" + x, "aria-pressed": String(x === 1), onclick: e => {
+        V.speed = x;
+        for (const b of speeds.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b === e.currentTarget));
+      } }, x + "×")));
+    const gifBtn = el("button", { type: "button", class: "btn ghost small", id: "ct-gif", onclick: () => saveGif() }, "Save as GIF");
+    const pngBtn = el("button", { type: "button", class: "btn ghost small", id: "ct-png", onclick: () => savePicture() }, "Save picture");
+    const cv = el("canvas", { id: "ct-canvas", tabindex: "0", role: "img", "aria-label": "The repository's files as a tree, played back commit by commit. " + TREE_HINT });
+    const tipBox = el("div", { class: "ct-tip", hidden: true, "aria-hidden": "true" });
+    const range = el("input", { type: "range", id: "ct-time", min: "0", max: String(n), value: "0", step: "1", "aria-label": "Commit", oninput: e => seek(Number(e.target.value)) });
+    const at = el("span", { class: "mono", id: "ct-where" });
+    const out = el("div", { class: "ct-out" });
+    const node = el("div", { class: "ct" },
+      el("div", { class: "ct-tools" }, play, speeds, gifBtn, pngBtn),
+      el("div", { class: "ct-wrap" }, cv, tipBox),
+      el("div", { class: "ct-bar" }, range, at, el("button", { type: "button", class: "btn ghost small", id: "ct-fit", onclick: () => fitNow() }, "Fit")),
+      el("div", { class: "cthint" }, TREE_HINT), out);
+
+    function size() { return [cv.clientWidth || 600, cv.clientHeight || 400]; }
+    function where() {
+      const s = V.sim, c = data.commits[Math.max(0, s.k - 1)];
+      range.value = String(s.k);
+      at.textContent = s.k + "/" + n;
+      cv.setAttribute("aria-label", "Code tree at commit " + s.k + " of " + n + (s.k && c ? ": " + String(c.date || "").slice(0, 10) + ", " + c.msg + " by " + c.author : "") +
+        ". " + s.files.size.toLocaleString("en") + " files. " + TREE_HINT);
+    }
+    function seek(k) {
+      V.sim = SB.treeSeek(data, V.keep, Math.max(0, Math.min(n, k)));
+      V.acc = 0; V.settle = 90;
+      if (!V.free) { const [W, H] = size(); SB.treeFit(V.sim, W, H, V.cam); }
+      where(); paint();
+    }
+    function toggle(on) {
+      V.playing = (on === undefined ? !V.playing : on) && cv.isConnected;
+      if (V.playing && V.sim.k >= n) seek(0);
+      play.textContent = V.playing ? "Pause" : "Play";
+      play.setAttribute("aria-pressed", String(V.playing));
+      V.last = root.performance.now();
+      paint();
+    }
+    function fitNow() { V.free = false; V.settle = 60; paint(); }
+    function paint() {
+      if (V.raf) return;
+      V.raf = root.requestAnimationFrame(now => {
+        V.raf = 0;
+        if (!cv.isConnected) { if (V.playing) toggle(false); return; }
+        const dpr = root.devicePixelRatio || 1, [W, H] = size();
+        if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+        const ctx = cv.getContext("2d");
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const dt = Math.min(0.1, (now - V.last) / 1000), s = V.sim;
+        V.last = now;
+        if (V.playing) {
+          V.acc += dt * T.RATE * V.speed;
+          while (V.acc >= 1 && s.k < n) { s.next(); V.acc -= 1; }
+          if (s.k >= n && V.acc > 4) toggle(false);
+          where();
+        }
+        s.step(dt);
+        if (!V.free) SB.treeFit(s, W, H, V.cam, reduced() ? 1 : 0.06);
+        V.hits = SB.treeDraw(ctx, W, H, s, V.cam);
+        // Keep drawing while something still moves or glows.
+        if (V.playing || s.t - s.busy < 7 || V.settle-- > 0) paint();
+      });
+    }
+    // Pointer: drag to look around, wheel to zoom, rest on a dot for its name.
+    let drag = null;
+    cv.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY }; try { cv.setPointerCapture(e.pointerId); } catch (err) { /* the pointer is already gone */ } });
+    cv.addEventListener("pointermove", e => {
+      if (drag) { V.cam.x -= (e.clientX - drag.x) / V.cam.s; V.cam.y -= (e.clientY - drag.y) / V.cam.s; drag.x = e.clientX; drag.y = e.clientY; V.free = true; paint(); return; }
+      const b = cv.getBoundingClientRect(), x = e.clientX - b.left, y = e.clientY - b.top;
+      const h = [...V.hits].reverse().find(q => (q.x - x) ** 2 + (q.y - y) ** 2 <= q.r * q.r);
+      if (!h) { tipBox.hidden = true; return; }
+      tipBox.textContent = h.tip;
+      tipBox.hidden = false;
+      tipBox.style.left = Math.min(x + 12, Math.max(0, b.width - 260)) + "px";
+      tipBox.style.top = (y + 14) + "px";
+    });
+    const up = () => { drag = null; };
+    cv.addEventListener("pointerup", up);
+    cv.addEventListener("pointercancel", up);
+    cv.addEventListener("pointerleave", () => { tipBox.hidden = true; });
+    const zoom = k => { V.cam.s = Math.max(0.05, Math.min(8, V.cam.s * k)); V.free = true; paint(); };
+    cv.addEventListener("wheel", e => { e.preventDefault(); zoom(Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
+    cv.addEventListener("keydown", e => {
+      const move = { ArrowLeft: [-60, 0], ArrowRight: [60, 0], ArrowUp: [0, -60], ArrowDown: [0, 60] }[e.key];
+      if (move) { V.cam.x += move[0] / V.cam.s; V.cam.y += move[1] / V.cam.s; V.free = true; paint(); }
+      else if (e.key === " " || e.key === "k") toggle();
+      else if (e.key === "+" || e.key === "=") zoom(1.25);
+      else if (e.key === "-") zoom(0.8);
+      else if (e.key === "f" || e.key === "0") fitNow();
+      else if (e.key === "Home") seek(0);
+      else if (e.key === "End") seek(n);
+      else if (e.key === "PageUp") seek(V.sim.k - 10);
+      else if (e.key === "PageDown") seek(V.sim.k + 10);
+      else return;
+      e.preventDefault();
+    });
+    if (root.ResizeObserver) new root.ResizeObserver(() => paint()).observe(cv);
+
+    // Saving: the whole playback as a GIF, or the tree as it is now as a picture.
+    const title = r.repo, footer = "Made with Sandboard";
+    async function show(blob, name, alt, about) {
+      out.replaceChildren(await savedOutput("ct-saved", blob, name, alt, about, () => out.replaceChildren()));
+      const dl = doc.getElementById("ct-saved-dl");
+      if (dl) dl.focus();
+    }
+    async function saveGif() {
+      if (gifBtn.getAttribute("aria-disabled") === "true") return;
+      toggle(false);
+      gifBtn.setAttribute("aria-disabled", "true");
+      const canvas = doc.createElement("canvas");
+      canvas.width = 640; canvas.height = 420;
+      try {
+        const made = await SB.treeGif(data, canvas, title, footer, (f, of) => { gifBtn.textContent = "Making the GIF… " + Math.round(f / of * 100) + "%"; });
+        await show(new root.Blob([made.bytes], { type: "image/gif" }), r.repo.split("/")[1] + "-tree.gif", "The code tree playing back", made.commits + " commits, " + made.frames + " frames");
+      } catch (err) {
+        out.replaceChildren(el("div", { class: "qual plain", role: "alert", id: "ct-saved" }, "The GIF could not be made in this browser."));
+      }
+      gifBtn.removeAttribute("aria-disabled");
+      gifBtn.textContent = "Save as GIF";
+    }
+    async function savePicture() {
+      const W = 1600, H = 900, canvas = doc.createElement("canvas");
+      canvas.width = W; canvas.height = H;
+      const cam = SB.treeFit(V.sim, W, H, { x: 0, y: 0, s: 1 });
+      SB.treeDraw(canvas.getContext("2d"), W, H, V.sim, cam, { title, footer });
+      const blob = await new Promise(ok => canvas.toBlob(ok, "image/png"));
+      if (blob) await show(blob, r.repo.split("/")[1] + "-tree.png", "The code tree at commit " + V.sim.k + " of " + n, "The tree at commit " + V.sim.k + " of " + n);
+    }
+
+    const v = {
+      sub, node,
+      pause: () => { if (V.playing) toggle(false); },
+      stop: () => { V.playing = false; views.delete(v); },
+      // Each time the panel is shown: draw again (playing stops while the tree is not on the page).
+      shown: () => { views.add(v); Promise.resolve().then(() => paint()); },
+    };
+    // Play starts at once, as asked; with reduced motion, the finished tree is shown still instead.
+    Promise.resolve().then(() => { if (reduced()) seek(n); else { seek(0); toggle(true); } });
+    V.sim = SB.treeSeek(data, V.keep, 0);
+    where();
+    return v;
   }
 
   Object.assign(V, { majorTabs, atlas });
