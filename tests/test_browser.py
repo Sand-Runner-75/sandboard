@@ -854,6 +854,40 @@ class BrowserTest(unittest.TestCase):
         self.assertIn("by public numbers only", vs["verdict"])
         self.assertIn("Most starred: sample-builder/charts (★ 120)", vs["langs"][1])
         self.assertEqual([a["vsCleared"]["table"], a["vsCleared"]["focus"]], [False, "ac-vs-q"], "Compare with someone else goes back to the box")
+        self.assertEqual(a["badgeBefore"], [True, False], "the README badge is only offered until asked for")
+        b = a["badge"]
+        # The demo's events are dated hours before now, so the best streak in local days depends on the hour the
+        # test runs; the badge must show the comparison's own number.
+        streak = vs["rows"][4][1].replace(" won", "")
+        self.assertRegex(streak, r"^[0-9]+$")
+        self.assertEqual([b["role"], b["label"]], ["img", "Demo User: 24 stars, 5 repos, 213 actions (90d), %sd best streak" % streak])
+        self.assertEqual(b["texts"][2:10], ["24", "Stars", "5", "Repos", "213", "Actions (90d)", streak + "d", "Best streak"], "the same numbers as the comparison")
+        self.assertIn("@demo-user · on GitHub since 2019", b["texts"])
+        self.assertEqual([b["squares"], b["bg"], b["pressed"]], [91, "#0d1117", ["true", "false"]], "the last 13 weeks by local day, dark first")
+        self.assertEqual([b["line"], b["dl"]], ["![GitHub stats](./github-stats-dark.svg)", "Download github-stats-dark.svg"])
+        lt = a["badgeLight"]
+        self.assertEqual([lt["bg"], lt["pressed"], lt["focus"], lt["line"]], ["#ffffff", ["false", "true"], "ac-badge-light", "![GitHub stats](./github-stats-light.svg)"],
+                         "the colouring changes by keyboard and keeps focus")
+        self.assertEqual(a["badgeFile"], {"name": "github-stats-light.svg", "start": "<svg", "script": False, "hasName": True, "svgNs": True},
+                         "the download is a standalone SVG with no script or link")
+        bp = a["badgePartial"]
+        self.assertEqual([bp["texts"][4], bp["texts"][6], bp["texts"][8]], ["100+", "100+", "1d+"], "each lower bound marked on the picture, the streak too")
+        self.assertEqual(bp["texts"][2], "100+", "stars from a cut list are a lower bound")
+        self.assertEqual(bp["note"], "+ means at least: not all of GitHub's lists were read; languages from the repositories read")
+        self.assertIn("+ means at least", bp["label"])
+        self.assertTrue(a["badgePartialFile"], "the downloaded picture carries the note too")
+        self.assertIn("Your public repositories (100 read): A later page could not be read (HTTP 500), so some are missing.", bp["gaps"])
+        self.assertIn("Your public events (100 read): A later page could not be read (HTTP 500), so some are missing.", bp["gaps"])
+        self.assertNotIn("most recently pushed", bp["gaps"], "a failure is not called the deliberate cap")
+        self.assertTrue(bp["retry"])
+        bw = a["badgeWhole"]
+        self.assertEqual([bw["texts"][2], bw["texts"][4], bw["texts"][6], bw["note"], bw["gaps"], bw["retry"]], ["100", "100", "100", None, None, False],
+                         "after Read again the numbers are exact and nothing is qualified")
+        ev, rp = "GET /users/synthetic-user/events/public?per_page=100&page=", "GET /users/synthetic-user/repos?sort=pushed&per_page=100&page="
+        self.assertEqual(sorted(a["badgeUrls"]), sorted(["GET /users/synthetic-user", ev + "1", ev + "2", rp + "1", rp + "2", ev + "1", ev + "2", rp + "1", rp + "2"]),
+                         "Read again reads only the two failed lists again; the profile once")
+        self.assertEqual(a["badgeMethods"], ["GET"])
+        self.assertRegex(a["badgeCopy"], r"^(Copied\. Nothing was sent anywhere\.|Copy didn't work here)")
         self.assertEqual(a["phone"], 0, "no sideways page scroll on a phone")
         self.assertEqual(a["goto"][0], "Your account (Atlas)Atlas")
         self.assertEqual(a["gotoShown"], ["true", "true", True])

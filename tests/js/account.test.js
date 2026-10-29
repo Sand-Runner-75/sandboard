@@ -252,3 +252,23 @@ test("the demo answers another made-up account and each one's own public reposit
   assert.equal((await serve(SB.API + "/users/nobody-here")).status, 404);
   assert.equal((await serve(SB.API + "/users/nobody-here/repos?sort=pushed&per_page=100&page=1")).status, 404);
 });
+
+test("the README badge's numbers are short, lower bounds get a plus, and every language has a steady colour", () => {
+  assert.deepEqual([0, 999, 9999, 12345, 2000000, 2500000, null].map(SB.shortNumber), ["0", "999", "9,999", "12.3k", "2M", "2.5M", "?"]);
+  const s = { stars: 15000, repos: 300, actions: 40, streak: 3, low: { stars: true, repos: true, actions: false, streak: true } };
+  assert.deepEqual(SB.badgeNumbers(s), [["Stars", "15k+"], ["Repos", "300+"], ["Actions (90d)", "40"], ["Best streak", "3d+"]]);
+  assert.equal(SB.langColor("Go"), "#00ADD8");
+  assert.equal(SB.langColor(null), "#9d9d9d");
+  assert.equal(SB.langColor("Made-up Lang"), SB.langColor("Made-up Lang"));
+  assert.match(SB.langColor("Made-up Lang"), /^hsl\(\d+ 55% 52%\)$/);
+  assert.equal(SB.langColor("constructor"), SB.langColor("constructor"));
+  assert.match(SB.langColor("constructor"), /^hsl/, "a name that is also an object key is not taken for a colour");
+});
+
+test("the badge picture says of itself when a number is a lower bound or the languages are a sample", () => {
+  const none = { stars: false, repos: false, actions: false, streak: false, langCount: false };
+  assert.equal(SB.badgeNote({ low: none, langs: [{ name: "Go", share: 1 }] }), "");
+  assert.equal(SB.badgeNote({ low: Object.assign({}, none, { streak: true }), langs: [] }), "+ means at least: not all of GitHub's lists were read");
+  assert.equal(SB.badgeNote({ low: Object.assign({}, none, { repos: true, langCount: true }), langs: [{ name: "Go", share: 1 }] }),
+               "+ means at least: not all of GitHub's lists were read; languages from the repositories read");
+});

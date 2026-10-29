@@ -69,7 +69,7 @@
       // The two main tabs, and the Atlas: its part (a repository's pictures or the account), the repository
       // it shows, how many commits each repository's branch graph shows, each drawn graph kept with what it
       // was drawn from, and whether the account's public profile and activity were asked for.
-      major: "dashboard", atlas: { part: "repo", repo: null, show: new Map(), boxes: new Map(), trees: new Map(), account: false, extras: false, starQ: "", vs: null, vsAsk: "", vsSaid: null },
+      major: "dashboard", atlas: { part: "repo", repo: null, show: new Map(), boxes: new Map(), trees: new Map(), account: false, extras: false, starQ: "", vs: null, vsAsk: "", vsSaid: null, badge: false, badgeTheme: "dark" },
     };
   }
   let S = freshState();
@@ -325,10 +325,11 @@
       loadLive(SB.accountKey.starred(login), ctx => SB.readStarred(ctx, client, login));
       loadLive(SB.accountKey.gists(login), ctx => SB.readGists(ctx, client, login));
     }
-    // A comparison, once asked for: both accounts' own public repositories, and the other's profile and events.
+    // The README badge, or a comparison, once asked for: the account's own public repositories; a comparison
+    // also reads the other account's own public repositories, profile and events.
     const vs = S.atlas.vs;
+    if (vs || S.atlas.badge) loadLive(SB.accountKey.repos(login), ctx => SB.readUserRepos(ctx, client, login));
     if (!vs) return;
-    loadLive(SB.accountKey.repos(login), ctx => SB.readUserRepos(ctx, client, login));
     loadLive(SB.accountKey.profile(vs), ctx => SB.readProfile(ctx, client, vs));
     loadLive(SB.accountKey.events(vs), ctx => SB.readPublicEvents(ctx, client, vs));
     loadLive(SB.accountKey.repos(vs), ctx => SB.readUserRepos(ctx, client, vs));
@@ -841,6 +842,17 @@
       render();
       if (S.atlas.vsSaid) { const n = $("ac-vs-q"); if (n) n.focus(); }
       else announce("Reading @" + login + " to compare.");
+    },
+    atlasBadge() {
+      S.atlas.badge = true;
+      render();
+      announce("Reading your public repositories for the badge.");
+    },
+    atlasBadgeTheme(theme) {
+      S.atlas.badgeTheme = theme === "light" ? "light" : "dark";
+      render();
+      const n = $("ac-badge-" + S.atlas.badgeTheme);
+      if (n) n.focus();
     },
     atlasCompareAsk(q) { if (q !== undefined) S.atlas.vsAsk = String(q); return S.atlas.vsAsk; },
     atlasCompareClear() {
