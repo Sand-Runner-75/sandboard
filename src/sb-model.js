@@ -404,6 +404,11 @@
   // Saved text that is not a list of short IDs counts as no order; a visit-only ID in it is dropped.
   const savedOrder = text => { let v; try { v = JSON.parse(text || "[]"); } catch (e) { return []; }
     return Array.isArray(v) ? keptOrder([...new Set(v.filter(x => typeof x === "string" && x && x.length <= 200))]).slice(0, 1000) : []; };
+  // The look chosen in Settings, as kept in the browser: only these known words count; anything else is the default.
+  const LOOK_CHOICES = { density: ["comfortable", "compact"], accent: ["blue", "teal", "violet", "rose", "amber", "graphite"] };
+  const savedLook = text => { let v; try { v = JSON.parse(text || "{}"); } catch (e) { v = {}; }
+    const pick = k => (v && typeof v === "object" && LOOK_CHOICES[k].includes(v[k])) ? v[k] : LOOK_CHOICES[k][0];
+    return { density: pick("density"), accent: pick("accent") }; };
   // IDs saved in this browser first, in their saved order, then the rest as the workspace list gives them.
   const orderedIds = (ids, saved) => { const rank = new Map((saved || []).map((id, i) => [id, i]));
     return ids.filter(id => rank.has(id)).sort((a, b) => rank.get(a) - rank.get(b)).concat(ids.filter(id => !rank.has(id))); };
@@ -918,7 +923,7 @@
                       historyOrder, historyGraph, commitTimes, WEEKS_SHOWN, DAYS_SHOWN, contributors,
                       workKey, workList, pullState, reviewEvidence, runOutcome, inboxScope, inbox, historyKey, COMPARE_FIRST, comparedBranches, historyView,
                       ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
-                      approvals, resultHref, tabKey, stageOfPhase, short, localDay, localStamp, localWhen, zoneOf, savedOrder, keptOrder, orderedIds, moveId,
+                      approvals, resultHref, tabKey, stageOfPhase, short, localDay, localStamp, localWhen, zoneOf, savedOrder, keptOrder, orderedIds, moveId, LOOK_CHOICES, savedLook,
                       HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs,
                       codeKey, liveKeyRepo, MAX_TEXT_LINES, MAX_SEARCH, searchSources, searchFind, searchCoverage, MAX_DIFF_LINES, MAX_FOUND, MAX_READ_BYTES, codeTree, codeFind, codeOpenable, textLines, textPieces, diffLines });
 })(typeof window !== "undefined" ? window : globalThis);

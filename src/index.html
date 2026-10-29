@@ -32,12 +32,13 @@
   <header class="top">
     <button type="button" class="tool menu-btn" id="menu" aria-expanded="false" aria-controls="side">Menu</button>
     <div class="brand">Sandboard <small class="muted" id="mode" data-tip="Sandboard only reads. Nothing here can change a plan, a task or a repository.">read-only</small></div>
-    <button type="button" class="tool" id="goto-open" aria-keyshortcuts="Control+K Meta+K" disabled>Go to… <kbd>Ctrl K</kbd></button>
+    <button type="button" class="tool jump" id="goto-open" aria-keyshortcuts="Control+K Meta+K" disabled><span class="lens" aria-hidden="true"></span>Go to a project, view or task… <kbd>Ctrl K</kbd></button>
     <div class="seg" role="group" aria-label="Theme">
       <button type="button" data-theme-choice="device" aria-pressed="true">Device</button>
       <button type="button" data-theme-choice="light" aria-pressed="false">Light</button>
       <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
     </div>
+    <button type="button" class="tool" id="settings-open">Settings</button>
     <button type="button" class="tool" id="help-open" aria-keyshortcuts="?">Help <kbd>?</kbd></button>
     <button type="button" class="tool" id="refresh" hidden>Refresh</button>
     <button type="button" class="tool" id="forget" hidden>Forget access</button>
@@ -84,6 +85,29 @@
   <p class="muted qual">The same explanations appear in a bubble when you rest the pointer on a word or move to it with the keyboard. Esc hides the bubble.</p>
   <dl class="props glossary" id="glossary" aria-labelledby="glossary-title"></dl>
   <div class="actions"><button type="button" class="btn" id="help-close">Close</button></div>
+</dialog>
+<dialog id="settings" aria-labelledby="settings-title">
+  <h2 id="settings-title">Settings</h2>
+  <p class="muted qual">Density and accent colour are kept in this browser only. The theme lasts for this visit.</p>
+  <div class="set-row">
+    <span id="density-label"><b>Density</b><span class="hint">How tight rows, cards and tree lines are</span></span>
+    <div class="seg" role="group" aria-labelledby="density-label">
+      <button type="button" data-density-choice="comfortable" aria-pressed="true">Comfortable</button>
+      <button type="button" data-density-choice="compact" aria-pressed="false">Compact</button>
+    </div>
+  </div>
+  <div class="set-row">
+    <span id="accent-label"><b>Accent colour</b><span class="hint">Main buttons, links and selection</span></span>
+    <div class="swatches" role="radiogroup" aria-labelledby="accent-label">
+      <button type="button" role="radio" class="sw-blue" data-accent-choice="blue" aria-checked="true" aria-label="Blue"></button>
+      <button type="button" role="radio" class="sw-teal" data-accent-choice="teal" aria-checked="false" aria-label="Teal"></button>
+      <button type="button" role="radio" class="sw-violet" data-accent-choice="violet" aria-checked="false" aria-label="Violet"></button>
+      <button type="button" role="radio" class="sw-rose" data-accent-choice="rose" aria-checked="false" aria-label="Rose"></button>
+      <button type="button" role="radio" class="sw-amber" data-accent-choice="amber" aria-checked="false" aria-label="Amber"></button>
+      <button type="button" role="radio" class="sw-graphite" data-accent-choice="graphite" aria-checked="false" aria-label="Graphite"></button>
+    </div>
+  </div>
+  <div class="actions"><button type="button" class="btn" id="settings-close">Close</button></div>
 </dialog>
 <dialog id="goto" aria-labelledby="goto-title">
   <h2 id="goto-title" class="sr">Go to</h2>

@@ -1776,6 +1776,29 @@ function privateRepos() {
                  shell: await frame.evaluate(() => getComputedStyle(document.getElementById("shell")).visibility) };
   await p.close();
 
+  // 14. Settings: density and accent change the page, are kept under one key as plain words, and come back
+  // after a reload; the swatches move with the arrow keys; junk under the key counts as the default.
+  p = await open();
+  await demo(p);
+  const look = out.look = {};
+  look.before = await p.evaluate(() => [document.documentElement.dataset.density || "", document.documentElement.dataset.accent || "", localStorage.length]);
+  await p.click("#settings-open"); await p.waitForTimeout(100);
+  look.open = await p.evaluate(() => document.getElementById("settings").open);
+  await p.click('[data-density-choice="compact"]');
+  await p.focus('[data-accent-choice="blue"]'); await p.keyboard.press("ArrowRight"); await p.keyboard.press("ArrowRight");
+  look.focused = await p.evaluate(() => document.activeElement.dataset.accentChoice);
+  look.checked = await p.$$eval("[data-accent-choice]", n => n.filter(b => b.getAttribute("aria-checked") === "true").map(b => b.dataset.accentChoice));
+  await p.keyboard.press("Escape");
+  look.after = await p.evaluate(() => [document.documentElement.dataset.density || "", document.documentElement.dataset.accent || "",
+    getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()]);
+  look.stored = await p.evaluate(() => Object.keys(localStorage).map(k => [k, localStorage.getItem(k)]));
+  await p.reload(); await p.waitForTimeout(200);
+  look.reloaded = await p.evaluate(() => [document.documentElement.dataset.density || "", document.documentElement.dataset.accent || ""]);
+  await p.evaluate(() => localStorage.setItem("sandboard.look", '{"density":"huge","accent":"red"}'));
+  await p.reload(); await p.waitForTimeout(200);
+  look.junk = await p.evaluate(() => [document.documentElement.dataset.density || "", document.documentElement.dataset.accent || ""]);
+  await p.close();
+
   // Text grows a little with the screen, from the browser's own size to an eighth more.
   out.textSize = {};
   for (const width of [390, 1280, 1920]) {

@@ -15,6 +15,7 @@ How the app reads private project data from GitHub, and what it refuses to do. T
 - Each run has a context. The session checks it before each request and after each reply, body read and hash, so a reply from a forgotten session or an older run never appears. A new run aborts the old one.
 - Tests (`tests/test_app_rules.py`) fail if any browser code uses another network API, an HTTP method other than `GET`, a second network call site, browser storage, HTML parsing or code evaluation, or console logging.
 - One exception to "nothing stored", by the owner's choice: the order of projects in the left tree is kept in this browser's local storage under `sandboard.projectOrder`, as a list of the IDs the workspace list gives its projects (as the list's own author wrote them). A repository found through the token or opened by name is never stored, by name or by place: its place in the order holds for the visit only, and signing out forgets it. Nothing else read from GitHub is kept, and never the token; the rules test allows that one key, read and written only in `src/app.js`. If storage is off or full, the order holds for the visit.
+- A second exception, also the owner's choice: the look chosen in **Settings** (density and accent colour) is kept under `sandboard.look` as two plain words. Anything else found under that key counts as the default. It is also read and written only in `src/app.js`.
 
 ## Pinning
 

@@ -26,12 +26,16 @@ FORBIDDEN = [
 # The one thing kept in the browser, by the owner's choice: the left tree's project order, under one key,
 # read and written only in app.js. Any other use of storage still breaks the rules.
 ORDER_STORE = ('window.localStorage.getItem(ORDER_KEY)', 'window.localStorage.setItem(ORDER_KEY, JSON.stringify(ids))')
+# And the look chosen in Settings (density and accent colour), under one more key, also in app.js only.
+LOOK_STORE = ('window.localStorage.getItem(LOOK_KEY)', 'window.localStorage.setItem(LOOK_KEY, JSON.stringify(look))')
+KEYS = ((ORDER_STORE, 'const ORDER_KEY = "sandboard.projectOrder";'), (LOOK_STORE, 'const LOOK_KEY = "sandboard.look";'))
 
 
 def violations(name, text):
-    if name == "app.js" and all(text.count(use) == 1 for use in ORDER_STORE) and text.count('const ORDER_KEY = "sandboard.projectOrder";') == 1:
-        for use in ORDER_STORE:
-            text = text.replace(use, "")
+    for uses, key in KEYS:
+        if name == "app.js" and all(text.count(use) == 1 for use in uses) and text.count(key) == 1:
+            for use in uses:
+                text = text.replace(use, "")
     found = [why for pattern, why in FORBIDDEN if re.search(pattern, text)]
     for method in re.findall(r"\bmethod\s*:\s*[\"']?([A-Za-z]+)", text):
         if method != "GET":
@@ -71,6 +75,10 @@ class SourceRulesTest(unittest.TestCase):
         self.assertTrue(violations("sb-views.js", order))
         self.assertTrue(violations("app.js", order + "\nlocalStorage.setItem('token', t)"))
         self.assertTrue(violations("app.js", order.replace("sandboard.projectOrder", "sandboard.token")))
+        look = 'const LOOK_KEY = "sandboard.look";\n' + "\n".join(LOOK_STORE)
+        self.assertEqual(violations("app.js", order + "\n" + look), [])
+        self.assertTrue(violations("sb-views.js", look))
+        self.assertTrue(violations("app.js", look.replace("sandboard.look", "sandboard.token")))
 
     def test_page_loads_every_module_in_order(self):
         with open(os.path.join(SRC, "index.html"), encoding="utf-8") as f:

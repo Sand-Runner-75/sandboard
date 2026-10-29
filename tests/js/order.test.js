@@ -36,3 +36,11 @@ test("a move puts one project at a place and keeps saved projects not shown now"
   assert.deepEqual(SB.moveId(["a", "b"], ["x"], "missing", 0), ["x"]);
   assert.deepEqual(SB.moveId(["a", "b"], [], "a", 99), ["b", "a"]);
 });
+
+test("the look kept in the browser is only known words, else the default", () => {
+  assert.deepEqual(SB.savedLook(null), { density: "comfortable", accent: "blue" });
+  assert.deepEqual(SB.savedLook("not json"), { density: "comfortable", accent: "blue" });
+  assert.deepEqual(SB.savedLook('{"density":"compact","accent":"teal"}'), { density: "compact", accent: "teal" });
+  assert.deepEqual(SB.savedLook('{"density":"tiny","accent":"#ff0000","token":"x"}'), { density: "comfortable", accent: "blue" });
+  assert.deepEqual(SB.savedLook("[1,2]"), { density: "comfortable", accent: "blue" });
+});
