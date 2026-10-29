@@ -50,6 +50,14 @@
     write(look) { try { window.localStorage.setItem(LOOK_KEY, JSON.stringify(look)); } catch (e) { /* kept for this visit */ } },
   };
 
+  // Favourite projects and tasks and saved task views are kept in this browser too, by the owner's
+  // choice, under one more key: workspace-list project IDs, task IDs, view names, filter words and layouts.
+  const MARKS_KEY = "sandboard.marks";
+  const marksStore = {
+    read() { try { return SB.savedMarks(window.localStorage.getItem(MARKS_KEY)); } catch (e) { return SB.savedMarks(null); } },
+    write(marks) { try { window.localStorage.setItem(MARKS_KEY, JSON.stringify(marks)); } catch (e) { /* kept for this visit */ } },
+  };
+
   // Everything shown comes from here, and everything here is dropped on sign-out.
   function freshState() {
     return {
@@ -57,7 +65,7 @@
       list: { state: "loading" }, entries: [], current: null,
       view: { kind: "overview" }, filters: noFilters(), selected: null,
       tabs: [], activeTab: null, docs: new Map(), mapped: new Map(),
-      expanded: new Set(["g:projects", "g:across", "g:account"]), treeFocus: null, order: orderStore.read(),
+      expanded: new Set(["g:favs", "g:projects", "g:across", "g:account"]), treeFocus: null, order: orderStore.read(), marks: marksStore.read(),
       // Repository overview: live reads by repository (languages, activity feed, the account), the
       // portfolio filters, and repositories opened by name for this visit only.
       live: new Map(), repoFilters: noRepoFilters(), opened: [],
@@ -81,7 +89,7 @@
       // was drawn from, and whether the account's public profile and activity were asked for.
       // Tasks: the layout they are shown in, the timeline's scale and the calendar's month (null: the newest activity's).
       taskLayout: "list", tlZoom: "weeks", calMonth: null, calDay: null,
-      homeWork: "Ready for Review", major: "dashboard", atlas: { part: "repo", repo: null, show: new Map(), boxes: new Map(), trees: new Map(), account: false, extras: false, starQ: "", vs: null, vsAsk: "", vsSaid: null, badge: false, badgeTheme: "dark",
+      homeWork: "Ready for Review", saving: false, major: "dashboard", atlas: { part: "repo", repo: null, show: new Map(), boxes: new Map(), trees: new Map(), account: false, extras: false, starQ: "", vs: null, vsAsk: "", vsSaid: null, badge: false, badgeTheme: "dark",
         // Versions: the branches picked per repository (none yet: the starting ones), how many commits each
         // version shows (by repository and branch), how many pages of pull requests are read per repository,
         // and the versions that also show the commits they share with the default branch.
@@ -107,10 +115,39 @@
     hideTip();
     V.tree(S, A);
     V.main(S, A);
+    arrive();
     restoreFocus(focus);
     if (tipped && tipped.isConnected) showTip(tipped, null);
     ensureReads();
     if (gotoBox.open) renderGoto();  // an open Go to never keeps places the current access no longer allows
+  }
+
+  // A little motion when another view opens: it fades in, and Home's counts run up to their numbers. Only
+  // when the place changes, never on a redraw of the same place, and nothing moves with reduced motion.
+  let placeShown = "";
+  const still = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function arrive() {
+    const place = [S.signedIn, S.major, S.view.kind, S.view.name || "", S.current, S.activeTab].join("|");
+    if (place === placeShown) return;
+    placeShown = place;
+    // The fade is on the area itself, which stays across redraws, so a redraw does not cut it short.
+    const box = $("workspace");
+    box.classList.remove("arrive");
+    if (!S.signedIn || still()) return;
+    void box.offsetWidth;
+    box.classList.add("arrive");
+    if (S.major === "dashboard" && !S.activeTab && S.view.kind === "home") countUp();
+  }
+  function countUp() {
+    const cells = [...document.querySelectorAll("[data-part=home-counts] .kv")].map(n => ({ n, to: Number(n.textContent) })).filter(c => Number.isInteger(c.to) && c.to > 0);
+    const start = performance.now(), span = 450;
+    const step = now => {
+      const k = Math.min(1, (now - start) / span), ease = 1 - Math.pow(1 - k, 3);
+      for (const c of cells) if (c.n.isConnected) c.n.textContent = String(k < 1 ? Math.round(c.to * ease) : c.to);
+      if (k < 1) requestAnimationFrame(step);
+    };
+    for (const c of cells) c.n.setAttribute("aria-label", String(c.to));
+    requestAnimationFrame(step);
   }
 
   // Views are rebuilt on every change; keep keyboard focus on the same item when it is still there.
@@ -132,6 +169,18 @@
         return;
       }
     }
+  }
+
+  // A short confirmation shown in the corner for a moment; screen readers hear it through announce.
+  let toastTimer;
+  function toast(text) {
+    clearTimeout(toastTimer);
+    const box = $("toast");
+    box.textContent = text;
+    box.hidden = false;
+    box.classList.remove("show"); void box.offsetWidth; box.classList.add("show");
+    toastTimer = setTimeout(() => { box.hidden = true; box.classList.remove("show"); }, 2600);
+    announce(text);
   }
 
   let liveTimer;
@@ -835,6 +884,43 @@
       render();
       $("main").focus();
     },
+    // ---- Marks kept in this browser: favourites and saved views.
+    toggleFav(project, task, focusId) {
+      if (String(project).charAt(0) === "~") { toast("A repository found or opened by name can't be a favourite: its name is never stored."); return; }
+      const key = SB.favKey(project, task);
+      const on = !S.marks.favs.includes(key);
+      S.marks = SB.toggleFav(S.marks, key);
+      marksStore.write(S.marks);
+      render();
+      if (focusId) { const n = $(focusId); if (n) n.focus(); }
+      toast((task || (entryOf(project) || { w: { label: project } }).w.label) + (on ? " added to favourites" : " taken out of favourites"));
+    },
+    saveView(name) {
+      const e = entryOf(S.current);
+      const clean = String(name || "").trim().slice(0, 40);
+      if (!e || !clean) return false;
+      if (S.current.charAt(0) === "~") { toast("A view of a repository found or opened by name can't be saved: its name is never stored."); return false; }
+      S.marks = SB.saveView(S.marks, { project: S.current, name: clean, filters: Object.assign({}, S.filters), layout: S.taskLayout });
+      marksStore.write(S.marks);
+      S.saving = false;
+      render();
+      const n = $("save-view"); if (n) n.focus();
+      toast("Saved the view “" + clean + "”");
+      return true;
+    },
+    savingView(on) { S.saving = !!on; render(); const n = $(on ? "view-name" : "save-view"); if (n) n.focus(); },
+    openView(project, name) {
+      const v = S.marks.views.find(x => x.project === project && x.name === name);
+      if (v) A.go(project, { kind: "tasks" }, { filters: v.filters, layout: v.layout, focus: "tasks-h" });
+    },
+    dropView(project, name) {
+      S.marks = SB.dropView(S.marks, project, name);
+      marksStore.write(S.marks);
+      render();
+      const n = $("save-view"); if (n) n.focus();
+      toast("Removed the view “" + name + "”");
+    },
+    toast,
     // A member's page: the tasks naming them across projects.
     goMember(name) {
       S.major = "dashboard";
@@ -1055,6 +1141,9 @@
       // A stage picked from the tree or a stage chip opens its tasks with the filters, like a phase.
       if (opts && opts.stage !== undefined) S.filters = Object.assign(noFilters(), { stage: opts.stage });
       if (opts && opts.select !== undefined) S.selected = opts.select;
+      // A saved view brings its filters and layout.
+      if (opts && opts.filters) { S.filters = Object.assign(noFilters(), opts.filters); S.selected = null; }
+      if (opts && opts.layout && V.TASK_LAYOUTS.includes(opts.layout)) S.taskLayout = opts.layout;
       render();
       if (S.selected) loadDocs(entryOf(project), S.selected);
       if (opts && opts.focus) { const n = $(opts.focus); if (n) { n.focus(); return; } }
@@ -1179,7 +1268,7 @@
     S.atlas.vprs = new Map();
     S.search = freshState().search;  // a new run searches nothing read before it
     const ctx = session.start();  // same token, new run: replies to the old run are dropped
-    announce("Refreshing.");
+    toast("Refreshing.");
     read(ctx);
   }
 
@@ -1278,6 +1367,19 @@
     }
     out.push(["Light theme", "Setting", () => setTheme("light")], ["Dark theme", "Setting", () => setTheme("dark")],
              ["Device theme", "Setting", () => setTheme("device")]);
+    // Commands: things to do rather than places to go. None of them writes anywhere.
+    out.push(["Refresh everything", "Command", refresh], ["Open Settings", "Command", () => $("settings").showModal()],
+             ["Keyboard help", "Command", () => helpBox.showModal()]);
+    if (current && current.w.plan) {
+      for (const [k, name] of [["list", "List"], ["board", "Board"], ["table", "Table"], ["timeline", "Timeline"], ["calendar", "Calendar"]]) {
+        out.push(["Show tasks as " + name, "Command", () => A.go(current.w.id, { kind: "tasks" }, { layout: k, focus: "layout-" + k })]);
+      }
+      if (current.w.id.charAt(0) !== "~") out.push([(S.marks.favs.includes(SB.favKey(current.w.id)) ? "Take " : "Add ") + current.w.label + (S.marks.favs.includes(SB.favKey(current.w.id)) ? " out of favourites" : " to favourites"), "Command", () => A.toggleFav(current.w.id, null)]);
+    }
+    for (const v of S.marks.views) {
+      const e = entryOf(v.project);
+      if (e) out.push([e.w.label + ": " + v.name, "Saved view", () => A.openView(v.project, v.name)]);
+    }
     return out;
   }
 
@@ -1403,7 +1505,7 @@
   // ---- Events
 
   $("expand-all").addEventListener("click", () => { for (const id of V.treeGroups(S, A)) S.expanded.add(id); render(); });
-  $("collapse-all").addEventListener("click", () => { S.expanded = new Set(["g:projects", "g:across", "g:account"]); render(); });
+  $("collapse-all").addEventListener("click", () => { S.expanded = new Set(["g:favs", "g:projects", "g:across", "g:account"]); render(); });
   $("connect").addEventListener("submit", connect);
   $("show-demo").addEventListener("click", showDemo);
   $("forget").addEventListener("click", () => { endSession(S.demo ? "demo" : "forget"); $("main").focus(); });
@@ -1439,6 +1541,96 @@
     else if (e.key === "ArrowUp") { e.preventDefault(); gotoSel = Math.max(gotoSel - 1, 0); renderGoto(); }
     else if (e.key === "Enter") { e.preventDefault(); runGoto(gotoSel); }
   });
+
+  // "g then a letter" goes to a place; "g then d" switches between dark and light.
+  const G_KEYS = { h: () => A.goAccount("home"), p: () => A.setMajor("dashboard"), a: () => A.setMajor("atlas"), t: () => A.goAccount("timeline"),
+                   c: () => A.goAccount("calendar"), m: () => A.goAccount("members"), e: () => A.goAccount("teams"), i: () => A.goAccount("inbox"),
+                   s: () => A.goAccount("search"), r: () => A.goAccount("portfolio"),
+                   d: () => { const dark = root.getAttribute("data-theme") === "dark" || (!root.hasAttribute("data-theme") && window.matchMedia("(prefers-color-scheme: dark)").matches);
+                              setTheme(dark ? "light" : "dark"); toast(dark ? "Light theme" : "Dark theme"); } };
+  let gAt = 0;
+  document.addEventListener("keydown", e => {
+    const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName) || document.activeElement.isContentEditable;
+    if (typing || e.ctrlKey || e.metaKey || e.altKey || !S.signedIn || gotoBox.open || helpBox.open || $("settings").open) { gAt = 0; return; }
+    const k = e.key.toLowerCase();
+    if (gAt && Date.now() - gAt < 1500 && G_KEYS[k]) { e.preventDefault(); gAt = 0; closeCtx(false); G_KEYS[k](); return; }
+    gAt = k === "g" && !e.shiftKey ? Date.now() : 0;
+  });
+
+  // ---- Right-click (or the menu key, or Shift F10) on a project or a task: open it, star it, or copy or
+  // open its address on GitHub. The address is the plan repository's own web address as GitHub gave it.
+  const ctxBox = $("ctx");
+  let ctxBack = null;
+  function ctxTarget(node) {
+    if (!node || !node.closest || !S.signedIn) return null;
+    const t = node.closest("#workspace [data-task]");
+    if (t) {
+      const raw = t.dataset.task;
+      const [a, b] = raw.includes(":") ? raw.split(":") : [null, raw];
+      const holder = t.closest("[data-project]");
+      const project = a || (holder && holder.dataset.project) || S.current;
+      return entryOf(project) ? { project, task: b, node: t } : null;
+    }
+    const p = node.closest("#tree [data-project], #workspace [data-home-project], #workspace [data-team]");
+    if (!p) return null;
+    const project = p.dataset.project || p.dataset.homeProject || p.dataset.team;
+    return entryOf(project) ? { project, task: null, node: p } : null;
+  }
+  function closeCtx(back) {
+    if (ctxBox.hidden) return;
+    ctxBox.hidden = true;
+    ctxBox.replaceChildren();
+    if (back && ctxBack && ctxBack.isConnected) ctxBack.focus();
+    ctxBack = null;
+  }
+  function openCtx(target, x, y) {
+    const e = entryOf(target.project);
+    const key = SB.favKey(target.project, target.task);
+    const fav = S.marks.favs.includes(key);
+    const web = SB.githubLink(e, target.task);
+    const name = target.task || e.w.label;
+    const item = (label, run, extra) => V.el("button", Object.assign({ type: "button", role: "menuitem", tabindex: "-1", onclick: () => { closeCtx(false); run(); } }, extra || {}), label);
+    const items = [item("Open " + name, () => target.task ? A.go(e.w.id, { kind: "tasks" }, { phase: "", select: target.task }) : A.go(e.w.id, e.w.plan ? { kind: "overview" } : { kind: "repo", repo: e.w.code[0].repo }))];
+    if (e.w.id.charAt(0) !== "~") items.push(item(fav ? "Take out of favourites" : "Add to favourites", () => A.toggleFav(e.w.id, target.task || null)));
+    if (web) {
+      items.push(item("Copy GitHub link", async () => { try { await navigator.clipboard.writeText(web); toast("Link copied"); } catch (err) { toast("Copy didn't work here, so nothing was copied."); } }));
+      items.push(V.el("a", { role: "menuitem", tabindex: "-1", href: web, target: "_blank", rel: "noopener noreferrer", onclick: () => closeCtx(false) }, "Open on GitHub"));
+    }
+    ctxBox.replaceChildren(...items);
+    ctxBox.setAttribute("aria-label", "Actions for " + name);
+    ctxBox.hidden = false;
+    ctxBack = target.node.matches("button, a, [tabindex]") ? target.node : target.node.querySelector("button, a, [tabindex]") || document.activeElement;
+    const r = ctxBox.getBoundingClientRect();
+    ctxBox.style.left = Math.max(4, Math.min(x, window.innerWidth - r.width - 4)) + "px";
+    ctxBox.style.top = Math.max(4, Math.min(y, window.innerHeight - r.height - 4)) + "px";
+    items[0].focus();
+  }
+  document.addEventListener("contextmenu", e => {
+    const t = ctxTarget(e.target);
+    if (!t) { closeCtx(false); return; }
+    e.preventDefault();
+    openCtx(t, e.clientX, e.clientY);
+  });
+  document.addEventListener("keydown", e => {
+    if (!ctxBox.hidden) {
+      const items = [...ctxBox.querySelectorAll("[role=menuitem]")];
+      const i = items.indexOf(document.activeElement);
+      const step = { ArrowDown: 1, ArrowUp: -1 }[e.key];
+      if (step) { e.preventDefault(); items[(i + step + items.length) % items.length].focus(); }
+      else if (e.key === "Home" || e.key === "End") { e.preventDefault(); items[e.key === "Home" ? 0 : items.length - 1].focus(); }
+      else if (e.key === "Escape" || e.key === "Tab") { e.preventDefault(); e.stopImmediatePropagation(); closeCtx(true); }
+      return;
+    }
+    if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+      const t = ctxTarget(document.activeElement);
+      if (!t) return;
+      e.preventDefault();
+      const r = document.activeElement.getBoundingClientRect();
+      openCtx(t, r.left + 8, r.bottom + 2);
+    }
+  }, true);
+  document.addEventListener("pointerdown", e => { if (!ctxBox.hidden && !ctxBox.contains(e.target)) closeCtx(false); });
+  window.addEventListener("resize", () => closeCtx(false));
 
   document.addEventListener("keydown", e => {
     const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName);

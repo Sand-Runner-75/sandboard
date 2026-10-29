@@ -81,6 +81,8 @@
     <dt><kbd>T</kbd></dt><dd>Open the task as a tab</dd>
     <dt><kbd>←</kbd> <kbd>→</kbd> on tabs</dt><dd>Move between tabs; <kbd>Delete</kbd> closes one</dd>
     <dt><kbd>←</kbd> <kbd>→</kbd> on a task tab's sections</dt><dd>Move between Details, Brief, Handover, Results, Cross-references and Related</dd>
+    <dt><kbd>G</kbd> then a letter</dt><dd>Go to: <kbd>H</kbd> Home, <kbd>P</kbd> Progress, <kbd>A</kbd> Atlas, <kbd>T</kbd> Timeline, <kbd>C</kbd> Calendar, <kbd>M</kbd> Members, <kbd>E</kbd> Teams, <kbd>I</kbd> Inbox, <kbd>S</kbd> Search, <kbd>R</kbd> All repositories; <kbd>D</kbd> switches between dark and light</dd>
+    <dt><kbd>Shift F10</kbd> or the menu key</dt><dd>On a project or a task: open it, star it, or copy or open its GitHub link (right-click does the same)</dd>
     <dt><kbd>Esc</kbd></dt><dd>Hide an explanation bubble; close the details, this help or Go to</dd>
   </dl>
   <p class="muted">Sandboard only reads. There is no button that edits, assigns, merges, reviews, re-runs or publishes anything.</p>
@@ -119,6 +121,8 @@
   <p class="muted qual">Goes to places only. To find words in the tasks, pull requests and files already read, go to Search.</p>
 </dialog>
 <div id="live" class="sr" role="status" aria-live="polite"></div>
+<div id="toast" class="toast" aria-hidden="true" hidden></div>
+<div id="ctx" class="ctx-menu" role="menu" aria-label="Actions" hidden></div>
 <div id="tip" class="tip" role="tooltip" hidden></div>
 <svg id="svg-ns" aria-hidden="true" hidden></svg>
 <noscript>Sandboard needs JavaScript.</noscript>

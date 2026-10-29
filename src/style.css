@@ -640,3 +640,25 @@ button.linkchip:hover { color: var(--fg); border-color: var(--control); }
 .vpulls h4 { margin: 4px 0 6px; font-size: 0.85rem; }
 .vnone { margin: 0; font-size: 0.85rem; }
 .vshare { font-size: 0.85rem; display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+
+/* Favourites, saved views, the right-click menu, confirmations and arrival motion */
+.star.on { color: var(--accent); border-color: var(--accent); }
+.saved-views { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.saved-views > .label { margin: 0; }
+.sv { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line); border-radius: 999px; padding: 0 2px 0 10px; }
+.sv-x { background: none; border: 0; cursor: pointer; color: var(--muted); min-width: 24px; min-height: 24px; border-radius: 999px; }
+.sv-x:hover { color: var(--fg); background: var(--sunken); }
+.sv-form { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+#view-name { min-height: 32px; padding: 3px 8px; border: 1px solid var(--control); border-radius: var(--r); background: var(--surface); }
+.ctx-menu { position: fixed; z-index: 70; min-width: 12rem; max-width: calc(100vw - 8px); padding: 4px; display: grid; background: var(--surface);
+  border: 1px solid var(--control); border-radius: var(--r); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); }
+.ctx-menu [role=menuitem] { text-align: left; background: none; border: 0; padding: 7px 10px; border-radius: 4px; cursor: pointer; color: var(--fg); text-decoration: none; font: inherit; }
+.ctx-menu [role=menuitem]:hover, .ctx-menu [role=menuitem]:focus { background: var(--info-bg); color: var(--info-fg); }
+.toast { position: fixed; z-index: 65; right: 16px; bottom: 16px; max-width: calc(100vw - 32px); background: var(--fg); color: var(--bg);
+  padding: 8px 14px; border-radius: var(--r); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2); }
+@media (prefers-reduced-motion: no-preference) {
+  .arrive { animation: arrive 0.18s ease-out; }
+  @keyframes arrive { from { opacity: 0; transform: translateY(4px); } }
+  .toast.show { animation: toast-in 0.16s ease-out; }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(6px); } }
+}

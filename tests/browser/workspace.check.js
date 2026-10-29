@@ -91,7 +91,7 @@ function privateRepos() {
   await p.keyboard.press("/"); k.search = await active(p);
   await p.keyboard.type("trace");
   k.rows = await p.$$eval("#task-list .row", r => r.map(x => x.dataset.id));
-  for (let i = 0; i < 10; i++) await p.keyboard.press("Tab");  // stage, phase, status and doer filters, the five layouts, then the list
+  for (let i = 0; i < 11; i++) await p.keyboard.press("Tab");  // stage, phase, status and doer filters, the five layouts, Save this view, then the list
   k.onRow = await active(p);
   await p.keyboard.press("Enter"); await p.waitForTimeout(200);
   k.panel = await text(p, "#inspector");
@@ -1963,6 +1963,63 @@ function privateRepos() {
     await p.evaluate(k => document.querySelector("#tree [data-id='a:" + k + "'] > .ti").click(), k); await p.waitForTimeout(400);
     ac["phone_" + k] = await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   }
+  await p.close();
+
+  // 18. Marks and quick ways: favourites and saved views kept in this browser only, commands in
+  // Go to, "g then a letter", the right-click menu from the keyboard, confirmations, and motion that only
+  // runs when the place changes and never with reduced motion.
+  p = await open();
+  await demo(p);
+  const mk = out.marks = {};
+  mk.before = await p.evaluate(() => [localStorage.getItem("sandboard.marks"), document.querySelectorAll("#tree [data-id='g:favs']").length]);
+  // The fade is on the area itself, so a redraw of the same place does not cut it short.
+  const fading = page => page.evaluate(() => { const w = document.getElementById("workspace"); return [w.classList.contains("arrive"), getComputedStyle(w).animationName]; });
+  await p.click("#tree [data-id='p:demo'] > .ti"); await p.waitForTimeout(300);
+  mk.arrive = await fading(p);
+  await p.click("#fav-project"); await p.waitForTimeout(200);
+  mk.star = [await p.$eval("#fav-project", b => [b.getAttribute("aria-pressed"), b.getAttribute("aria-label")]), await p.evaluate(() => document.activeElement.id),
+    await text(p, "#toast"), await text(p, "#live"), await p.$$eval("#tree [data-id='g:favs'] [role=treeitem]", n => n.map(x => x.dataset.id))];
+  await p.keyboard.press("Control+k"); await p.keyboard.type("tasks as board"); await p.keyboard.press("Enter"); await p.waitForTimeout(600);
+  mk.command = [await p.$eval("#layout-board", b => b.getAttribute("aria-pressed")), await p.evaluate(() => document.activeElement.id)];
+  await p.selectOption("#f-status", "In Progress"); await p.waitForTimeout(200);
+  await p.click("#save-view"); await p.waitForTimeout(100);
+  mk.naming = await p.evaluate(() => document.activeElement.id);
+  await p.keyboard.type("Doing <b>now</b>"); await p.keyboard.press("Enter"); await p.waitForTimeout(200);
+  mk.saved = [await p.evaluate(() => JSON.parse(localStorage.getItem("sandboard.marks"))), await p.evaluate(() => document.activeElement.id),
+    await p.$$eval("[data-part=saved-views] [data-view]", n => n.map(x => x.textContent)), await p.$$eval("[data-part=saved-views] b", n => n.length)];
+  // The right-click menu from the keyboard on a board card: open, star, nothing else without a GitHub address.
+  await p.focus(".bcard .linkbtn"); await p.keyboard.press("Shift+F10"); await p.waitForTimeout(100);
+  mk.menu = [await p.$$eval("#ctx [role=menuitem]", n => n.map(x => x.textContent)), await p.evaluate(() => document.activeElement.getAttribute("role"))];
+  await p.keyboard.press("ArrowDown"); await p.keyboard.press("Enter"); await p.waitForTimeout(200);
+  mk.starred = [await p.evaluate(() => JSON.parse(localStorage.getItem("sandboard.marks")).favs), await p.$eval("#ctx", n => n.hidden)];
+  await p.focus(".bcard .linkbtn"); await p.keyboard.press("Shift+F10"); await p.waitForTimeout(100); await p.keyboard.press("Escape"); await p.waitForTimeout(100);
+  mk.escaped = [await p.$eval("#ctx", n => n.hidden), await p.evaluate(() => document.activeElement.classList.contains("linkbtn"))];
+  // A fresh visit on the same browser: the marks come back; the saved view opens its filters and layout.
+  await p.click("#forget"); await p.waitForTimeout(200);
+  await p.evaluate(() => { document.getElementById("live").textContent = ""; });
+  await demo(p);
+  await p.waitForSelector("#tree [data-id='p:demo']");
+  mk.back = await p.$$eval("#tree [data-id='g:favs'] [role=treeitem]", n => n.map(x => x.dataset.id));
+  await p.click("#tree [data-id='p:demo'] > .ti > .tw"); await p.waitForTimeout(200);
+  await p.click("#tree [data-id='sv:demo'] > .ti > .tw"); await p.waitForTimeout(200);
+  await p.click("#tree [data-id='sv:demo:Doing <b>now</b>'] > .ti"); await p.waitForTimeout(600);
+  mk.opened = [await p.$eval("#f-status", s => s.value), await p.$eval("#layout-board", b => b.getAttribute("aria-pressed"))];
+  await p.click("[data-part=saved-views] .sv-x"); await p.waitForTimeout(200);
+  mk.dropped = await p.evaluate(() => JSON.parse(localStorage.getItem("sandboard.marks")).views.length);
+  // "g then a letter", never while typing.
+  await p.focus("#q"); await p.keyboard.press("g"); await p.keyboard.press("m"); await p.waitForTimeout(200);
+  mk.typing = await p.$eval("#q", n => n.value);
+  await p.focus("#main"); await p.keyboard.press("g"); await p.keyboard.press("m"); await p.waitForTimeout(400);
+  mk.gm = await text(p, "#view-h");
+  await p.keyboard.press("g"); await p.keyboard.press("d"); await p.waitForTimeout(200);
+  mk.gd = await p.evaluate(() => document.documentElement.getAttribute("data-theme"));
+  await p.keyboard.press("g"); await p.keyboard.press("h"); await p.waitForTimeout(1200);
+  mk.home = await p.$$eval("[data-part=home-counts] .kv", n => n.map(x => x.textContent));
+  await p.close();
+  p = await open({ reducedMotion: "reduce" });
+  await demo(p);
+  await p.click("#tree [data-id='a:home'] > .ti");
+  mk.still = [await fading(p), await p.$$eval("[data-part=home-counts] .kv", n => n.map(x => x.textContent))];
   await p.close();
 
   // Text grows a little with the screen, from the browser's own size to an eighth more.
