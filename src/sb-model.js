@@ -597,6 +597,18 @@
     compare: (repo, base, head) => "cmpfiles|" + repo + "|" + base + "..." + head,
   };
   const MAX_TEXT_LINES = 10000;
+
+  // The repository a live read belongs to, from the key's own repository slot: the field after the
+  // family name (after the list kind for work lists), up to "@", "|", "#" or the end. A repository
+  // name has none of those characters, so a path or ref later in the key is never taken for one.
+  // The account read ("user") belongs to none.
+  function liveKeyRepo(key) {
+    const parts = String(key).split("|");
+    if (parts.length < 2) return null;
+    const slot = parts[0] === "work" ? parts[2] : parts[1];
+    return slot ? slot.split(/[@#]/)[0] || null : null;
+  }
+
   const BACKSLASH = String.fromCharCode(92);
   const MAX_DIFF_LINES = 5000;
   const MAX_FOUND = 200;
@@ -876,5 +888,5 @@
                       ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
                       approvals, resultHref, tabKey, stageOfPhase, short,
                       HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs,
-                      codeKey, MAX_TEXT_LINES, MAX_SEARCH, searchSources, searchFind, searchCoverage, MAX_DIFF_LINES, MAX_FOUND, MAX_READ_BYTES, codeTree, codeFind, codeOpenable, textLines, textPieces, diffLines });
+                      codeKey, liveKeyRepo, MAX_TEXT_LINES, MAX_SEARCH, searchSources, searchFind, searchCoverage, MAX_DIFF_LINES, MAX_FOUND, MAX_READ_BYTES, codeTree, codeFind, codeOpenable, textLines, textPieces, diffLines });
 })(typeof window !== "undefined" ? window : globalThis);

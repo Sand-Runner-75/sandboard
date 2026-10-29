@@ -851,22 +851,18 @@
     const ctx = S.run;
     let w = S.entries[i].w;
     const repos = [planRepo(w), ...w.code.map(c => c.repo)].filter(Boolean);
-    // Live keys name a repository as "|owner/name" followed by "@", "|", "#" or the end.
-    const ofRepos = key => repos.some(r => key.endsWith("|" + r) || ["@", "|", "#"].some(x => key.includes("|" + r + x)));
-    for (const key of [...S.live.keys()]) if (ofRepos(key)) S.live.delete(key);
-    for (const m of [S.histDepth, S.histScroll]) for (const key of [...m.keys()]) if (repos.some(r => key.startsWith(r + "@"))) m.delete(key);
-    for (const key of [...S.workDepth.keys()]) if (repos.some(r => key.includes("|" + r + "|"))) S.workDepth.delete(key);
+    // Only reads whose own repository slot is one of this project's (never a path or ref inside a key).
+    for (const key of [...S.live.keys()]) if (repos.includes(SB.liveKeyRepo(key))) S.live.delete(key);
+    for (const m of [S.histDepth, S.histScroll]) for (const key of [...m.keys()]) if (repos.includes(key.split("@")[0])) m.delete(key);
+    for (const key of [...S.workDepth.keys()]) if (repos.includes(key.split("|")[1])) S.workDepth.delete(key);
     for (const [key, res] of [...S.docs]) {
       if (key.startsWith(id + "|") && (!["current", "empty", "missing", "invalid"].includes(res.state) || key.includes("|live|"))) S.docs.delete(key);
     }
     const pending = { w, loading: true, plan: null, table: null, progress: null, code: w.code.map(c => ({ c, pinned: null, checks: null })), tasks: [] };
     const mine = () => S.run === ctx && S.entries[i] === pending;
-    // The button is drawn again with the view; keep the focus on it when it had it.
-    const held = document.activeElement && document.activeElement.id === "refresh-one";
-    const draw = () => { render(); const b = $("refresh-one"); if (held && b) b.focus(); };
     S.entries[i] = pending;
     announce("Refreshing " + w.label + ".");
-    draw();
+    render();
     try {
       let read = await SB.readWorkspace(ctx, client, w);
       session.alive(ctx);
@@ -880,7 +876,7 @@
       }
       S.entries[i] = entryFrom(w, read);
       dropUnreadableTabs(S.entries[i]);
-      draw();
+      render();
       if (w.id === S.current && S.selected) loadDocs(S.entries[i], S.selected);
       for (const t of S.tabs) if (t.project === w.id) { loadDocs(tabSource(t), t.id); if (t.sub === "cycle") loadCycle(tabSource(t), t.id); }
       announce("Reading finished.");
@@ -891,7 +887,7 @@
       const failed = () => SB.result("failed", null, null, { error: "browser error (" + err.name + ")" });
       S.entries[i] = entryFrom(w, [...(w.plan ? [{ kind: "plan", result: failed() }] : []), ...w.code.map(() => ({ kind: "code", result: failed() }))]);
       dropUnreadableTabs(S.entries[i]);
-      draw();
+      render();
     }
   }
 
