@@ -68,7 +68,7 @@ function mockGitHub(repos, overrides = []) {
       return json({ total_count: total, check_runs: checks.slice((page - 1) * 100, page * 100) });
     }
     // Work evidence: a repository's own replies (work), else lists made from its pulls, issues, runs and releases.
-    m = /^\/repos\/([^/]+\/[^/]+)(\/(?:pulls|issues|actions\/runs|releases)(?:\/\d+\/reviews)?\?.*)$/.exec(p);
+    m = /^\/repos\/([^/]+\/[^/]+)(\/(?:pulls|issues|actions\/(?:workflows\/\d+\/runs|workflows|runs)|releases)(?:\/\d+\/reviews)?\?.*)$/.exec(p);
     if (m && repos[m[1]] && repos[m[1]].work && repos[m[1]].work[m[2]] !== undefined) {
       const v = repos[m[1]].work[m[2]];
       return typeof v === "number" ? json({ message: "no" }, v) : json(v);

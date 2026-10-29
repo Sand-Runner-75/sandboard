@@ -852,13 +852,17 @@
   }
 
   // Workflow runs, newest first, with GitHub's own total. Needs Actions: read.
-  function readRunPage(ctx, client, repo, page) {
-    return SB.guard(readRunPageUnguarded(ctx, client, repo, page), { repo, page });
+  // A page of runs, filtered by GitHub when a filter is given (see SB.runQuery).
+  function readRunPage(ctx, client, repo, page, filter) {
+    return SB.guard(readRunPageUnguarded(ctx, client, repo, page, filter), { repo, page });
   }
-  async function readRunPageUnguarded(ctx, client, repo, page) {
+  async function readRunPageUnguarded(ctx, client, repo, page, filter) {
     const source = { repo, page };
     if (!workPage(repo, null, page)) return result("invalid", null, source, { error: "not a valid repository or page" });
-    const { out, body } = await getList(ctx, client, "/repos/" + repo + "/actions/runs?per_page=" + WORK_PAGE + "&page=" + page, source, "Actions: read");
+    const { workflow, query } = SB.runQuery(filter);
+    const path = "/repos/" + repo + "/actions/" + (workflow ? "workflows/" + workflow + "/" : "") + "runs?" + (query ? query + "&" : "") +
+      "per_page=" + WORK_PAGE + "&page=" + page;
+    const { out, body } = await getList(ctx, client, path, source, "Actions: read");
     if (out) return out;
     if (!isObject(body) || !Number.isInteger(body.total_count) || body.total_count < 0 || !Array.isArray(body.workflow_runs) || body.workflow_runs.length > WORK_PAGE) {
       return result("invalid", null, source, { error: "unexpected run list" });
@@ -888,6 +892,26 @@
     const short = runs.length < WORK_PAGE;
     return result("partial", Object.assign({ end: false, short }, extra), source,
                   { coverage: { shown: before + runs.length, total: body.total_count } });
+  }
+
+  // The repository's workflows, to filter its runs by: the first 100, by ID, name and file.
+  function readWorkflows(ctx, client, repo) {
+    return SB.guard(readWorkflowsUnguarded(ctx, client, repo), { repo });
+  }
+  async function readWorkflowsUnguarded(ctx, client, repo) {
+    const source = { repo };
+    if (!SB.validRepo(repo)) return result("invalid", null, source, { error: "not a valid repository" });
+    const { out, body } = await getList(ctx, client, "/repos/" + repo + "/actions/workflows?per_page=" + WORK_PAGE + "&page=1", source, "Actions: read");
+    if (out) return out;
+    if (!isObject(body) || !Number.isInteger(body.total_count) || !Array.isArray(body.workflows) || body.workflows.length > WORK_PAGE ||
+        !body.workflows.every(w => isObject(w) && Number.isSafeInteger(w.id) && w.id > 0 && typeof w.name === "string" && typeof w.path === "string")) {
+      return result("invalid", null, source, { error: "unexpected workflow list" });
+    }
+    const workflows = body.workflows.map(w => ({ id: w.id, name: w.name.slice(0, 200) || w.path.slice(0, 200), path: w.path.slice(0, 300),
+                                                 state: typeof w.state === "string" ? w.state.slice(0, 40) : null }));
+    const extra = { workflows, total: body.total_count };
+    return body.total_count > workflows.length ? result("partial", extra, source, { coverage: { shown: workflows.length, total: body.total_count } })
+      : result(workflows.length ? "current" : "empty", extra, source);
   }
 
   // Releases, newest first, with their assets' names and sizes only: no asset is fetched.
@@ -1053,6 +1077,6 @@
                       validateProgress, readProgress, readCheckRuns, readPulls, readComments,
                       COMMIT_LIMIT, REPO_COMMENT_LIMIT, readLanguages, readCommits, readRepoComments, readUser, readProfile, EVENT_PAGES, readPublicEvents, readStarred, readGists, readUserRepos, readAccountRepos, FIND_LIMIT, findPlanRepos,
                       HISTORY_PAGE, historyCommit, readHistoryPage, readRefs, readCompare,
-                      WORK_PAGE, MAX_WORK_PAGES, readPullPage, readPullCommits, readReviews, readIssuePage, readRunPage, readReleasePage, assetLink,
+                      WORK_PAGE, MAX_WORK_PAGES, readPullPage, readPullCommits, readReviews, readIssuePage, readRunPage, readWorkflows, readReleasePage, assetLink,
                       MAX_DIFF_FILES, readTree, readCodeFile, readCommitChanges, readCompareChanges });
 })(typeof window !== "undefined" ? window : globalThis);
