@@ -40,7 +40,7 @@
     const br = live(K().refs(repo, "branches"));
     if (!br) return { state: "loading", wanted: [{ kind: "refs", list: "branches" }] };
     if (br.state === "loading") return { state: "loading", wanted };
-    if (!br.data) return { state: br.state, error: br.error || null, wanted };
+    if (!br.data) return { state: br.state, error: br.error || null, wanted, retry: true };
     const list = br.data.refs;
     if (!list.length) return { state: "empty", wanted };
     const pick = list.slice().sort((a, b) => rankOf(a.name, def) - rankOf(b.name, def) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)).slice(0, BRANCHES);
@@ -84,8 +84,20 @@
     const heads = pick.map(b => ({ name: b.name, sha: b.sha, pr: prOf.get(b.name) }));
     const tagList = tags && tags.data ? tags.data.refs.map(t => ({ name: t.name, sha: t.sha })) : [];
     const loading = reading || wanted.some(x => x.kind === "lane");
-    return { state: failed ? failed.state : loading && !w.win.length ? "loading" : "current", failed, reading: loading, wanted,
+    // The tags and pull requests are read apart from the commits: their own state goes with the graph, so a
+    // list that could not be read is never shown as one GitHub gave empty.
+    const meta = { tags: readState(tags), pulls: open && open.data === null ? readState(open) : readState(all) };
+    if (meta.pulls.state === "current" && all && all.state === "partial" && !(open && open.data)) meta.pulls = { state: "partial", error: null };
+    const retry = !!failed || meta.tags.failed || meta.pulls.failed;
+    return { state: failed ? failed.state : loading && !w.win.length ? "loading" : "current", error: failed ? failed.error : null,
+             failed, reading: loading, wanted, retry, meta,
              pick, total: list.length, partialBranches: br.state === "partial", win: w.win, more: w.more, heads, tags: tagList };
+  }
+  // A list's read state: loading, read (current, empty or partial), or failed with its error.
+  function readState(res) {
+    if (!res || res.state === "loading") return { state: "loading", error: null, failed: false };
+    if (!res.data) return { state: res.state, error: res.error || null, failed: true };
+    return { state: res.state, error: null, failed: false };
   }
 
   // Branches that may still have older commits on GitHub. A branch whose oldest read commit already has its

@@ -141,3 +141,40 @@ test("the layout draws nothing for no commits and a dashed stub where a parent w
   const lay = SB.atlasLayout("main", [{ sha: sha("x"), parents: [sha("missing")], date: at(1), msg: "x", author: "" }], [{ name: "main", sha: sha("x") }], []);
   assert.deepEqual(lay.edges.map(e => e.dashed), [true]);
 });
+
+test("a first commit page that could not be read is the graph's state, with its error and a retry", () => {
+  const live = new Map([[K.refs(REPO, "branches"), refs([["main", "m3"]])], [K.lane(REPO, sha("m3"), 1), { state: "rate-limited", data: null, error: "HTTP 429" }]]);
+  const g = SB.atlasGraph(liveOf(live), REPO, "main", 100);
+  assert.deepEqual([g.state, g.error, g.retry, g.win.length], ["rate-limited", "HTTP 429", true, 0]);
+  // Once the failed page is dropped, it is asked for again, and the graph draws when it comes.
+  live.delete(K.lane(REPO, sha("m3"), 1));
+  assert.deepEqual(SB.atlasGraph(liveOf(live), REPO, "main", 100).wanted.filter(w => w.kind === "lane"), [{ kind: "lane", head: sha("m3"), page: 1 }]);
+  live.set(K.lane(REPO, sha("m3"), 1), page([c("m3", [], 1, "Only commit")]));
+  const again = SB.atlasGraph(liveOf(live), REPO, "main", 100);
+  assert.deepEqual([again.state, again.retry, again.win.length], ["current", false, 1]);
+  // An unreadable branch list offers a retry too.
+  assert.equal(SB.atlasGraph(liveOf(new Map([[K.refs(REPO, "branches"), { state: "denied", data: null, error: "HTTP 403" }]])), REPO, "main", 100).retry, true);
+});
+
+test("tags and pull requests that could not be read, or are still being read, are never taken for none", () => {
+  const base = () => new Map([[K.refs(REPO, "branches"), refs([["main", "m3"]])], [K.lane(REPO, sha("m3"), 1), page([c("m3", [], 1, "Only commit")])]]);
+  const reading = SB.atlasGraph(liveOf(base()), REPO, "main", 100);
+  assert.deepEqual([reading.meta.tags.state, reading.meta.pulls.state], ["loading", "loading"]);
+  const denied = base();
+  denied.set(K.refs(REPO, "tags"), { state: "denied", data: null, error: "HTTP 403" });
+  denied.set(SB.workKey.list("pulls", REPO, "all", 1), { state: "rate-limited", data: null, error: "HTTP 429" });
+  const g = SB.atlasGraph(liveOf(denied), REPO, "main", 100);
+  assert.deepEqual([g.state, g.retry, g.wanted.length], ["current", true, 0]);
+  assert.deepEqual(g.meta.tags, { state: "denied", error: "HTTP 403", failed: true });
+  assert.deepEqual(g.meta.pulls, { state: "rate-limited", error: "HTTP 429", failed: true });
+  // A tag list that goes on past what was read is partial, and a full first page of pull requests that has
+  // no open list read yet asks for it.
+  const partial = base();
+  partial.set(K.refs(REPO, "tags"), { state: "partial", data: { refs: [{ name: "v1", sha: sha("m3") }] } });
+  partial.set(SB.workKey.list("pulls", REPO, "all", 1), { state: "partial", data: { pulls: Array.from({ length: 100 }, (_, i) => ({ number: i + 1, headRef: "b" + i, headRepo: REPO })) } });
+  const p = SB.atlasGraph(liveOf(partial), REPO, "main", 100);
+  assert.deepEqual([p.meta.tags.state, p.retry], ["partial", false]);
+  assert.deepEqual(p.wanted, [{ kind: "pulls", state: "open", page: 1 }]);
+  partial.set(SB.workKey.list("pulls", REPO, "open", 1), { state: "denied", data: null, error: "HTTP 403" });
+  assert.deepEqual(SB.atlasGraph(liveOf(partial), REPO, "main", 100).meta.pulls, { state: "denied", error: "HTTP 403", failed: true });
+});

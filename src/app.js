@@ -756,9 +756,12 @@
       render();
       announce("Reading older commits.");
     },
-    // Failed pages of a repository's branch commits are dropped, so they are read again.
+    // What the graph could not read is dropped, so it is read again: the branch and tag lists, pages of the
+    // branches' commits and the pull request lists. Reads that worked are kept.
     atlasRetry(repo) {
-      for (const [key, res] of [...S.live]) if (key.startsWith("lane|" + repo + "@") && res.state !== "loading" && !res.data) S.live.delete(key);
+      const mine = key => key === SB.historyKey.refs(repo, "branches") || key === SB.historyKey.refs(repo, "tags") ||
+        key.startsWith("lane|" + repo + "@") || key.startsWith("work|pulls|" + repo + "|");
+      for (const [key, res] of [...S.live]) if (mine(key) && res.state !== "loading" && !res.data) S.live.delete(key);
       render();
     },
     // The graph drawn for a repository, kept while what it is drawn from is the same, so its zoom, scroll
@@ -974,7 +977,7 @@
   function places() {
     const out = [["All repositories", "Account", () => A.goAccount("portfolio")], ["Activity and languages", "Account", () => A.goAccount("activity")],
                  ["Inbox", "Account", () => A.goAccount("inbox")], ["Search what is read", "Account", () => A.goAccount("search")],
-                 ["Atlas", "View", () => A.setMajor("atlas")], ["Dashboard", "View", () => A.setMajor("dashboard")]];
+                 ["Atlas", "View", () => A.setMajor("atlas")], ["Progress (main tab)", "View", () => A.setMajor("dashboard")]];
     for (const e of S.entries) {
       const w = e.w;
       if (w.plan) {
@@ -1084,6 +1087,9 @@
     if (tipBox.contains(e.target)) { clearTimeout(tipTimer); return; }
     const node = tipNode(e.target, false);
     if (node === tipFor) { clearTimeout(tipTimer); return; }
+    // A bubble shown for the keyboard's place stays while the pointer is over nothing with a bubble of its own,
+    // as when the page is drawn again under a resting pointer.
+    if (!node && tipFor && tipFor.contains(document.activeElement)) return;
     clearTimeout(tipTimer);
     // The branch graph's dots and labels answer quickly, as a picture's details do.
     tipTimer = node ? setTimeout(() => showTip(node, null), node.closest(".atlas-graph") ? 150 : TIP_WAIT) : setTimeout(hideTip, 200);

@@ -26,11 +26,13 @@
     return node;
   }
   const plural = (n, one, many) => n.toLocaleString("en") + " " + (n === 1 ? one : many || one + "s");
+  // A bubble's lines as one spoken sentence each.
+  const spoken = text => text.split("\n").filter(Boolean).join(". ");
   const tip = (node, key) => { node.setAttribute("data-tip", V.TIPS[key] || key); return node; };
 
-  // ---- The two main tabs: Dashboard (everything as it was) and Atlas.
+  // ---- The two main tabs: Progress (the dashboard, everything as it was) and Atlas.
 
-  const MAJOR = [["dashboard", "Dashboard"], ["atlas", "Atlas"]];
+  const MAJOR = [["dashboard", "Progress"], ["atlas", "Atlas"]];
   function majorTabs(S, A) {
     return el("div", { class: "major", role: "tablist", "aria-label": "Main views" }, MAJOR.map(([k, l], i) =>
       el("button", { type: "button", role: "tab", id: "major-" + k, "aria-selected": String(S.major === k), tabindex: S.major === k ? "0" : "-1",
@@ -67,14 +69,15 @@
       panel.append(g.state === "loading" || g.reading ? notice("loading", "Reading the branches and their newest commits.")
         : g.state === "empty" ? notice("empty", "This repository has no branches yet.")
         : g.state === "current" ? notice("empty", "No commits to draw.")
-        : notice(g.state, "The branch graph could not be read" + (g.error ? " (" + g.error + ")" : "") + "."));
+        : notice(g.state, "The branch graph could not be read" + (g.failed ? " (the newest commits of " + g.failed.branch + ")" : "") + (g.error ? ": " + g.error : "") + "."));
+      if (g.retry) panel.append(retryRow(A, repo, g));
       return panel;
     }
     const lay = SB.atlasLayout(def, g.win, g.heads, g.tags);
     const sum = el("div", { class: "legend", id: "ag-sum" },
       el("span", {}, el("b", {}, lay.commits.toLocaleString("en")), " " + (g.more ? "newest commits" : lay.commits === 1 ? "commit (whole history)" : "commits (whole history)")),
       el("span", {}, el("b", {}, String(lay.lines)), lay.lines === 1 ? " line of work" : " lines of work"),
-      el("span", {}, el("b", {}, String(lay.tags)), lay.tags === 1 ? " tag" : " tags"),
+      tagsSpan(g.meta.tags, lay.tags),
       g.total > g.heads.length ? el("span", {}, "Drawing " + g.heads.length + " of " + g.total + (g.partialBranches ? "+" : "") + " branches") : null,
       g.more ? el("button", { type: "button", class: "btn ghost small", id: "ag-older", "aria-disabled": g.reading ? "true" : null,
         onclick: () => { if (!g.reading) A.atlasOlder(repo); } }, g.reading ? "Loading older commits…" : "Load older commits") : null);
@@ -84,20 +87,49 @@
     const sig = JSON.stringify([def, r.web, lay.W, lay.H, g.win.map(c => c.sha).join(","), g.heads, g.tags]);
     const holder = A.atlasBox(repo, sig, () => drawGraph(A, repo, r.web, lay));
     const box = holder.box;
+    // The commit the keyboard is on keeps the focus when the page is drawn again, even in a new drawing.
+    const was = doc.activeElement && doc.activeElement.closest && doc.activeElement.closest(".atlas-graph .gc[data-sha]");
+    const focusSha = was ? was.getAttribute("data-sha") : null;
     box.atlasMore = g.more && !g.reading && !g.failed;
     box.atlasOlder = () => A.atlasOlder(repo);
     filesTips(A, repo, box);
     panel.append(box);
-    if (g.failed) panel.append(el("div", { class: "qual plain", role: "alert" }, "Older commits of " + g.failed.branch + " could not be read (" + (g.failed.error || g.failed.state) + "). ",
-      el("button", { type: "button", class: "linkbtn", id: "ag-retry", onclick: () => A.atlasRetry(repo) }, "Read again")));
+    if (g.retry) panel.append(retryRow(A, repo, g));
+    else if (g.meta.pulls.state === "loading") panel.append(el("div", { class: "qual plain" }, "Reading the pull requests, to label branches with their pull request numbers."));
+    else if (g.meta.pulls.state === "partial") panel.append(el("div", { class: "qual plain" }, "Branch labels name pull requests from the newest 100 and the open ones only; any other branch shows its name."));
     panel.append(keyTable(lay));
     panel.append(el("div", { class: "cthint" }, "Scroll to zoom · Drag to look around · Hover a dot to see the commit and its files" + (g.more ? " · Reaching the left edge loads older commits" : "") + " ",
       el("button", { type: "button", class: "linkbtn", id: "ag-zin", "aria-label": "Zoom in", onclick: () => zoomBy(box, 1.25) }, "Zoom in"), " ",
       el("button", { type: "button", class: "linkbtn", id: "ag-zout", "aria-label": "Zoom out", onclick: () => zoomBy(box, 0.8) }, "Zoom out"), " ",
       el("button", { type: "button", class: "linkbtn", id: "ag-zreset", onclick: () => resetZoom(box) }, "Reset zoom")));
     // A box taken out of the page and put back loses its scroll position; it goes back where it was.
-    Promise.resolve().then(() => place(box));
+    Promise.resolve().then(() => {
+      place(box);
+      const item = focusSha && box.querySelector('.gc[data-sha="' + focusSha + '"]');
+      if (item && doc.activeElement !== item) {
+        for (const n of box.querySelectorAll('.gc[tabindex="0"]')) n.setAttribute("tabindex", "-1");
+        item.setAttribute("tabindex", "0");
+        item.focus({ preventScroll: true });
+      }
+    });
     return panel;
+  }
+
+  // The tag count says when the tag list is still being read, could not be read, or goes on past what was read.
+  function tagsSpan(meta, n) {
+    if (meta.state === "loading") return el("span", {}, "Reading the tags");
+    if (meta.failed) return el("span", {}, "Tags could not be read");
+    return el("span", {}, el("b", {}, n.toLocaleString("en") + (meta.state === "partial" ? "+" : "")), n === 1 && meta.state !== "partial" ? " tag" : " tags");
+  }
+  // What could not be read, each with its error, and one button that reads only those again.
+  function retryRow(A, repo, g) {
+    const parts = [];
+    if (g.failed && g.win && g.win.length) parts.push("Older commits of " + g.failed.branch + " (" + (g.failed.error || g.failed.state) + ")");
+    if (g.meta && g.meta.tags.failed) parts.push("the tags (" + (g.meta.tags.error || g.meta.tags.state) + "), so none are drawn");
+    if (g.meta && g.meta.pulls.failed) parts.push("the pull requests (" + (g.meta.pulls.error || g.meta.pulls.state) + "), so branch labels show branch names");
+    const text = parts.length ? "Could not be read: " + parts.join("; ") + ". " : "";
+    return el("div", { class: "qual plain", role: "alert", id: "ag-failed" }, text,
+      el("button", { type: "button", class: "linkbtn", id: "ag-retry", onclick: () => A.atlasRetry(repo) }, "Read again"));
   }
 
   function keyTable(lay) {
@@ -112,11 +144,16 @@
   function drawGraph(A, repo, web, lay) {
     const edges = svg("g", { fill: "none", "stroke-width": 2.5, "stroke-linecap": "round", opacity: ".85" },
       lay.edges.map(e => svg("path", { "data-s": e.s, d: e.d, stroke: e.color, "stroke-dasharray": e.dashed ? "3 4" : null })));
-    const nodes = lay.nodes.map(n => {
-      const dot = svg("g", { class: "gn", "data-s": n.s, "data-sha": n.sha, "data-tip": n.tip }, svg("circle", { cx: n.x, cy: n.y, r: n.r, fill: n.color }));
-      dot.dataset.base = n.tip;
+    // Each commit is one focusable item named by its details: a link to the commit on GitHub when there is
+    // an address, else a picture item. Only one is in the Tab order; Left and Right move between them.
+    const last = lay.nodes.length - 1;
+    const nodes = lay.nodes.map((n, i) => {
+      const dot = svg("g", { class: "gn" }, svg("circle", { cx: n.x, cy: n.y, r: n.r, fill: n.color }));
       const href = SB.repoHref(web, "commit", n.sha);
-      return href ? svg("a", { href, target: "_blank", rel: "noopener noreferrer" }, dot) : dot;
+      const item = href ? svg("a", { href, target: "_blank", rel: "noopener noreferrer" }, dot) : svg("g", { role: "img" }, dot);
+      for (const [k, v] of [["class", "gc"], ["data-s", n.s], ["data-sha", n.sha], ["data-tip", n.tip], ["aria-label", spoken(n.tip)], ["tabindex", i === last ? "0" : "-1"]]) item.setAttribute(k, String(v));
+      item.dataset.base = n.tip;
+      return item;
     });
     const flags = lay.flags.map(f => svg("g", { "data-s": f.s, "data-tip": f.tip, class: "flag-" + f.kind },
       svg("polygon", { points: f.points.map(p => p.join(",")).join(" "), fill: f.color }),
@@ -126,7 +163,7 @@
     const pic = svg("svg", { viewBox: "0 0 " + lay.W + " " + lay.H, width: lay.W, height: lay.H, role: "img", "aria-label": "Branch graph of the " + plural(lay.commits, "commit") + " drawn" },
       guides, edges, nodes, flags);
     const box = el("div", { class: "atlas-graph", id: "ag-box", tabindex: "0", role: "group",
-      "aria-label": "Branch graph. Plus and minus zoom, arrow keys move, 0 resets the zoom. The commits are listed on the dashboard's History tab." }, pic);
+      "aria-label": "Branch graph. Plus and minus zoom, arrow keys move, 0 resets the zoom. Tab moves to the newest commit; Left and Right move between commits, and each commit's details and changed files are read out." }, pic);
     box.steps = lay.steps;
     box.zoom = 1;
     setup(box);
@@ -189,6 +226,15 @@
       if (box.scrollLeft < 120 && box.scrollWidth > box.clientWidth && !box.replay && box.atlasMore) { box.atlasMore = false; box.atlasOlder(); }
     }, { passive: true });
     box.addEventListener("keydown", e => {
+      const item = e.target.closest && e.target.closest(".gc[data-sha]");
+      if (item && (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "Home" || e.key === "End")) {
+        e.preventDefault();
+        const all = [...box.querySelectorAll(".gc[data-sha]")].sort((a, b) => a.getAttribute("data-s") - b.getAttribute("data-s"));
+        const at = all.indexOf(item);
+        const to = all[e.key === "Home" ? 0 : e.key === "End" ? all.length - 1 : Math.max(0, Math.min(all.length - 1, at + (e.key === "ArrowLeft" ? -1 : 1)))];
+        if (to && to !== item) { item.setAttribute("tabindex", "-1"); to.setAttribute("tabindex", "0"); to.focus(); }
+        return;
+      }
       if (e.target !== box) return;
       const move = { ArrowLeft: [-60, 0], ArrowRight: [60, 0], ArrowUp: [0, -60], ArrowDown: [0, 60] }[e.key];
       if (move) { e.preventDefault(); box.scrollLeft += move[0]; box.scrollTop += move[1]; }
@@ -217,20 +263,30 @@
     // A commit's files are read only after the pointer rests on its dot, once per commit.
     let timer = null;
     box.addEventListener("pointerover", e => {
-      const dot = e.target.closest && e.target.closest(".gn[data-sha]");
+      const dot = e.target.closest && e.target.closest(".gc[data-sha]");
       clearTimeout(timer);
       if (!dot || drag) return;
       timer = setTimeout(() => { if (box.askFiles) box.askFiles(dot.getAttribute("data-sha")); }, WAIT);
     });
     box.addEventListener("pointerleave", () => clearTimeout(timer));
+    // A commit reached by the keyboard reads its files at once; its bubble shows them when they come.
+    box.addEventListener("focusin", e => {
+      const item = e.target.closest && e.target.closest(".gc[data-sha]");
+      if (item && box.askFiles) box.askFiles(item.getAttribute("data-sha"));
+    });
   }
 
   // The files of each commit asked for, under the commit's own lines in its bubble.
   const short = p => p.length > 36 ? "…" + p.slice(-35) : p;
   function filesTips(A, repo, box) {
-    box.askFiles = sha => { (box.asked = box.asked || new Set()).add(sha); A.atlasFiles(repo, sha); };
+    box.askFiles = sha => {
+      box.asked = box.asked || new Set();
+      if (box.asked.has(sha)) return;  // asked once per commit; the bubble shows the read as it goes
+      box.asked.add(sha);
+      A.atlasFiles(repo, sha);
+    };
     for (const sha of box.asked || []) {
-      const dot = box.querySelector('.gn[data-sha="' + sha + '"]');
+      const dot = box.querySelector('.gc[data-sha="' + sha + '"]');
       if (!dot) continue;
       const res = A.live(SB.codeKey.commit(repo, sha));
       const files = res && res.data ? res.data.files : null;
@@ -239,6 +295,7 @@
            ...files.slice(0, SHOW).map(f => (f.status === "added" ? "+" : f.status === "removed" ? "−" : f.status === "renamed" ? "→" : "•") + " " + short(f.path) + "  +" + f.added + " −" + f.removed),
            ...(files.length > SHOW ? ["and " + (files.length - SHOW) + " more"] : [])].join("\n");
       dot.setAttribute("data-tip", dot.dataset.base + "\n\n" + text);
+      dot.setAttribute("aria-label", spoken(dot.dataset.base + "\n" + text));
       A.retip(dot);
     }
   }

@@ -281,7 +281,7 @@ class BrowserTest(unittest.TestCase):
 
     def test_atlas_tab_draws_the_branch_graph_beside_the_dashboard(self):
         a = self.r["atlas"]
-        self.assertEqual(a["tabs"], [["Dashboard", "true"], ["Atlas", "false"]], "the dashboard is shown first")
+        self.assertEqual(a["tabs"], [["Progress", "true"], ["Atlas", "false"]], "the dashboard is shown first")
         self.assertEqual(a["dashboardFirst"], "tabs", "the dashboard below the main tabs is as it was")
         self.assertEqual(a["byKey"], ["major-atlas", "true", True], "Right moves to the Atlas and keeps the focus on its tab")
         self.assertEqual(a["repo"], "example-org/demo-app", "the open project's code repository is shown first")
@@ -304,6 +304,24 @@ class BrowserTest(unittest.TestCase):
         self.assertIsNotNone(a["bubble"])
         self.assertRegex(a["bubble"], r"on main|on feature/search|on list-data")
         self.assertRegex(a["bubble"], r"files? changed|No files changed|could not be read")
+        k = a["keys"]
+        self.assertIsNotNone(k["first"]["sha"], "Tab from the graph reaches a commit")
+        self.assertEqual(k["first"]["tabbable"], 1, "only one commit is in the Tab order")
+        self.assertRegex(k["first"]["label"], r"on main|on feature/search|on list-data", "a focused commit is named by its details")
+        self.assertRegex(k["first"]["tip"] or "", r"files? changed|No files changed|could not be read", "focus reads and shows the commit's files")
+        self.assertLess(int(k["left"]["s"]), int(k["first"]["s"]), "Left moves to the commit before")
+        self.assertEqual(k["left"]["tabbable"], 1)
+        f = a["fail"]
+        self.assertEqual(f["first"]["dots"], 0)
+        self.assertIn("HTTP 429", f["first"]["text"], "a first commit page that failed says its error")
+        self.assertTrue(f["first"]["retry"], "and offers Read again before any commit is drawn")
+        self.assertEqual(f["commits"]["dots"], 1, "Read again reads the failed page and draws the graph")
+        self.assertIn("Tags could not be read", f["commits"]["sum"], "unreadable tags are never counted as none")
+        self.assertIn("the tags (HTTP 403)", f["commits"]["failed"])
+        self.assertIn("the pull requests (HTTP 429)", f["commits"]["failed"])
+        self.assertIn("0 tags", f["all"]["sum"])
+        self.assertIsNone(f["all"]["failed"], "once everything is read, nothing is said to have failed")
+        self.assertFalse(f["all"]["retry"])
         self.assertEqual(a["treePick"], ["true", "example-org/demo-plan"])
         self.assertEqual(a["overview"], ["true", False])
         self.assertTrue(any("branch graph (Atlas)" in x for x in a["goto"]), a["goto"])

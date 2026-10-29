@@ -350,6 +350,8 @@ pre.diff .hunk, pre.diff .note { color: var(--muted); }
 .atlas-graph svg { display: block; max-width: none; }
 .atlas-graph .gn circle { stroke: var(--surface); stroke-width: 3; }
 .atlas-graph .gn:hover circle { stroke: var(--fg); }
+.atlas-graph .gc { outline: none; }
+.atlas-graph .gc:focus-visible circle { stroke: var(--focus); stroke-width: 4; }
 .atlas-graph text.fl { font: 600 10px var(--font-data); }
 .atlas-graph .guide { stroke: var(--line); }
 .gkey { border-collapse: collapse; font-size: 0.8rem; }
