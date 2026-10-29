@@ -117,16 +117,20 @@
       el("div", { class: "row1 spread" }, el("h2", { id: "home-work-h", class: "label" }, "Open work"), tabs), panel), "Open work");
   }
 
-  const GROUPS = [["today", "Today"], ["yesterday", "Yesterday"], ["week", "Earlier this week"], ["earlier", "Earlier"]];
+  const GROUPS = [["today", "Today"], ["yesterday", "Yesterday"], ["week", "2 to 6 days ago"], ["earlier", "Earlier"]];
   const MARK = { commit: "C", opened: "PR", merged: "M", closed: "X", handoff: "H" };
   const EVENT = { commit: "Commit", opened: "Pull request opened", merged: "Merged", closed: "Closed without merging", handoff: "Handoff" };
+
+  // What a repository's activity read left out, in words.
+  const feedParts = (repo, data) => SB.feedGaps(data).map(g => repo + ": " + (g.limit ? "only the latest " + g.limit + " " + g.what + " were read"
+    : g.what + " " + (STATE[g.state] || STATE.failed)[2].toLowerCase() + (g.error ? " (" + g.error + ")" : "")));
 
   function activityCard(S, A) {
     const card = el("section", { class: "card", "aria-labelledby": "home-act-h", "data-part": "home-activity" },
       tip(el("h2", { id: "home-act-h", class: "label" }, "Recent activity by day"), "Activity by day"));
     const { rows, left } = homeRepos(S);
     if (!rows.length) { card.append(el("p", { class: "muted plain" }, "No repository.")); return card; }
-    const sources = [];
+    const sources = [], parts = [];
     let loading = 0, failed = 0;
     for (const r of rows) {
       if (!r.meta) { if (!r.pinned || r.pinned.state === "loading") loading += 1; else failed += 1; continue; }
@@ -134,6 +138,7 @@
       if (!f || f.state === "loading") { loading += 1; continue; }
       if (!f.data) { failed += 1; continue; }
       sources.push({ repo: r.repo, web: r.pinned.data.web, commits: f.data.commits, pulls: f.data.pulls, comments: f.data.comments });
+      parts.push(...feedParts(r.repo, f.data));
     }
     const feed = SB.feedEvents(sources);
     const now = Date.now();
@@ -159,6 +164,8 @@
     const notes = [];
     if (loading && feed.events.length) notes.push("Still reading " + plural(loading, "repository", "repositories") + ".");
     if (failed) notes.push(plural(failed, "repository", "repositories") + " could not be read; each project's overview says why.");
+    for (const x of parts) notes.push(x + ".");
+    if (feed.untimed) notes.push(plural(feed.untimed, "event") + " had no time GitHub gave in a readable form, so " + (feed.untimed === 1 ? "it is" : "they are") + " not placed on a day.");
     if (left) notes.push("Read from the first " + HOME_REPOS + " repositories of the listed projects, in tree order; " + plural(left, "more is", "more are") + " not read here.");
     for (const n of notes) card.append(el("p", { class: "qual muted plain" }, n));
     card.append(el("p", { class: "qual muted plain" }, "Times are your local time. Activity is not progress, and no event changes a figure."));
@@ -172,5 +179,5 @@
       el("div", { class: "home-grid" }, el("div", { class: "stack" }, projectTable(S, A), openWorkCard(S, A)), activityCard(S, A)));
   }
 
-  Object.assign(V, { home, homeRepos, HOME_REPOS });
+  Object.assign(V, { home, homeRepos, HOME_REPOS, feedParts });
 })(typeof window !== "undefined" ? window : globalThis);

@@ -1182,6 +1182,8 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(look["stored"], [["sandboard.look", '{"density":"compact","accent":"violet"}']])
         self.assertEqual(look["reloaded"], ["compact", "violet"])
         self.assertEqual(look["junk"], ["", ""])
+        self.assertGreaterEqual(len(look["marks"]), 5)
+        self.assertEqual([m for m in look["marks"] if not m[1]], [], "every status mark's ring is drawn in its status colour")
 
     def test_home_shows_every_project_on_one_page(self):
         home = self.r["home"]
