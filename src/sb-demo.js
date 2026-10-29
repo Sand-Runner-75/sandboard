@@ -148,11 +148,34 @@
                                                    closed_at: p.closed_at, pull_request: {} }));
         return reply(pageOf(byState([...(r.issues || []), ...pulls], m[1]), Number(m[2])));
       }
-      if ((m = /^[/](actions[/]runs|releases)[?]per_page=100&page=(\d+)$/.exec(rest))) {
-        const list = m[1] === "releases" ? r.releases || [] : r.runs || [];
+      if ((m = /^[/]releases[?]per_page=100&page=(\d+)$/.exec(rest))) {
+        const list = r.releases || [];
         if (list.status) return reply({ message: "synthetic refusal" }, list.status);
-        const page = pageOf(list, Number(m[2]));
-        return reply(m[1] === "releases" ? page : { total_count: list.length, workflow_runs: page });
+        return reply(pageOf(list, Number(m[1])));
+      }
+      // Actions: one made-up workflow for each run name, numbered in name order, and the runs filtered as
+      // GitHub filters them (a workflow, a result or status, a trigger, a branch, who started it, created when).
+      const flows = list => [...new Set(list.map(x => x.name))].sort().map((n, i) => ({ id: i + 1, name: n, state: "active",
+        path: ".github/workflows/" + n.toLowerCase().replace(/[^a-z0-9]+/g, "-") + ".yml" }));
+      if (rest === "/actions/workflows?per_page=100&page=1") {
+        const list = r.runs || [];
+        if (list.status) return reply({ message: "synthetic refusal" }, list.status);
+        const workflows = flows(list);
+        return reply({ total_count: workflows.length, workflows });
+      }
+      if ((m = /^[/]actions[/](?:workflows[/](\d+)[/])?runs[?](.+)$/.exec(rest))) {
+        let list = r.runs || [];
+        if (list.status) return reply({ message: "synthetic refusal" }, list.status);
+        const q = new URLSearchParams(m[2]);
+        const flow = m[1] && flows(list).find(f => f.id === Number(m[1]));
+        if (m[1] && !flow) return reply({ message: "Not Found" }, 404);
+        const [from, to] = (q.get("created") || "*..*").split("..").map(t => t === "*" ? null : Date.parse(t));
+        const status = q.get("status");
+        list = list.filter(x => (!flow || x.name === flow.name) && (!status || x.status === status || x.conclusion === status) &&
+          (!q.get("event") || x.event === q.get("event")) && (!q.get("branch") || x.head_branch === q.get("branch")) &&
+          (!q.get("actor") || (x.actor && x.actor.login) === q.get("actor")) &&
+          (from === null || Date.parse(x.created_at) >= from) && (to === null || Date.parse(x.created_at) <= to));
+        return reply({ total_count: list.length, workflow_runs: pageOf(list, Number(q.get("page"))) });
       }
       if ((m = /^[/]issues[/](\d+)[/]comments[?]per_page=100&page=(\d+)$/.exec(rest))) {
         const pr = (r.pulls || []).find(p => p.number === Number(m[1]));

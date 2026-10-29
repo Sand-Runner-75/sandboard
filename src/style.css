@@ -156,7 +156,8 @@ main:focus { outline: none; }
 .pill.st-blocked::before { content: "!"; background: var(--s-blocked); border-color: var(--s-blocked); color: var(--surface); }
 .st-done { color: var(--s-done); } .st-review { color: var(--s-review); } .st-progress { color: var(--s-progress); }
 .st-blocked { color: var(--s-blocked); } .st-not { color: var(--s-not); } .st-removed { color: var(--s-removed); }
-.st-removed.pill::before, .pill.hollow::before { content: ""; background: none; border: 1.5px dashed currentColor; }
+/* A hollow mark has no glyph, so it keeps the pill's own colour even on a status whose mark has one. */
+.st-removed.pill::before, .pill.hollow::before { content: ""; background: none; border: 1.5px dashed currentColor; color: inherit; }
 .pill.st-invalid::before { content: "!"; background: var(--bad-fg); border-color: var(--bad-fg); color: var(--surface); }
 .st-invalid { color: var(--bad-fg); }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
