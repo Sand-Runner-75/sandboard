@@ -421,3 +421,20 @@ rect.ac-l4 { fill: var(--accent); } i.ac-l4 { background: var(--accent); }
 .saved { display: grid; gap: 6px; margin: 8px 0; padding: 8px; border: 1px solid var(--line); border-radius: var(--r); background: var(--sunken); }
 .saved .preview { display: block; max-width: 100%; height: auto; border-radius: var(--r); }
 .saved p { margin: 0; font-size: 0.78rem; }
+#ac-vs h3 { margin: 0; font-size: 0.95rem; }
+.ac-vs-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ac-vs-score { margin: 0; font-size: 1.05rem; overflow-wrap: anywhere; }
+.ac-vs-score strong { font-family: var(--font-data); font-size: 1.3rem; padding: 0 6px; }
+.ac-vs-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.ac-vs-table caption { text-align: left; padding: 6px 8px; caption-side: bottom; }
+.ac-vs-table th, .ac-vs-table td { padding: 4px 8px; text-align: left; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.ac-vs-table td { min-width: 7rem; }
+.ac-vs-table .val { font-family: var(--font-data); }
+.ac-vs-table .trk { display: block; height: 6px; margin-top: 3px; border-radius: 3px; background: var(--sunken); overflow: hidden; }
+.ac-vs-table .fil { display: block; height: 100%; background: var(--muted); }
+.ac-vs-table .fil.win { background: var(--accent); }
+.ac-vs-table td.win { font-weight: 600; }
+.ac-won { font-size: 0.75rem; color: var(--muted); font-weight: 400; }
+.ac-vs-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 12px; }
+.ac-vs-langs h4 { margin: 0 0 4px; font-size: 0.88rem; overflow-wrap: anywhere; }
+.ac-vs-langs .ac-list { max-height: none; }

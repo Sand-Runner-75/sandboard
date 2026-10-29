@@ -838,6 +838,22 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual([a["starsKit"]["count"], len(a["starsKit"]["shown"])], ["2 of 5 repositories read", 2], "every word must match, in any case")
         self.assertEqual([a["starsNone"]["count"], a["starsNone"]["shown"]], ["0 of 5 repositories read", []])
         self.assertEqual([a["starsAll"]["count"], len(a["starsAll"]["shown"]), a["starsAll"]["focus"]], ["5 repositories read", 5, "ac-star-q"])
+        self.assertFalse(a["vsBefore"]["table"] or a["vsBefore"]["said"], "nothing is compared until a login is given")
+        for k, said in (("vsBad", "A GitHub login is 1 to 39 letters, digits or hyphens."), ("vsSelf", "That is your own account. Pick another one.")):
+            self.assertEqual([a[k]["said"], a[k]["focus"], a[k]["invalid"], a[k]["table"]], [said, "ac-vs-q", "true", False], k)
+        vs = a["vs"]
+        self.assertEqual(vs["heads"], ["Round", "Demo User", "Sample Builder"])
+        self.assertEqual([r[0] for r in vs["rows"]], ["Stars earned", "Public repositories", "Followers", "Actions, 90 days", "Best streak (days)",
+                                                      "Languages", "Years on GitHub", "Active repositories, 30 days"])
+        self.assertEqual(vs["rows"][0], ["Stars earned", "24", "163 won"], "stars from repositories that are not forks")
+        self.assertEqual(vs["rows"][2], ["Followers", "12", "40 won"])
+        self.assertEqual(vs["rows"][5], ["Languages", "3", "3"], "a tie is won by neither")
+        wins_a = sum(r[1].endswith(" won") for r in vs["rows"]); wins_b = sum(r[2].endswith(" won") for r in vs["rows"])
+        self.assertEqual(vs["score"], "Demo User %d – %d Sample Builder" % (wins_a, wins_b))
+        self.assertEqual(vs["wins"], wins_a + wins_b)
+        self.assertIn("by public numbers only", vs["verdict"])
+        self.assertIn("Most starred: sample-builder/charts (★ 120)", vs["langs"][1])
+        self.assertEqual([a["vsCleared"]["table"], a["vsCleared"]["focus"]], [False, "ac-vs-q"], "Compare with someone else goes back to the box")
         self.assertEqual(a["phone"], 0, "no sideways page scroll on a phone")
         self.assertEqual(a["goto"][0], "Your account (Atlas)Atlas")
         self.assertEqual(a["gotoShown"], ["true", "true", True])
@@ -875,6 +891,21 @@ class BrowserTest(unittest.TestCase):
         self.assertIn("1 gist not in the expected form was left out", ea["text"])
         self.assertEqual(a["extraUrls"], ["GET /users/synthetic-user/starred?per_page=100&page=1", "GET /users/synthetic-user/gists?per_page=100&page=1",
                                           "GET /users/synthetic-user/gists?per_page=100&page=1"], "Read again reads only the gists again")
+        self.assertIn("Cannot compare: @synthetic-other's public profile (HTTP 404) could not be read.", a["vsFail"][0])
+        self.assertEqual(a["vsFail"][1:], [True, False], "a comparison that cannot be read offers Read again and shows no table")
+        self.assertEqual(a["vsUrls"], ["GET /users/synthetic-other", "GET /users/synthetic-other/events/public?per_page=100&page=1",
+                                       "GET /users/synthetic-other/repos?sort=pushed&per_page=100&page=1", "GET /users/synthetic-other/repos?sort=pushed&per_page=100&page=2",
+                                       "GET /users/synthetic-user/repos?sort=pushed&per_page=100&page=1"])
+        vp = a["vsPartial"]
+        self.assertTrue(vp["retry"], "a later page that failed can be read again")
+        self.assertIn("synthetic-other's public repositories: A later page could not be read (HTTP 500), so some are missing.", vp["gaps"])
+        self.assertNotIn("most recently pushed", vp["gaps"], "a failure is not called the deliberate 300 cap")
+        self.assertEqual(vp["rows"][1], ["Public repositories", "1", "at least 100 won"], "at least 100 is sure to beat 1")
+        self.assertEqual(vp["rows"][0], ["Stars earned", "2", "at least 0"], "2 is not sure to beat a lower bound")
+        vw = a["vsWhole"]
+        self.assertEqual([vw["retry"], vw["gaps"]], [False, None])
+        self.assertEqual(vw["rows"][0], ["Stars earned", "2 won", "0"])
+        self.assertEqual(vw["rows"][1], ["Public repositories", "1", "101 won"])
         self.assertEqual(a["methods"], ["GET"])
 
     def test_projects_can_be_put_in_order_by_dragging_or_the_keyboard_and_it_is_kept_in_this_browser_only(self):

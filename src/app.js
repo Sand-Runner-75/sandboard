@@ -69,7 +69,7 @@
       // The two main tabs, and the Atlas: its part (a repository's pictures or the account), the repository
       // it shows, how many commits each repository's branch graph shows, each drawn graph kept with what it
       // was drawn from, and whether the account's public profile and activity were asked for.
-      major: "dashboard", atlas: { part: "repo", repo: null, show: new Map(), boxes: new Map(), trees: new Map(), account: false, extras: false, starQ: "" },
+      major: "dashboard", atlas: { part: "repo", repo: null, show: new Map(), boxes: new Map(), trees: new Map(), account: false, extras: false, starQ: "", vs: null, vsAsk: "", vsSaid: null },
     };
   }
   let S = freshState();
@@ -321,9 +321,17 @@
     loadLive(SB.accountKey.profile(login), ctx => SB.readProfile(ctx, client, login));
     loadLive(SB.accountKey.events(login), ctx => SB.readPublicEvents(ctx, client, login));
     // The starred repositories and public gists only once they are asked for too.
-    if (!S.atlas.extras) return;
-    loadLive(SB.accountKey.starred(login), ctx => SB.readStarred(ctx, client, login));
-    loadLive(SB.accountKey.gists(login), ctx => SB.readGists(ctx, client, login));
+    if (S.atlas.extras) {
+      loadLive(SB.accountKey.starred(login), ctx => SB.readStarred(ctx, client, login));
+      loadLive(SB.accountKey.gists(login), ctx => SB.readGists(ctx, client, login));
+    }
+    // A comparison, once asked for: both accounts' own public repositories, and the other's profile and events.
+    const vs = S.atlas.vs;
+    if (!vs) return;
+    loadLive(SB.accountKey.repos(login), ctx => SB.readUserRepos(ctx, client, login));
+    loadLive(SB.accountKey.profile(vs), ctx => SB.readProfile(ctx, client, vs));
+    loadLive(SB.accountKey.events(vs), ctx => SB.readPublicEvents(ctx, client, vs));
+    loadLive(SB.accountKey.repos(vs), ctx => SB.readUserRepos(ctx, client, vs));
   }
 
   // A repository's history reads what its view still wants: pages, the branch and tag lists, each
@@ -821,6 +829,26 @@
     },
     // The words the starred list is narrowed by; the list narrows itself, so nothing is drawn again.
     atlasStarQuery(q) { if (q !== undefined) S.atlas.starQ = String(q); return S.atlas.starQ; },
+    // Another account to put beside yours, by its login. Nothing is read for text that is not a login, or
+    // for your own account; what is wrong is said by the box, which keeps focus.
+    atlasCompare(text) {
+      const login = String(text || "").trim().replace(/^@/, "");
+      const user = S.live.get("user"), me = user && user.data ? user.data.login : null;
+      S.atlas.vsAsk = login;
+      if (!/^[A-Za-z0-9-]{1,39}$/.test(login)) S.atlas.vsSaid = "A GitHub login is 1 to 39 letters, digits or hyphens.";
+      else if (me && login.toLowerCase() === me.toLowerCase()) S.atlas.vsSaid = "That is your own account. Pick another one.";
+      else { S.atlas.vsSaid = null; S.atlas.vs = login; }
+      render();
+      if (S.atlas.vsSaid) { const n = $("ac-vs-q"); if (n) n.focus(); }
+      else announce("Reading @" + login + " to compare.");
+    },
+    atlasCompareAsk(q) { if (q !== undefined) S.atlas.vsAsk = String(q); return S.atlas.vsAsk; },
+    atlasCompareClear() {
+      S.atlas.vs = null;
+      render();
+      const n = $("ac-vs-q");
+      if (n) n.focus();
+    },
     // What the account could not read is dropped, so it is read again, with an event list a later page of
     // which failed; what worked, and the profile, are kept.
     atlasAccountRetry() {

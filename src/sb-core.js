@@ -80,6 +80,8 @@
     new RegExp("^/users/[A-Za-z0-9-]{1,39}/events/public[?]per_page=100&page=[1-3]$"),
     // and, asked for apart, up to 3 pages each of the repositories it starred and its public gists.
     new RegExp("^/users/[A-Za-z0-9-]{1,39}/(?:starred|gists)[?]per_page=100&page=[1-3]$"),
+    // To compare two accounts, when asked: up to 3 pages of each one's own public repositories.
+    new RegExp("^/users/[A-Za-z0-9-]{1,39}/repos[?]sort=pushed&per_page=100&page=[1-3]$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/commits/[A-Za-z0-9_.%-]+$"),
     new RegExp("^/repos/" + NAME + "/" + NAME + "/contents/" + FILE_PATH + "[?]ref=" + SHA + "$"),

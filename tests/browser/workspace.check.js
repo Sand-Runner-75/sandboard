@@ -1571,6 +1571,25 @@ function privateRepos() {
   acc.starsNone = await starsNow();
   await p.keyboard.press("Control+a"); await p.keyboard.press("Backspace"); await p.waitForTimeout(150);
   acc.starsAll = await starsNow();
+  // Compare with another account: a login not in GitHub's form and your own are said by the box, which keeps
+  // focus, and read nothing; another made-up account is read and put beside yours in eight rounds.
+  const vsNow = () => p.evaluate(() => ({ said: (document.getElementById("ac-vs-said") || {}).textContent || null, focus: document.activeElement ? document.activeElement.id : null,
+    invalid: (document.getElementById("ac-vs-q") || { getAttribute: () => null }).getAttribute("aria-invalid"),
+    score: (document.getElementById("ac-vs-score") || {}).textContent || null, verdict: (document.getElementById("ac-vs-verdict") || {}).textContent || null,
+    rows: [...document.querySelectorAll("#ac-vs-table tbody tr")].map(tr => [...tr.children].map(c => c.textContent)),
+    heads: [...document.querySelectorAll("#ac-vs-table thead th")].map(c => c.textContent), wins: document.querySelectorAll("#ac-vs-table td.win").length,
+    langs: [...document.querySelectorAll(".ac-vs-langs")].map(n => n.textContent), table: !!document.getElementById("ac-vs-table") }));
+  acc.vsBefore = await vsNow();
+  await p.focus("#ac-vs-q"); await p.keyboard.type("not a login!"); await p.keyboard.press("Enter"); await p.waitForTimeout(150);
+  acc.vsBad = await vsNow();
+  await p.fill("#ac-vs-q", "@Demo-User"); await p.keyboard.press("Enter"); await p.waitForTimeout(150);
+  acc.vsSelf = await vsNow();
+  await p.fill("#ac-vs-q", "sample-builder"); await p.keyboard.press("Enter");
+  await p.waitForSelector("#ac-vs-table", { timeout: 8000 }).catch(() => {});
+  acc.vs = await vsNow();
+  await p.click("#ac-vs-clear"); await p.waitForTimeout(150);
+  acc.vsCleared = await vsNow();
+  await p.keyboard.press("Enter"); await p.waitForSelector("#ac-vs-table", { timeout: 8000 }).catch(() => {});
   await p.setViewportSize({ width: 390, height: 800 }); await p.waitForTimeout(300);
   acc.phone = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   await p.setViewportSize({ width: 1280, height: 900 });
@@ -1596,7 +1615,14 @@ function privateRepos() {
     [/^[/]users[/]synthetic-user[/]starred[?]/, () => json([
       { full_name: "acme/garden", description: "<img src=x onerror=alert(2)>", language: "JavaScript", stargazers_count: 3, pushed_at: "2026-01-02T00:00:00Z", html_url: "javascript:alert(3)" },
       { full_name: "not a repository" }])],
-    [/^[/]users[/]synthetic-user[/]gists[?]/, () => gistsReply()]]);
+    [/^[/]users[/]synthetic-user[/]gists[?]/, () => gistsReply()],
+    [/^[/]users[/]synthetic-user[/]repos[?]/, () => json([{ full_name: "synthetic-user/garden", fork: false, stargazers_count: 2, language: "Go", pushed_at: "2026-01-02T00:00:00Z" }])],
+    [/^[/]users[/]synthetic-other$/, () => otherProfile()],
+    [/^[/]users[/]synthetic-other[/]events[/]public[?]/, () => json([])],
+    [/^[/]users[/]synthetic-other[/]repos[?]/, path => otherRepos(Number(/&page=(\d+)$/.exec(path)[1]))]]);
+  const otherRepo = i => ({ full_name: "synthetic-other/r" + i, fork: false, stargazers_count: 0, language: "Go", pushed_at: "2025-01-01T00:00:00Z" });
+  let otherProfile = () => json({ message: "Not Found" }, 404);
+  let otherRepos = n => n === 1 ? json(Array.from({ length: 100 }, (_, i) => otherRepo(i))) : json({ message: "boom" }, 500);
   let gistsReply = () => json({ message: "boom" }, 500);
   p = await open();
   await p.route("https://api.github.com/**", async route => {
@@ -1642,6 +1668,23 @@ function privateRepos() {
   await p.click("#ac-retry"); await p.waitForSelector("#ac-gist-list", { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(300);
   acc.extrasAgain = await extrasNow();
   acc.extraUrls = accUrls.slice(urlsBefore).map(u => u.replace("https://api.github.com", ""));
+  // Compare with an account GitHub does not find: said with its error and Read again, and only GET reads.
+  const vsFrom = accUrls.length;
+  await p.fill("#ac-vs-q", "synthetic-other"); await p.click("#ac-vs-go");
+  await p.waitForFunction(() => /Cannot compare/.test((document.getElementById("ac-vs") || {}).textContent || ""), null, { timeout: 8000 }).catch(() => {});
+  acc.vsFail = await p.evaluate(() => [(document.getElementById("ac-vs") || {}).textContent, !!document.getElementById("ac-retry"), !!document.getElementById("ac-vs-table")]);
+  acc.vsUrls = accUrls.slice(vsFrom).map(u => u.replace("https://api.github.com", "")).sort();
+  // Read again: the account is found, but the second page of its repositories still fails after a full first page.
+  // The comparison shows "at least" numbers that win nothing they are not sure of, says the failed page's
+  // error apart from any cap, and offers Read again; then the page comes back and the numbers are exact.
+  otherProfile = () => json({ login: "synthetic-other", type: "User", followers: 0, created_at: "2024-01-01T00:00:00Z" });
+  await p.click("#ac-retry"); await p.waitForSelector("#ac-vs-table", { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(300);
+  const vsRead = () => p.evaluate(() => ({ rows: [...document.querySelectorAll("#ac-vs-table tbody tr")].map(tr => [...tr.children].map(c => c.textContent)),
+    gaps: (document.getElementById("ac-vs-gaps") || {}).textContent || null, retry: !!document.getElementById("ac-retry"), score: (document.getElementById("ac-vs-score") || {}).textContent }));
+  acc.vsPartial = await vsRead();
+  otherRepos = n => n === 1 ? json(Array.from({ length: 100 }, (_, i) => otherRepo(i))) : json([otherRepo(100)]);
+  await p.click("#ac-retry"); await p.waitForFunction(() => !document.getElementById("ac-retry"), null, { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(300);
+  acc.vsWhole = await vsRead();
   acc.methods = [...new Set(accUrls.map(u => u.split(" ")[0]))];
   await p.close();
 
