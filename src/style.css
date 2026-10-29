@@ -67,6 +67,8 @@ h1 { font-size: 1.25rem; } h2 { font-size: 1rem; } h3 { font-size: 0.92rem; }
 .side { background: var(--surface); border-right: 1px solid var(--line); padding: 12px 8px 12px 12px; display: grid; gap: 12px; align-content: start; }
 .tree-tools { display: flex; gap: 6px; flex-wrap: wrap; }
 .tool.small { min-height: 28px; padding: 3px 8px; font-size: 0.8rem; }
+.tool.round { border-radius: 999px; min-width: 32px; justify-content: center; padding: 3px; font-size: 1.05rem; line-height: 1; }
+.tool.round[aria-disabled=true] { opacity: 0.5; cursor: default; }
 main { min-width: 0; padding: 12px 16px 32px 18px; display: grid; gap: 14px; align-content: start; }
 main:focus { outline: none; }
 .state { margin: 0; color: var(--muted); font-size: 0.86rem; }

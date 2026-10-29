@@ -1245,6 +1245,89 @@ function privateRepos() {
   discover.urls = durls;
   await p.close();
 
+  // 6c. The round refresh on a project's overview reads only that project again: its plan and code
+  // repositories at their branches now, never the workspace list, the token's list or another project.
+  // While it reads, the button is off; a full Refresh during it wins, and its late answer is dropped.
+  const one = out.refreshOne = {};
+  const orepos1 = F.planRepos();
+  const P2 = sha("garden-plan-second");
+  const oUrls = [];
+  let oHold = null;
+  // A held reply answers with the commit the branch had when it was asked, so a stale answer is visible.
+  const ogh1 = mockGitHub(orepos1, [[/^[/]repos[/]acme[/]garden-plan[/]commits[/]main$/, async () => {
+    if (!oHold) return null;
+    const asked = orepos1["acme/garden-plan"].branches.main;
+    await oHold.done;
+    return json({ sha: asked, commit: { committer: { date: "2026-01-02T03:04:05Z" } } });
+  }]]);
+  p = await open();
+  await p.route("https://api.github.com/**", async route => {
+    const req = route.request();
+    oUrls.push(req.method() + " " + req.url());
+    const res = await ogh1.fetch(req.url(), { method: req.method() });
+    await route.fulfill({ status: res.status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }, body: await res.text() });
+  });
+  const oDone = async () => { await p.waitForFunction(() => /Reading finished/.test(document.getElementById("live").textContent), null, { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(300); };
+  await p.fill("#plan-repo", "acme/garden-plan"); await p.fill("#token", "synthetic-token"); await p.click("#connect button[type=submit]");
+  await oDone();
+  // Another project's reads stay: its files tree is read once, before and not again after.
+  await tree(p, "p:recipes"); await p.waitForTimeout(400);
+  await p.click("#rs-files"); await p.waitForTimeout(600);
+  await tree(p, "v:garden:overview"); await p.waitForTimeout(300);
+  one.button = await p.$eval("#refresh-one", b => ({ label: b.getAttribute("aria-label"), glyph: b.textContent, round: getComputedStyle(b).borderRadius }));
+  one.before = await p.$eval("#view-h + *, .head", n => n.textContent).catch(() => "");
+  // The plan branch moves on; only the project refresh may see it.
+  orepos1["acme/garden-plan"].files[P2] = orepos1["acme/garden-plan"].files[F.PLAN_COMMIT];
+  orepos1["acme/garden-plan"].branches.main = P2;
+  const projectsBefore = await p.$$eval("#tree [role=treeitem][data-id^='p:']", n => n.map(x => x.dataset.id));
+  oUrls.length = 0;
+  await p.focus("#refresh-one"); await p.keyboard.press("Enter"); await oDone();
+  one.urls = oUrls.slice();
+  one.after = await p.$eval(".head", n => n.textContent).catch(() => "");
+  one.projects = await p.$$eval("#tree [role=treeitem][data-id^='p:']", n => n.map(x => x.dataset.id));
+  one.projectsBefore = projectsBefore;
+  one.focusKept = await p.evaluate(() => document.activeElement && document.activeElement.id);
+  oUrls.length = 0;
+  await tree(p, "p:recipes"); await p.waitForTimeout(300);
+  await p.click("#rs-files"); await p.waitForTimeout(500);
+  one.otherReadAgain = oUrls.filter(u => /acme[/]recipes/.test(u) && /git[/]trees|contents/.test(u));
+  await tree(p, "v:garden:overview"); await p.waitForTimeout(300);
+  // Held: the button is off while it reads. The held reply is of an older commit (P3); a full Refresh
+  // then reads the newer one (P4) and wins, and releasing the held reply changes nothing.
+  const P3 = sha("garden-plan-third"), P4 = sha("garden-plan-fourth");
+  for (const c of [P3, P4]) orepos1["acme/garden-plan"].files[c] = orepos1["acme/garden-plan"].files[F.PLAN_COMMIT];
+  orepos1["acme/garden-plan"].branches.main = P3;
+  let oGo; oHold = { done: new Promise(r => { oGo = r; }) };
+  await p.click("#refresh-one"); await p.waitForTimeout(300);
+  one.whileReading = await p.$eval("#refresh-one", b => b.getAttribute("aria-disabled")).catch(() => null);
+  oHold = null;
+  orepos1["acme/garden-plan"].branches.main = P4;
+  await p.click("#refresh"); await oDone();
+  oGo(); await p.waitForTimeout(600);
+  one.afterRace = { head: await p.$eval(".head", n => n.textContent).catch(() => ""), disabled: await p.$eval("#refresh-one", b => b.getAttribute("aria-disabled")).catch(() => null) };
+  // Moving to another project while it reads: the late answer does not take the focus back.
+  orepos1["acme/garden-plan"].branches.main = P3;
+  oHold = { done: new Promise(r => { oGo = r; }) };
+  await p.focus("#refresh-one"); await p.keyboard.press("Enter"); await p.waitForTimeout(300);
+  oHold = null;
+  await tree(p, "p:recipes"); await p.waitForTimeout(300);
+  const focusMoved = await p.evaluate(() => document.activeElement && (document.activeElement.dataset.id || document.activeElement.id));
+  oGo(); await p.waitForTimeout(600);
+  one.navigated = { before: focusMoved, after: await p.evaluate(() => document.activeElement && (document.activeElement.dataset.id || document.activeElement.id)) };
+  // A repository page has the same button, for the project the repository belongs to.
+  await tree(p, "repos:garden"); await p.waitForTimeout(100);
+  await tree(p, "r:garden:acme/garden"); await p.waitForTimeout(300);
+  one.onRepo = await p.$eval("#refresh-one", b => b.getAttribute("aria-label")).catch(() => null);
+  // Forget access while it reads: the late answer shows nothing.
+  await tree(p, "v:garden:overview"); await p.waitForTimeout(300);
+  oHold = { done: new Promise(r => { oGo = r; }) };
+  await p.click("#refresh-one"); await p.waitForTimeout(300);
+  oHold = null;
+  await p.click("#forget"); await p.waitForTimeout(200);
+  oGo(); await p.waitForTimeout(600);
+  one.afterForget = await p.evaluate(() => document.body.innerText);
+  await p.close();
+
   // 7. Framed: the page refuses to show.
   p = await open();
   await p.goto(BASE + "/frame.html"); await p.waitForTimeout(400);

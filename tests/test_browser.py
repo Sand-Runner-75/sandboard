@@ -252,6 +252,33 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(ls["afterRefresh"], {"q": "", "inside": "false", "results": 0}, "a refresh drops the search")
         self.assertEqual(ls["again"], {"q": "", "inside": "false", "results": 0})
 
+    def test_round_refresh_reads_only_the_open_project(self):
+        o = self.r["refreshOne"]
+        sha = lambda seed: hashlib.sha1(seed.encode()).hexdigest()
+        self.assertEqual(o["button"]["glyph"], "\u21bb")
+        self.assertIn("Refresh only Example Garden Planner", o["button"]["label"])
+        self.assertNotEqual(o["button"]["round"], "0px")
+        self.assertIn(sha("plan-main")[:7], o["before"])
+        self.assertIn(sha("garden-plan-second")[:7], o["after"], "the moved plan branch is read again")
+        self.assertTrue(o["urls"], "it read something")
+        for u in o["urls"]:
+            self.assertTrue(u.startswith("GET "), u)
+            self.assertRegex(u, r"/repos/acme/garden(-plan)?([/?]|$)", "only the open project's repositories: " + u)
+            self.assertNotIn("sandboard.workspaces.json", u, "not the workspace list")
+            self.assertNotIn("/user/repos", u, "not the token's list")
+        self.assertEqual(o["projects"], o["projectsBefore"], "the other projects stay")
+        self.assertEqual(o["focusKept"], "refresh-one")
+        self.assertEqual(o["otherReadAgain"], [], "another project's file reads are kept")
+        self.assertEqual(o["whileReading"], "true", "off while it reads")
+        self.assertIn(sha("garden-plan-fourth")[:7], o["afterRace"]["head"], "the full refresh wins")
+        self.assertNotIn(sha("garden-plan-third")[:7], o["afterRace"]["head"], "the held older answer is dropped")
+        self.assertNotEqual(o["navigated"]["after"], "refresh-one", "the focus is not taken back after moving on")
+        self.assertEqual(o["navigated"]["after"], o["navigated"]["before"])
+        self.assertIn("Sign in to read your projects", o["afterForget"])
+        self.assertNotIn("Example Garden Planner", o["afterForget"])
+        self.assertEqual(o["afterRace"]["disabled"], "false", "the held late answer changes nothing")
+        self.assertIn("Refresh only Example Garden Planner", o["onRepo"] or "")
+
     def test_untrusted_text_is_shown_as_text(self):
         p = self.r["progress"]
         self.assertIn('<script>alert("never runs")</script>', p["hostile"])

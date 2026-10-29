@@ -226,3 +226,19 @@ test("the demo answers through the real client and readers, with no network and 
   session.forget();
   await assert.rejects(SB.readWorkspaces(ctx, client, "demo-org/plan", ""), SB.Stale);
 });
+
+test("a live read's repository comes from its own slot, never from a path or ref inside the key", () => {
+  const R = "acme/garden", C = sha("c"), H = sha("h");
+  const keys = [SB.feedKey(R, C), "lang|" + R, SB.historyKey.page(R, C, 2), SB.historyKey.refs(R, "branches"), SB.historyKey.refs(R, "tags"),
+                SB.historyKey.compare(R, C, H), SB.historyKey.lane(R, H), SB.historyKey.lane(R, H, 3),
+                SB.workKey.list("pulls", R, "open", 1), SB.workKey.list("runs", R, null, 2), SB.workKey.reviews(R, 7), SB.workKey.checks(R, H),
+                SB.codeKey.tree(R, C), SB.codeKey.text(R, C, "src/a.js"), SB.codeKey.commit(R, "main"), SB.codeKey.compare(R, C, H)];
+  for (const k of keys) assert.equal(SB.liveKeyRepo(k), R, k);
+  // A near name, and a path or ref that spells another repository with the key's own delimiters.
+  assert.equal(SB.liveKeyRepo(SB.feedKey("acme/garden-plan", C)), "acme/garden-plan");
+  assert.equal(SB.liveKeyRepo(SB.codeKey.text("acme/other", C, "docs|acme/garden|notes.txt")), "acme/other");
+  assert.equal(SB.liveKeyRepo(SB.codeKey.text("acme/other", C, "x|acme/garden@" + C)), "acme/other");
+  assert.equal(SB.liveKeyRepo(SB.codeKey.commit("acme/other", "feature|acme/garden")), "acme/other");
+  assert.equal(SB.liveKeyRepo(SB.workKey.list("issues", "acme/other", "acme/garden", 1)), "acme/other");
+  assert.equal(SB.liveKeyRepo("user"), null);
+});

@@ -71,7 +71,7 @@ Two blocks are additive: absent means this producer does not supply them, and pr
 - `stages`: a non-empty list of `{id, name, phases, gate}` with the same figures as a phase. Each named phase must be in `phases`, in at most one stage; `gate` is a name or `null`. The view shows stage figures only from here and never adds phases up.
 - `approved_results`: `{id, approval, files, rejected}` for each task whose owner approval the producer has recorded: `files` are repository-root paths (plain path segments only), `rejected` are link targets the producer refused (outside the repository, a URL, a query or fragment), shown as text and never followed. Owner approval is shown only from here; a Done status, a review verdict or passing checks never stand in for it.
 
-Figures are shown exactly as stored, never recalculated. "Current" means "matches the pinned commit"; there is no time limit, and refresh is manual.
+Figures are shown exactly as stored, never recalculated. "Current" means "matches the pinned commit"; there is no time limit, and refresh is manual. A project refresh reads one workspace again with the same reads as sign-in (its plan and code repositories at their branches now) in the current run, and drops only that project's live reads and unfinished task-file reads; it never reads the workspace list or the token's list of repositories.
 
 ## Check runs
 

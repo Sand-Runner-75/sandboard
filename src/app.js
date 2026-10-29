@@ -557,6 +557,7 @@
 
   const A = {
     render,
+    refreshProject,
     docKey,
     live: key => S.live.get(key),
     historyDepth: (repo, commit) => S.histDepth.get(depthKey(repo, commit)) || 1,
@@ -838,6 +839,56 @@
     const ctx = session.start();  // same token, new run: replies to the old run are dropped
     announce("Refreshing.");
     read(ctx);
+  }
+
+  // One project read again on its own: its plan and repositories at their branches now, their live
+  // reads, and its task files that did not finish with an answer. The workspace list, the other
+  // projects, the tabs of other projects and the search stay as they are. It reads in the current run,
+  // so a full Refresh or an ended session drops its replies; its late answer changes nothing then.
+  async function refreshProject(id) {
+    const i = S.entries.findIndex(e => e.w.id === id);
+    if (!session || !S.run || i < 0 || S.entries[i].loading) return;
+    const ctx = S.run;
+    let w = S.entries[i].w;
+    const repos = [planRepo(w), ...w.code.map(c => c.repo)].filter(Boolean);
+    // Only reads whose own repository slot is one of this project's (never a path or ref inside a key).
+    for (const key of [...S.live.keys()]) if (repos.includes(SB.liveKeyRepo(key))) S.live.delete(key);
+    for (const m of [S.histDepth, S.histScroll]) for (const key of [...m.keys()]) if (repos.includes(key.split("@")[0])) m.delete(key);
+    for (const key of [...S.workDepth.keys()]) if (repos.includes(key.split("|")[1])) S.workDepth.delete(key);
+    for (const [key, res] of [...S.docs]) {
+      if (key.startsWith(id + "|") && (!["current", "empty", "missing", "invalid"].includes(res.state) || key.includes("|live|"))) S.docs.delete(key);
+    }
+    const pending = { w, loading: true, plan: null, table: null, progress: null, code: w.code.map(c => ({ c, pinned: null, checks: null })), tasks: [] };
+    const mine = () => S.run === ctx && S.entries[i] === pending;
+    S.entries[i] = pending;
+    announce("Refreshing " + w.label + ".");
+    render();
+    try {
+      let read = await SB.readWorkspace(ctx, client, w);
+      session.alive(ctx);
+      if (!mine()) return;
+      if (w.found && w.plan && noTable(read)) {
+        w = codeOnly(w);
+        read = await SB.readWorkspace(ctx, client, w);
+        session.alive(ctx);
+        if (!mine()) return;
+        if (w.id === S.current && S.view.kind !== "repo") S.view = startView(w);
+      }
+      S.entries[i] = entryFrom(w, read);
+      dropUnreadableTabs(S.entries[i]);
+      render();
+      if (w.id === S.current && S.selected) loadDocs(S.entries[i], S.selected);
+      for (const t of S.tabs) if (t.project === w.id) { loadDocs(tabSource(t), t.id); if (t.sub === "cycle") loadCycle(tabSource(t), t.id); }
+      announce("Reading finished.");
+    } catch (err) {
+      if (err instanceof SB.Revoked) { endSession("revoked"); return; }
+      if (!mine()) return;
+      try { session.alive(ctx); } catch (e) { return; }
+      const failed = () => SB.result("failed", null, null, { error: "browser error (" + err.name + ")" });
+      S.entries[i] = entryFrom(w, [...(w.plan ? [{ kind: "plan", result: failed() }] : []), ...w.code.map(() => ({ kind: "code", result: failed() }))]);
+      dropUnreadableTabs(S.entries[i]);
+      render();
+    }
   }
 
   // ---- Go to: places only (projects, views, repositories, the open project's tasks, themes)
