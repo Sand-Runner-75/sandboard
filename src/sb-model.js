@@ -378,7 +378,8 @@
   // ---- Members and teams: the names the task tables give as doer or reviewer, as written. Nothing else
   // names a person here: not a GitHub account, not a guess. A cell may name several, split at commas.
   const NO_NAME = new Set(["", "—", "-", "–", "TBE", "TBD", "n/a", "N/A", "none", "None"]);
-  const namesIn = cell => String(cell || "").split(",").map(x => x.trim()).filter(x => x && !NO_NAME.has(x) && x.length <= 60);
+  // A name written twice in one cell counts once.
+  const namesIn = cell => [...new Set(String(cell || "").split(",").map(x => x.trim()).filter(x => x && !NO_NAME.has(x) && x.length <= 60))];
   // Every member with each task naming them, in project order then table order. Removed rows are left out.
   function members(entries) {
     const out = new Map();

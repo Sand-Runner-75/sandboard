@@ -1942,6 +1942,7 @@ function privateRepos() {
   ac.head = await text(p, "#view-h");
   ac.groups = await p.$$eval("[data-part=all-timeline] .tl-group", n => n.map(x => [x.dataset.group, x.textContent]));
   ac.bars = await p.$$eval("[data-part=all-timeline] .tl-bar", n => n.map(b => b.dataset.task));
+  ac.tlUnread = await p.$$eval("[data-part=all-timeline] p.qual", n => n.map(x => x.textContent).filter(t => /task table/.test(t)));
   ac.inline = await p.$$eval("[data-part=all-timeline] [style]", n => n.every(x => /^(left|width): [0-9.]+%; ?(width: [0-9.]+%;)?$/.test(x.getAttribute("style"))));
   await p.click(".tl-bar[data-task='demo:DT103']"); await p.waitForTimeout(800);
   ac.opened = [await text(p, "#view-h"), await p.$$eval("#inspector", n => n.length)];
@@ -1953,7 +1954,8 @@ function privateRepos() {
   ac.badge = await p.$eval("#tree [data-id='a:members']", n => n.getAttribute("aria-label"));
   await p.click("[data-part=members] [data-member='Agent B']"); await p.waitForTimeout(500);
   ac.member = [await text(p, "#view-h"), await p.$$eval("[data-part=member-counts] .kv", n => n.map(x => x.textContent)),
-    await p.$$eval("[data-part=member-work] li", n => n.length), await p.$eval("#tree [data-id='a:members'] > .ti", n => n.classList.contains("current"))];
+    await p.$$eval("[data-part=member-work] li", n => n.length), await p.$eval("#tree [data-id='a:members'] > .ti", n => n.classList.contains("current")),
+    await p.$$eval("[data-part=member] > p.qual", n => n.map(x => x.textContent))];
   await p.click("#tree [data-id='a:teams'] > .ti"); await p.waitForTimeout(500);
   ac.teams = await p.$$eval("[data-team]", n => n.map(t => [t.dataset.team, [...t.querySelectorAll("[data-member]")].map(m => m.dataset.member)]));
   ac.unread = await p.$$eval("[data-part=teams] > p.qual", n => n.map(x => x.textContent));

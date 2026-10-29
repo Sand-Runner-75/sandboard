@@ -1288,8 +1288,11 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(len(ac["member"][1]), 4)
         self.assertGreater(ac["member"][2], 0)
         self.assertTrue(ac["member"][3], "a member's page keeps Members current in the tree")
+        unread = "1 project's task table could not be read, so its people and tasks are not counted."
+        self.assertEqual(ac["member"][4], [unread], "a member's page says which tables were not read")
+        self.assertEqual(ac["tlUnread"], [unread], "the timeline across projects says which tables were not read")
         self.assertEqual([t[0] for t in ac["teams"]], ["demo", "second", "notes", "kit"], "one team per project whose table could be read, in tree order")
-        self.assertEqual(ac["unread"], ["1 project's task table could not be read, so its people are not counted."])
+        self.assertEqual(ac["unread"], ["1 project's task table could not be read, so its people and tasks are not counted."])
         self.assertEqual(ac["goto"], "Agent A", "Go to finds a member")
         for k in ("timeline", "members", "teams"):
             self.assertTrue(ac["phone_" + k], "no sideways page scroll on a phone: " + k)

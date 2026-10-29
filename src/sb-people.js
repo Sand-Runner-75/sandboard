@@ -23,14 +23,14 @@
   const projectChip = (S, A, e) => el("button", { type: "button", class: "chip linkchip", "data-project": e.w.id,
     onclick: () => A.go(e.w.id, e.w.plan ? { kind: "overview" } : { kind: "repo", repo: e.w.code[0].repo }) }, e.w.label);
 
-  // What could not be read, so a member or team may be missing someone.
+  // The task tables still being read or not read, so a member, team or task may be missing.
   function unread(S) {
     const all = V.orderedEntries(S).filter(e => e.w.plan);
     const left = all.filter(e => !V.rowsVisible(e));
     if (!left.length) return null;
     const reading = left.filter(e => e.loading).length;
     return el("p", { class: "qual muted plain" }, (reading ? "Still reading " + plural(reading, "task table") + ". " : "") +
-      (left.length - reading ? plural(left.length - reading, "project's task table", "projects' task tables") + " could not be read, so " + (left.length - reading === 1 ? "its" : "their") + " people are not counted." : ""));
+      (left.length - reading ? plural(left.length - reading, "project's task table", "projects' task tables") + " could not be read, so " + (left.length - reading === 1 ? "its" : "their") + " people and tasks are not counted." : ""));
   }
   const head = (title, line) => el("header", { class: "head" }, el("h1", { id: "view-h", tabindex: "-1" }, title), el("p", { class: "muted plain" }, line));
 
@@ -73,6 +73,7 @@
       el("ul", { class: "feed task-list" }, work.map(({ t, e, role }) => el("li", { "data-task": t.id, "data-project": e.w.id }, pill(t.status),
         el("button", { type: "button", class: "linkbtn", onclick: () => A.go(e.w.id, { kind: "tasks" }, { phase: "", select: t.id }) }, t.id + " " + (t.title || "")),
         el("span", { class: "chip" }, e.w.label), el("span", { class: "qual muted" }, ROLE[role]))))));
+    const gap = unread(S); if (gap) box.append(gap);
     return box;
   }
 
@@ -96,5 +97,5 @@
     return box;
   }
 
-  Object.assign(V, { members, member, teams });
+  Object.assign(V, { members, member, teams, unreadTables: unread });
 })(typeof window !== "undefined" ? window : globalThis);

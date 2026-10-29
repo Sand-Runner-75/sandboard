@@ -222,6 +222,8 @@
       el("p", { class: "muted plain" }, "Every project's tasks, placed by the activity that names them. Not due dates and not progress."));
     const body = kind === "calendar" ? calendarFrom(S, A, act, got, "all-calendar", "any project's tasks")
       : timelineFrom(S, A, act, got, "all-timeline", "No activity read names any project's task, so there is nothing to place on a timeline.");
+    // Tasks of a table still being read or not read are not placed; say so beside the activity's gaps.
+    const tables = V.unreadTables(S); if (tables) body.append(tables);
     if (act.left) body.append(el("p", { class: "qual muted plain" }, "Read from the first " + V.HOME_REPOS + " repositories of the listed projects, in tree order; " + plural(act.left, "more is", "more are") + " not read here."));
     return el("section", { class: "stack", "aria-labelledby": "view-h", "data-part": "all-" + kind }, head, el("div", { class: "acts" }, scopeSwitch(S, A)), body);
   }
