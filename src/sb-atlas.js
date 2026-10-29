@@ -439,7 +439,7 @@
   // The branches to draw as versions: the ones picked, the ones whose names say version, then the rest.
   function versionPicker(A, repo, def, v) {
     const picked = new Set(v.picked), full = v.picked.length >= v.max;
-    const box = name => el("label", { class: "vpick" }, el("input", { type: "checkbox", value: name, checked: picked.has(name),
+    const box = name => el("label", { class: "vpick" }, el("input", { type: "checkbox", value: name, "data-key": "vpick|" + name, checked: picked.has(name),
       disabled: !picked.has(name) && full, onchange: e => A.atlasVersionToggle(repo, name, e.target.checked, v.picked) }), " ", el("span", { class: "mono" }, name),
       name === def ? el("span", { class: "muted" }, " (default)") : null);
     const first = [...new Set([...v.picked, ...v.start])], rest = v.branches.filter(n => !first.includes(n));
@@ -465,7 +465,7 @@
         c.draft ? el("span", {}, c.draft + " draft") : null, c.closed ? el("span", {}, c.closed + " closed") : null,
         ver.more ? el("button", { type: "button", class: "btn ghost small", id: id + "-older", "aria-disabled": ver.reading ? "true" : null,
           onclick: () => { if (!ver.reading) A.atlasVersionOlder(repo, ver.name); } }, ver.reading ? "Loading older commits…" : "Load older commits") : null)));
-    if (ver.canApart) card.append(el("label", { class: "vshare" }, el("input", { type: "checkbox", "data-shared": ver.name, checked: !ver.apart,
+    if (ver.canApart) card.append(el("label", { class: "vshare" }, el("input", { type: "checkbox", "data-shared": ver.name, "data-key": "vshare|" + ver.name, checked: !ver.apart,
       onchange: e => A.atlasVersionShare(repo, ver.name, e.target.checked) }), " Also show the history it shares with ", el("span", { class: "mono" }, v.def)));
     if (ver.failed) card.append(el("div", { class: "qual plain", role: "alert" }, "The commits of " + ver.failed.branch + " could not be read" + (ver.failed.error ? " (" + ver.failed.error + ")" : "") + ". ",
       el("button", { type: "button", class: "linkbtn", onclick: () => A.atlasRetry(repo) }, "Read again")));
