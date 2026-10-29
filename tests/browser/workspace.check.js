@@ -904,10 +904,17 @@ function privateRepos() {
   wo.issues = await workNow();
   await p.click("#wf-all"); await p.waitForTimeout(800);
   wo.issuesAll = await workNow();
+  // Every status mark on the page, hollow ones of closed issues included, keeps its pill's colour, in both themes.
+  const badMarks = () => p.$$eval(".pill", n => n.filter(x => getComputedStyle(x, "::before").borderTopColor !== getComputedStyle(x).color).map(x => x.className + ": " + x.textContent));
+  wo.marks = { count: await p.$$eval(".pill.hollow", n => n.length), light: await badMarks() };
+  await p.click('[data-theme-choice="dark"]'); await p.waitForTimeout(100);
+  wo.marks.dark = await badMarks();
+  await p.click('[data-theme-choice="device"]'); await p.waitForTimeout(100);
   await p.click("#rs-runs"); await p.waitForTimeout(800);
   wo.runs = await workNow();
   await p.click("#rs-releases"); await p.waitForTimeout(800);
   wo.releases = Object.assign(await workNow(), { assets: await p.$$eval("[data-part=releases] details li", n => n.map(x => x.textContent)) });
+  wo.marks.releases = await badMarks();
   await tree(p, "r:demo:example-org/demo-plan"); await p.waitForTimeout(400);
   await p.click("#rs-runs"); await p.waitForTimeout(800);
   wo.planRuns = await workNow();

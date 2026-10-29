@@ -963,6 +963,11 @@ class BrowserTest(unittest.TestCase):
                          "only the project IDs are stored, under one key")
         self.assertEqual(o["reloaded"], o["keyed"], "the order survives a reload in the same browser")
 
+    def test_hollow_status_marks_keep_their_colour_in_both_themes(self):
+        m = self.r["work"]["marks"]
+        self.assertEqual(m["count"], 3, "closed issues are shown with hollow marks")
+        self.assertEqual((m["light"], m["dark"], m["releases"]), ([], [], []), "every mark's ring is its pill's colour")
+
     def test_work_evidence_tabs_list_pull_requests_with_reviews_at_their_own_commit(self):
         w = self.r["work"]
         self.assertEqual(w["pulls"]["tabs"], ["Overview", "History", "Pull requests", "Issues", "Actions", "Releases", "Files"])
