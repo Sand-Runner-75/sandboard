@@ -299,3 +299,16 @@ test("the workflows to filter by come from GitHub's list, and a token without Ac
   s = setup({ work: { "/actions/workflows?per_page=100&page=1": { total_count: 1, workflows: [{ id: "x", name: "A", path: "a.yml" }] } } });
   assert.equal((await SB.readWorkflows(s.ctx, s.client, REPO)).state, "invalid");
 });
+
+test("a local day keeps all of its hours on the days clocks change", () => {
+  const zone = process.env.TZ;
+  process.env.TZ = "America/Los_Angeles";
+  try {
+    const range = day => decodeURIComponent(SB.runQuery({ from: day, to: day }).query);
+    assert.equal(range("2026-03-08"), "created=2026-03-08T08:00:00Z..2026-03-09T06:59:59Z", "a 23-hour day ends an hour sooner");
+    assert.equal(range("2026-11-01"), "created=2026-11-01T07:00:00Z..2026-11-02T07:59:59Z", "a 25-hour day keeps its last hour");
+    assert.equal(range("2026-01-10"), "created=2026-01-10T08:00:00Z..2026-01-11T07:59:59Z");
+  } finally {
+    if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone;
+  }
+});

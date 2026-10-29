@@ -584,7 +584,9 @@
     return t.getFullYear() === y && t.getMonth() === m - 1 && t.getDate() === d ? t.getTime() : null;
   }
   // A local day's first or last second as GitHub's UTC time text.
-  const dayEdge = (day, last) => new Date(last ? localDayStart(day) + 864e5 - 1000 : localDayStart(day)).toISOString().slice(0, 19) + "Z";
+  // The last second is one before the next local day starts, so a day of 23 or 25 hours keeps all of it.
+  const nextDay = day => { const [y, m, d] = String(day).split("-").map(Number); return new Date(y, m - 1, d + 1).getTime(); };
+  const dayEdge = (day, last) => new Date(last ? nextDay(day) - 1000 : localDayStart(day)).toISOString().slice(0, 19) + "Z";
   // What a filter asks GitHub for: the workflow's own runs, and the query in a fixed order. Anything not
   // in the expected form is left out, never sent. Days are the viewer's local days.
   function runQuery(f) {

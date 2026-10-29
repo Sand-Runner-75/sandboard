@@ -926,6 +926,12 @@ function privateRepos() {
   await typeIn("af-actor", "not a login"); rf.badActor = { ids: await runIds(), note: await p.$eval("[data-part=run-filter-note]", n => n.textContent).catch(() => "") };
   await typeIn("af-actor", "demo-claude"); rf.actor = await runIds();
   await p.click("#af-clear"); await p.waitForTimeout(400);
+  await typeIn("af-actor", "not a login"); rf.invalidOnly = await p.$eval("#af-clear", b => b.disabled);
+  await p.click("#af-clear"); await p.waitForTimeout(400);
+  await p.type("#af-q", "zzz"); await p.waitForTimeout(400);
+  rf.miss = { ids: await runIds(), note: await p.$eval("[data-part=run-search]", n => n.textContent).catch(() => ""),
+              empty: await p.$("[data-part=work-empty]") !== null, coverage: await p.$eval("[data-part=work-coverage]", n => n.textContent).catch(() => "") };
+  await p.click("#af-clear"); await p.waitForTimeout(400);
   await p.type("#af-q", "night"); await p.waitForTimeout(400);
   rf.search = { ids: await runIds(), note: await p.$eval("[data-part=run-search]", n => n.textContent).catch(() => ""), focus: await p.evaluate(() => document.activeElement.id),
                 value: await p.$eval("#af-q", n => n.value) };
@@ -986,7 +992,8 @@ function privateRepos() {
   wrepos["acme/garden"].work["/issues?state=all&per_page=100&page=2"] = [{ number: 12, title: "On page two", state: "closed", state_reason: "completed",
     user: { login: "agent-1" }, labels: [], assignees: [], comments: 1, created_at: "2025-12-01T00:00:00Z", closed_at: "2025-12-02T00:00:00Z" }];
   // GitHub counts runs it does not list; and a mapped repository that cannot be read at all.
-  wrepos["acme/garden-plan"].work = { "/pulls?state=open&per_page=100&page=1": 403, "/actions/runs?per_page=100&page=1": { total_count: 5, workflow_runs: [] } };
+  wrepos["acme/garden"].work["/actions/workflows?per_page=100&page=1"] = { total_count: 150, workflows: [{ id: 1, name: "Checks", path: ".github/workflows/checks.yml" }] };
+  wrepos["acme/garden-plan"].work = { "/pulls?state=open&per_page=100&page=1": 403, "/actions/workflows?per_page=100&page=1": 403, "/actions/runs?per_page=100&page=1": { total_count: 5, workflow_runs: [] } };
   delete wrepos["acme/recipes"];
   const wgh = mockGitHub(wrepos);
   const wurls = [];
@@ -1009,7 +1016,7 @@ function privateRepos() {
   await p.click("#w-older"); await p.waitForTimeout(1000);
   wo.private.second = await workNow();
   await p.click("#rs-runs"); await p.waitForTimeout(800);
-  wo.private.runs = await workNow();
+  wo.private.runs = Object.assign(await workNow(), { flowNote: await text(p, "[data-part=run-workflow-note]") });
   await p.click("#rs-releases"); await p.waitForTimeout(800);
   wo.private.releases = await workNow();
   await p.click("#rs-issues"); await p.waitForTimeout(600);
@@ -1019,7 +1026,7 @@ function privateRepos() {
   wo.private.prOnlyNext = await workNow();
   await tree(p, "r:garden:acme/garden-plan"); await p.waitForTimeout(400);
   await p.click("#rs-runs"); await p.waitForTimeout(800);
-  wo.private.countedRuns = Object.assign(await workNow(), { noneRead: await text(p, "[data-part=work-none-read]"), empty: await text(p, "[data-part=work-empty]") });
+  wo.private.countedRuns = Object.assign(await workNow(), { flowNote: await text(p, "[data-part=run-workflow-note]"), noneRead: await text(p, "[data-part=work-none-read]"), empty: await text(p, "[data-part=work-empty]") });
   await tree(p, "a:inbox"); await p.waitForTimeout(1500);
   wo.private.inbox = await inboxNow();
   wo.private.urls = wurls;

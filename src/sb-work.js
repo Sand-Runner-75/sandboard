@@ -90,11 +90,12 @@
       // nothing to show here (an issue page of pull requests only, or runs GitHub counts but did not list).
       const found = kind === "runs" ? SB.runSearch(w.items, f.q) : w.items;
       if (kind === "runs" && w.items.length && found.length < w.items.length) card.append(el("p", { class: "qual muted plain", "data-part": "run-search" },
-        found.length ? "Search keeps " + plural(found.length, "run") + " of the " + plural(w.items.length, "run") + " read." : "No run read matches the search. Older runs may, if loaded."));
+        found.length ? "Search keeps " + plural(found.length, "run") + " of the " + plural(w.items.length, "run") + " read."
+          : w.end ? "No run in the list matches the search." : "No run read matches the search. Older runs may, if loaded."));
       if (found.length) card.append(kind === "pulls" ? pullTable(S, A, entry, name, web, w.items) : kind === "issues" ? issueTable(web, w.items)
         : kind === "runs" ? runTable(web, found) : releaseList(web, w.items));
-      else if (w.end) card.append(el("p", { class: "muted plain", "data-part": "work-empty" }, "GitHub lists no " + none + " here."));
-      else card.append(el("p", { class: "muted plain", "data-part": "work-none-read" }, "No " + none + " in the " + plural(w.pages, "page") +
+      else if (!w.items.length && w.end) card.append(el("p", { class: "muted plain", "data-part": "work-empty" }, "GitHub lists no " + none + " here."));
+      else if (!w.items.length) card.append(el("p", { class: "muted plain", "data-part": "work-none-read" }, "No " + none + " in the " + plural(w.pages, "page") +
         " read. That is not the whole list: " + (w.more ? "older ones may be on the next page." : "the rest is not shown.")));
       if (w.items.length || !w.end) card.append(coverage(kind, w, label));
       if (w.more) card.append(el("div", { class: "actions" }, el("button", { type: "button", class: "btn ghost", id: "w-older",
@@ -144,7 +145,11 @@
     q.value = f.q;
     const badBranch = f.branch && !SB.runQuery({ branch: f.branch }).query, badActor = f.actor && !SB.runQuery({ actor: f.actor }).query;
     const backwards = f.from && f.to && f.from > f.to;
-    const any = SB.runFiltered(f);
+    // Clear is offered for anything typed or picked, even a value not sent because it is not in GitHub's form.
+    const any = Object.keys(SB.noRunFilter()).some(k => String(f[k] || "").trim() !== "");
+    const flowNote = wf && wf.state === "partial" ? "Only the first " + plural(wf.data.workflows.length, "workflow") + " of the " + wf.data.total.toLocaleString("en") +
+        " GitHub counts can be picked here; runs of the others still show with Any."
+      : wf && !wf.data && wf.state !== "loading" ? "The workflow list could not be read (" + (wf.error || stateName(wf)) + "), so only Any can be picked." : null;
     return el("div", { class: "stack tight", "data-part": "run-filters" },
       el("div", { class: "filters", role: "search", "aria-label": "Filter runs" },
         el("label", {}, "Workflow", flowPick),
@@ -156,6 +161,7 @@
         el("label", {}, "to", text("af-to", "to", "", "date")),
         el("label", {}, "Search runs read", q),
         el("button", { type: "button", class: "btn ghost", id: "af-clear", disabled: !any, onclick: () => A.clearRunFilter(name) }, "Clear filters")),
+      flowNote ? el("p", { class: "qual muted plain", "data-part": "run-workflow-note" }, flowNote) : null,
       badBranch || badActor || backwards ? el("p", { class: "qual plain", role: "status", "data-part": "run-filter-note" },
         [badBranch && "That branch name has characters a branch cannot have, so it is not sent.", badActor && "That is not a GitHub login, so it is not sent.",
          backwards && "The start day is after the end day, so no run can match."].filter(Boolean).join(" ")) : null,

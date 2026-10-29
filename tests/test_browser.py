@@ -1042,6 +1042,14 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(f["search"]["ids"], ["9002"])
         self.assertEqual(f["search"]["note"], "Search keeps 1 run of the 6 runs read.")
         self.assertEqual([f["search"]["focus"], f["search"]["value"]], ["af-q", "night"], "typing keeps its place")
+        self.assertFalse(f["invalidOnly"], "a value that is not sent can still be cleared")
+        self.assertEqual(f["miss"]["ids"], [])
+        self.assertEqual(f["miss"]["note"], "No run in the list matches the search.")
+        self.assertFalse(f["miss"]["empty"], "a search miss never says GitHub lists no runs")
+        self.assertIn("Showing all 6 runs", f["miss"]["coverage"])
+        pr = self.r["work"]["private"]
+        self.assertEqual(pr["runs"]["flowNote"], "Only the first 1 workflow of the 150 GitHub counts can be picked here; runs of the others still show with Any.")
+        self.assertIn("The workflow list could not be read (not readable with this token (Actions: read))", pr["countedRuns"]["flowNote"])
 
     def test_work_evidence_on_a_private_run_links_out_says_what_it_could_not_read_and_only_reads(self):
         pr = self.r["work"]["private"]
