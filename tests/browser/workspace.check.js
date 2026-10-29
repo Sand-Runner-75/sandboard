@@ -1798,6 +1798,16 @@ function privateRepos() {
   await p.reload(); await p.waitForTimeout(200);
   look.junk = await p.evaluate(() => [document.documentElement.dataset.density || "", document.documentElement.dataset.accent || ""]);
   await p.close();
+  // Each pill's mark keeps its status colour: its ring is the pill's own colour, never the surface.
+  p = await open();
+  await demo(p);
+  await p.click("#tree [data-id='p:demo'] > .ti"); await p.waitForTimeout(800);
+  await p.keyboard.press("Control+k"); await p.keyboard.type("tasks"); await p.keyboard.press("Enter"); await p.waitForTimeout(1200);
+  look.marks = await p.$$eval("#task-list .pill", n => [...new Set(n.map(x => x.className))].map(c => {
+    const x = n.find(y => y.className === c);
+    return [c, getComputedStyle(x, "::before").borderTopColor === getComputedStyle(x).color];
+  }));
+  await p.close();
 
   // 15. Home: first in the tree, counts of task rows, one row per project, open work by status, activity
   // grouped by local day; nothing from GitHub becomes markup, and no sideways page scroll on a phone.
