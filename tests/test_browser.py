@@ -901,7 +901,18 @@ class BrowserTest(unittest.TestCase):
         self.assertIn("Cannot compare: @synthetic-other's public profile (HTTP 404) could not be read.", a["vsFail"][0])
         self.assertEqual(a["vsFail"][1:], [True, False], "a comparison that cannot be read offers Read again and shows no table")
         self.assertEqual(a["vsUrls"], ["GET /users/synthetic-other", "GET /users/synthetic-other/events/public?per_page=100&page=1",
-                                       "GET /users/synthetic-other/repos?sort=pushed&per_page=100&page=1", "GET /users/synthetic-user/repos?sort=pushed&per_page=100&page=1"])
+                                       "GET /users/synthetic-other/repos?sort=pushed&per_page=100&page=1", "GET /users/synthetic-other/repos?sort=pushed&per_page=100&page=2",
+                                       "GET /users/synthetic-user/repos?sort=pushed&per_page=100&page=1"])
+        vp = a["vsPartial"]
+        self.assertTrue(vp["retry"], "a later page that failed can be read again")
+        self.assertIn("synthetic-other's public repositories: A later page could not be read (HTTP 500), so some are missing.", vp["gaps"])
+        self.assertNotIn("most recently pushed", vp["gaps"], "a failure is not called the deliberate 300 cap")
+        self.assertEqual(vp["rows"][1], ["Public repositories", "1", "at least 100 won"], "at least 100 is sure to beat 1")
+        self.assertEqual(vp["rows"][0], ["Stars earned", "2", "at least 0"], "2 is not sure to beat a lower bound")
+        vw = a["vsWhole"]
+        self.assertEqual([vw["retry"], vw["gaps"]], [False, None])
+        self.assertEqual(vw["rows"][0], ["Stars earned", "2 won", "0"])
+        self.assertEqual(vw["rows"][1], ["Public repositories", "1", "101 won"])
         self.assertEqual(a["methods"], ["GET"])
 
     def test_projects_can_be_put_in_order_by_dragging_or_the_keyboard_and_it_is_kept_in_this_browser_only(self):

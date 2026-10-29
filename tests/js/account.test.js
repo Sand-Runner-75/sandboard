@@ -207,18 +207,37 @@ test("two accounts are compared in eight rounds of public numbers; unknown wins 
     live("current", { repos: [{ repo: "sam/a", fork: false, stars: 10, language: "Go", pushed: now - DAY }, { repo: "sam/b", fork: false, stars: 2, language: "Go", pushed: now - 40 * DAY },
                               { repo: "sam/c", fork: true, stars: 99, language: "C", pushed: now - DAY }] }),
     live("current", { events: [ev(0, 2), ev(1, null), ev(2, 1), ev(5, 1)] }), now);
-  assert.deepEqual([a.repos, a.stars, a.langCount, a.langs, a.top, a.active, a.actions, a.streak, a.since, a.reposCut],
+  assert.deepEqual([a.repos, a.stars, a.langCount, a.langs, a.top, a.active, a.actions, a.streak, a.since, Object.values(a.low).some(Boolean)],
                    [3, 12, 1, [{ name: "Go", share: 1 }], { repo: "sam/a", stars: 10 }, 2, 5, 3, 2019, false], "forks add no stars or languages");
   const b = SB.accountStats({ login: "kim", name: null, followers: null, since: Date.parse("2016-01-01T00:00:00Z"), web: null },
     live("partial", { repos: [{ repo: "kim/a", fork: false, stars: 3, language: "Go", pushed: null }, { repo: "kim/b", fork: false, stars: 3, language: "Rust", pushed: now }] }),
     live("current", { events: [] }), now);
   assert.equal(b.name, "kim");
   const rows = SB.duelRows(a, b, now);
-  assert.deepEqual(rows.map(r => [r.label, r.a, r.b, r.win]), [
-    ["Stars earned", 12, 6, "a"], ["Public repositories", 3, 2, "a"], ["Followers", 5, null, null], ["Actions, 90 days", 5, 0, "a"],
-    ["Best streak (days)", 3, 0, "a"], ["Languages", 1, 2, "b"], ["Years on GitHub", 7, 10, "b"], ["Active repositories, 30 days", 2, 1, "a"]]);
-  assert.deepEqual(rows.map(r => [r.cutA, r.cutB]).filter(([x, y]) => x || y).length, 4, "the four rounds from repositories are lower bounds for the cut side");
-  assert.deepEqual([rows[0].cutA, rows[0].cutB, rows[3].cutB, rows[2].cutB], [false, true, false, false]);
+  // kim's repository list is partial, so kim's four numbers from it are lower bounds: sam's higher exact
+  // number is not sure to beat them, while kim's higher lower bound is sure to beat sam's.
+  assert.deepEqual(rows.map(r => [r.label, r.a, r.b, r.lowA, r.lowB, r.win]), [
+    ["Stars earned", 12, 6, false, true, null], ["Public repositories", 3, 2, false, true, null], ["Followers", 5, null, false, false, null],
+    ["Actions, 90 days", 5, 0, false, false, "a"], ["Best streak (days)", 3, 0, false, false, "a"], ["Languages", 1, 2, false, true, "b"],
+    ["Years on GitHub", 7, 10, false, false, "b"], ["Active repositories, 30 days", 2, 1, false, true, null]]);
+}));
+
+test("a number with something missing is a lower bound: entries left out, a star count or push not given", () => zone("UTC", () => {
+  const now = Date.parse("2026-10-29T12:00:00Z");
+  const prof = { login: "sam", name: null, followers: 1, since: null, web: null };
+  const repo = (stars, pushed) => ({ repo: "sam/r", fork: false, stars, language: null, pushed });
+  let s = SB.accountStats(prof, { state: "empty", data: { repos: [], skipped: 2 } }, { state: "current", data: { events: [], skipped: 1 } }, now);
+  assert.deepEqual([s.repos, s.stars, s.low.repos, s.low.stars, s.low.langCount, s.low.actions, s.low.streak], [0, 0, true, true, true, true, true],
+                   "a list of only entries left out is not an exact zero");
+  s = SB.accountStats(prof, { state: "current", data: { repos: [repo(null, now), repo(3, null)], skipped: 0 } }, { state: "current", data: { events: [], skipped: 0 } }, now);
+  assert.deepEqual([s.stars, s.low.stars, s.low.repos, s.active, s.low.active, s.low.actions], [3, true, false, 1, true, false]);
+  const other = SB.accountStats(prof, { state: "current", data: { repos: [repo(1, now)], skipped: 0 } }, { state: "current", data: { events: [], skipped: 0 } }, now);
+  const rows = SB.duelRows(s, other, now);
+  assert.equal(rows[0].win, "a", "at least 3 already beats exactly 1");
+  assert.equal(SB.duelRows(other, s, now)[0].win, "b", "the same round seen from the other side");
+  const more = SB.accountStats(prof, { state: "current", data: { repos: [repo(5, now)], skipped: 0 } }, { state: "current", data: { events: [], skipped: 0 } }, now);
+  assert.deepEqual([SB.duelRows(more, s, now)[0].win, SB.duelRows(s, more, now)[0].win], [null, null], "exactly 5 against at least 3 is not sure either way");
+  assert.equal(rows[6].win, null, "years not known win nothing");
 }));
 
 test("the demo answers another made-up account and each one's own public repositories", async () => {
@@ -236,8 +255,8 @@ test("the demo answers another made-up account and each one's own public reposit
 
 test("the README badge's numbers are short, lower bounds get a plus, and every language has a steady colour", () => {
   assert.deepEqual([0, 999, 9999, 12345, 2000000, 2500000, null].map(SB.shortNumber), ["0", "999", "9,999", "12.3k", "2M", "2.5M", "?"]);
-  const s = { stars: 15000, repos: 300, actions: 40, streak: 3, reposCut: true, eventsCut: false };
-  assert.deepEqual(SB.badgeNumbers(s), [["Stars", "15k+"], ["Repos", "300+"], ["Actions (90d)", "40"], ["Best streak", "3d"]]);
+  const s = { stars: 15000, repos: 300, actions: 40, streak: 3, low: { stars: true, repos: true, actions: false, streak: true } };
+  assert.deepEqual(SB.badgeNumbers(s), [["Stars", "15k+"], ["Repos", "300+"], ["Actions (90d)", "40"], ["Best streak", "3d+"]]);
   assert.equal(SB.langColor("Go"), "#00ADD8");
   assert.equal(SB.langColor(null), "#9d9d9d");
   assert.equal(SB.langColor("Made-up Lang"), SB.langColor("Made-up Lang"));
