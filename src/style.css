@@ -85,6 +85,9 @@ main:focus { outline: none; }
 .ti .tl { min-width: 0; overflow-wrap: anywhere; }
 .ti .sub { margin-left: auto; font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
 .ti.current .sub { color: var(--info-fg); }
+/* Where a dragged project would land: a line above or below a project's row. */
+.ti.drop-before { box-shadow: inset 0 3px 0 var(--focus); }
+.ti.drop-after { box-shadow: inset 0 -3px 0 var(--focus); }
 [role="treeitem"] { outline: none; }
 [role="treeitem"]:focus-visible > .ti { outline: 3px solid var(--focus); outline-offset: -1px; }
 

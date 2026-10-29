@@ -1474,6 +1474,29 @@ function privateRepos() {
   atl.fail.all = await aNow();
   await p.close();
 
+  // 13. Project order: a project dragged or moved with Alt and an arrow, the move announced, the order kept
+  // in this browser only (as project IDs under one key) across a reload, and only projects can be dragged.
+  const po = out.order = {};
+  p = await open(); await demo(p);
+  const orderNow = () => p.$$eval('#tree [data-id="g:projects"] > ul > li', n => n.map(x => x.dataset.id));
+  po.start = await orderNow();
+  await p.dragAndDrop(`#tree [data-id="${po.start[po.start.length - 1]}"] > .ti`, `#tree [data-id="${po.start[0]}"] > .ti`, { targetPosition: { x: 30, y: 4 } });
+  await p.waitForTimeout(200);
+  po.dragged = await orderNow();
+  po.dragLive = await p.textContent("#live");
+  po.marks = await p.$$eval("#tree .drop-before, #tree .drop-after", n => n.length);
+  await p.focus(`#tree [data-id="${po.dragged[0]}"]`); await p.keyboard.press("Alt+ArrowDown"); await p.waitForTimeout(150);
+  po.keyed = await orderNow();
+  po.keyLive = await p.textContent("#live");
+  po.focus = await p.evaluate(() => document.activeElement.dataset.id);
+  await p.focus(`#tree [data-id="${po.keyed[0]}"]`); await p.keyboard.press("Alt+ArrowUp"); await p.waitForTimeout(150);
+  po.atTop = await orderNow();
+  po.storage = await p.evaluate(() => Object.keys(localStorage).map(k => [k, localStorage.getItem(k)]));
+  po.draggable = await p.$$eval("#tree [draggable=true]", n => n.map(x => x.parentElement.dataset.id));
+  await p.reload(); await demo(p);
+  po.reloaded = await orderNow();
+  await p.close();
+
   // 7. Framed: the page refuses to show.
   p = await open();
   await p.goto(BASE + "/frame.html"); await p.waitForTimeout(400);

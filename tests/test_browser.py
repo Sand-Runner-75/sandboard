@@ -770,6 +770,23 @@ class BrowserTest(unittest.TestCase):
         for word in ("Checkout", "Merge", "Delete", "Reset", "Create branch"):
             self.assertNotIn(word, d["controls"], "no control changes anything")
 
+    def test_projects_can_be_put_in_order_by_dragging_or_the_keyboard_and_it_is_kept_in_this_browser_only(self):
+        o = self.r["order"]
+        start = o["start"]
+        self.assertGreaterEqual(len(start), 3)
+        self.assertEqual(sorted(o["draggable"]), sorted(start), "only projects can be dragged")
+        self.assertEqual(o["dragged"], [start[-1]] + start[:-1], "the last project dragged above the first")
+        self.assertRegex(o["dragLive"], r"^Moved .+ to place 1 of %d\.$" % len(start))
+        self.assertEqual(o["marks"], 0, "the drop line goes when the drag ends")
+        d = o["dragged"]
+        self.assertEqual(o["keyed"], [d[1], d[0]] + d[2:], "Alt+Down moves the project one place")
+        self.assertRegex(o["keyLive"], r"to place 2 of %d\.$" % len(start))
+        self.assertEqual(o["focus"], d[0], "the moved project keeps focus")
+        self.assertEqual(o["atTop"], o["keyed"], "Alt+Up on the first project changes nothing")
+        self.assertEqual(o["storage"], [["sandboard.projectOrder", json.dumps([x[2:] for x in o["keyed"]], separators=(",", ":"))]],
+                         "only the project IDs are stored, under one key")
+        self.assertEqual(o["reloaded"], o["keyed"], "the order survives a reload in the same browser")
+
     def test_work_evidence_tabs_list_pull_requests_with_reviews_at_their_own_commit(self):
         w = self.r["work"]
         self.assertEqual(w["pulls"]["tabs"], ["Overview", "History", "Pull requests", "Issues", "Actions", "Releases", "Files"])
