@@ -151,13 +151,14 @@ test("a public gist keeps its files by name, its times and its page only at an a
     html_url: WEB + "/" + id, files: { "a.md": { filename: "a.md", language: "Markdown", size: 12, content: "not kept" }, "b.sh": { filename: "b.sh", language: null, size: 3 } } }, more || {});
   const many = {}; for (let i = 0; i < 60; i++) many["f" + i] = { filename: "f" + i, size: 1 };
   const s = setup([[/gists/, () => json([gist("abc123"), gist("def456", { html_url: WEB + "/synthetic-user/def456", description: null }),
-    gist("0a0a", { html_url: WEB + "/someone/0a0a", files: many }), gist("not-hex"), gist("fff", { files: null })])]]);
+    gist("0a0a", { html_url: WEB + "/someone/0a0a", files: many, truncated: true }), gist("not-hex"), gist("fff", { files: null })])]]);
   const r = await SB.readGists(s.ctx, s.client, "synthetic-user");
   assert.equal(r.data.skipped, 2);
   assert.deepEqual(r.data.gists[0], { id: "abc123", description: "Notes", files: [{ name: "a.md", language: "Markdown", size: 12 }, { name: "b.sh", language: null, size: 3 }],
-                                      more: 0, created: Date.parse("2026-01-01T00:00:00Z"), updated: Date.parse("2026-01-03T00:00:00Z"), comments: 2, web: WEB + "/abc123" });
+                                      more: 0, cut: false, created: Date.parse("2026-01-01T00:00:00Z"), updated: Date.parse("2026-01-03T00:00:00Z"), comments: 2, web: WEB + "/abc123" });
   assert.deepEqual([r.data.gists[1].web, r.data.gists[1].description], [WEB + "/synthetic-user/def456", null], "the owner's own path is GitHub's too");
   assert.deepEqual([r.data.gists[2].web, r.data.gists[2].files.length, r.data.gists[2].more], [null, 50, 10], "another account's path is not linked; 50 file names at most");
+  assert.deepEqual([r.data.gists[0].cut, r.data.gists[1].cut, r.data.gists[2].cut], [false, false, true], "GitHub's own cut list is kept per gist, a complete one is not");
 });
 
 test("the starred list narrows by every word typed, in name, description or language", () => {

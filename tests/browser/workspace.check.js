@@ -1620,10 +1620,12 @@ function privateRepos() {
   await p.waitForSelector("#ac-star-list", { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(300);
   const extrasNow = () => p.evaluate(() => ({ text: (document.getElementById("ac-extras") || {}).textContent || "", retry: !!document.getElementById("ac-retry"),
     imgs: document.querySelectorAll("#ac-extras img").length, links: [...document.querySelectorAll("#ac-extras a")].map(a => a.getAttribute("href")),
-    gists: document.querySelectorAll("#ac-gist-list > li").length }));
+    gists: document.querySelectorAll("#ac-gist-list > li").length, gistFiles: [...document.querySelectorAll("#ac-gist-list > li > .muted")].map(n => n.textContent) }));
   acc.extrasFailed = await extrasNow();
   gistsReply = () => json([{ id: "abc123", description: "", comments: 0, updated_at: "2026-01-02T00:00:00Z",
     html_url: "https://gist.example.invalid/synthetic-user/abc123", files: { "a.txt": { filename: "a.txt", language: "Text", size: 3 } } },
+    { id: "def456", description: "Big", comments: 0, updated_at: "2026-01-01T00:00:00Z", truncated: true,
+      files: { "b.txt": { filename: "b.txt", language: "Text", size: 1 }, "c.txt": { filename: "c.txt", size: 1 } } },
     { id: "../nope", files: {} }]);
   await p.click("#ac-retry"); await p.waitForSelector("#ac-gist-list", { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(300);
   acc.extrasAgain = await extrasNow();

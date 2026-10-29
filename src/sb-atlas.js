@@ -169,10 +169,13 @@
     if (!G.length) { box.append(notice("empty", "You have no public gists.")); return box; }
     box.append(el("ul", { class: "ac-list", id: "ac-gist-list" }, G.map(g => {
       const title = g.description || (g.files[0] ? g.files[0].name : g.id);
-      const names = g.files.map(f => f.name + (f.language ? " (" + f.language + ")" : "")).join(", ") + (g.more ? ", and " + g.more + " more" : "");
+      const names = g.files.map(f => f.name + (f.language ? " (" + f.language + ")" : "")).join(", ") + (g.more ? ", and " + g.more + " more" : "") +
+        (g.cut ? ", and more GitHub did not list" : "");
+      // GitHub cuts the file list of a very large gist, so its total is then only a lower bound.
+      const files = (g.cut ? "At least " : "") + plural(g.files.length + g.more, "file");
       return el("li", {},
         el("div", { class: "ac-star-name" }, g.web ? el("a", { href: g.web, target: "_blank", rel: "noopener noreferrer" }, title) : title),
-        el("div", { class: "muted" }, plural(g.files.length + g.more, "file") + (names ? ": " + names : "")),
+        el("div", { class: "muted" }, files + (names ? ": " + names : "")),
         el("div", { class: "ac-meta" }, g.updated !== null ? el("span", { title: SB.localWhen(g.updated) }, "Updated " + (SB.localStamp(g.updated) || "")) : null,
           g.comments ? el("span", {}, plural(g.comments, "comment")) : null));
     })));

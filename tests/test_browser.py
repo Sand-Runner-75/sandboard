@@ -862,7 +862,9 @@ class BrowserTest(unittest.TestCase):
         self.assertIn("<img src=x onerror=alert(2)>", ef["text"], "GitHub's description stays text")
         self.assertEqual([ef["retry"], ef["imgs"], ef["links"], ef["gists"]], [True, 0, [], 0], "a starred page address that is not https is never linked")
         ea = a["extrasAgain"]
-        self.assertEqual([ea["retry"], ea["imgs"], ea["gists"]], [False, 0, 1])
+        self.assertEqual([ea["retry"], ea["imgs"], ea["gists"]], [False, 0, 2])
+        self.assertEqual(ea["gistFiles"], ["1 file: a.txt (Text)", "At least 2 files: b.txt (Text), c.txt, and more GitHub did not list"],
+                         "a gist whose file list GitHub cut says its count is only a lower bound; a complete one does not")
         self.assertEqual(ea["links"], ["https://gist.example.invalid/synthetic-user/abc123"])
         self.assertIn("1 gist not in the expected form was left out", ea["text"])
         self.assertEqual(a["extraUrls"], ["GET /users/synthetic-user/starred?per_page=100&page=1", "GET /users/synthetic-user/gists?per_page=100&page=1",

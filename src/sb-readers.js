@@ -521,7 +521,8 @@
   }
 
   // The account's public gists, newest first: description, file names with their language and size,
-  // times, and the gist's page only when GitHub gives it at an https address ending in its ID.
+  // whether GitHub cut its own list of the gist's files (then the count is only a lower bound), times,
+  // and the gist's page only when GitHub gives it at an https address ending in its ID.
   const GIST_ID = /^[0-9a-f]{1,64}$/;
   function gistPage(value, login, id) {
     if (typeof value !== "string") return null;
@@ -537,7 +538,7 @@
       if (typeof g.id !== "string" || !GIST_ID.test(g.id) || !isObject(g.files)) return null;
       const files = Object.values(g.files).filter(f => isObject(f) && typeof f.filename === "string" && f.filename && f.filename.length <= 255)
         .slice(0, 50).map(f => ({ name: f.filename, language: shortText(f.language, 40), size: nonNegative(f.size) }));
-      return { id: g.id, description: shortText(g.description, 300), files, more: Math.max(0, Object.keys(g.files).length - files.length),
+      return { id: g.id, description: shortText(g.description, 300), files, more: Math.max(0, Object.keys(g.files).length - files.length), cut: g.truncated === true,
                created: timeOf(g.created_at), updated: timeOf(g.updated_at), comments: nonNegative(g.comments), web: gistPage(g.html_url, who, g.id) };
     }), { login });
   }
