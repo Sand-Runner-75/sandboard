@@ -343,6 +343,18 @@
     return { events, untimed, other };
   }
 
+  // The lists of a repository's activity read that are missing or cut: each list that could not be read
+  // (with its state and error), and each read only to its first page (with that page's size).
+  function feedGaps(data) {
+    const out = [];
+    for (const [what, res, limit] of [["commits", data && data.commits, SB.COMMIT_LIMIT], ["pull requests", data && data.pulls, 100],
+                                      ["comments", data && data.comments, SB.REPO_COMMENT_LIMIT]]) {
+      if (!res || !res.data) out.push({ what, state: res ? res.state : "failed", error: res && res.error || null });
+      else if (res.state === "partial") out.push({ what, limit });
+    }
+    return out;
+  }
+
   // ---- Home: counts of task rows across every project whose plan and task table could be read, as the
   // tables say. They are counts of rows, never a progress figure: those stay on each project's overview.
   const tableRead = e => !!(e.w.plan && e.plan && e.plan.state === "current" && e.table && e.table.state === "current");
@@ -946,7 +958,7 @@
                       historyOrder, historyGraph, commitTimes, WEEKS_SHOWN, DAYS_SHOWN, contributors,
                       workKey, workList, pullState, reviewEvidence, runOutcome, inboxScope, inbox, historyKey, COMPARE_FIRST, comparedBranches, historyView,
                       ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
-                      approvals, resultHref, tabKey, stageOfPhase, short, localDay, localStamp, localWhen, zoneOf, savedOrder, keptOrder, orderedIds, moveId, LOOK_CHOICES, savedLook, homeFigures, openWork, dayGroup, greeting,
+                      approvals, resultHref, tabKey, stageOfPhase, short, localDay, localStamp, localWhen, zoneOf, savedOrder, keptOrder, orderedIds, moveId, LOOK_CHOICES, savedLook, homeFigures, openWork, dayGroup, greeting, feedGaps,
                       HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs,
                       codeKey, liveKeyRepo, MAX_TEXT_LINES, MAX_SEARCH, searchSources, searchFind, searchCoverage, MAX_DIFF_LINES, MAX_FOUND, MAX_READ_BYTES, codeTree, codeFind, codeOpenable, textLines, textPieces, diffLines });
 })(typeof window !== "undefined" ? window : globalThis);

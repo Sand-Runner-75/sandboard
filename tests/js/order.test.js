@@ -44,3 +44,17 @@ test("the look kept in the browser is only known words, else the default", () =>
   assert.deepEqual(SB.savedLook('{"density":"tiny","accent":"#ff0000","token":"x"}'), { density: "comfortable", accent: "blue" });
   assert.deepEqual(SB.savedLook("[1,2]"), { density: "comfortable", accent: "blue" });
 });
+
+test("Home names every activity list that could not be read or was read only in part", () => {
+  const ok = { state: "current", data: {} };
+  assert.deepEqual(SB.feedGaps({ commits: ok, pulls: ok, comments: ok }), []);
+  assert.deepEqual(SB.feedGaps({ commits: { state: "partial", data: {} }, pulls: { state: "denied", error: "403" }, comments: { state: "partial", data: {} } }),
+    [{ what: "commits", limit: SB.COMMIT_LIMIT }, { what: "pull requests", state: "denied", error: "403" }, { what: "comments", limit: SB.REPO_COMMENT_LIMIT }]);
+  assert.deepEqual(SB.feedGaps({ commits: ok, pulls: ok }), [{ what: "comments", state: "failed", error: null }]);
+});
+
+test("Home's day groups: today, yesterday, two to six days ago, earlier", () => {
+  const now = Date.parse("2026-10-29T12:00:00Z");
+  const back = d => new Date(now - d * 864e5).toISOString();
+  assert.deepEqual([0, 1, 2, 6, 7].map(d => SB.dayGroup(back(d), now)), ["today", "yesterday", "week", "week", "earlier"]);
+});
