@@ -56,7 +56,7 @@
   // The project's activity read so far, as Recent activity reads it, with what is still being read or failed.
   function activity(S, A, entry) {
     const rows = SB.portfolio([entry]);
-    const sources = [];
+    const sources = [], parts = [];
     let loading = 0, failed = 0;
     for (const r of rows) {
       if (!r.meta) { if (!r.pinned || r.pinned.state === "loading") loading += 1; else failed += 1; continue; }
@@ -64,8 +64,10 @@
       if (!f || f.state === "loading") { loading += 1; continue; }
       if (!f.data) { failed += 1; continue; }
       sources.push({ repo: r.repo, web: r.pinned.data.web, commits: f.data.commits, pulls: f.data.pulls, comments: f.data.comments });
+      parts.push(...V.feedParts(r.repo, f.data));
     }
-    return { events: SB.feedEvents(sources).events, loading, failed, read: sources.length };
+    const feed = SB.feedEvents(sources);
+    return { events: feed.events, untimed: feed.untimed, parts, loading, failed, read: sources.length };
   }
 
   function coverage(act, found, rows) {
@@ -74,6 +76,8 @@
     out.push(plural(found, "task") + " named by the activity read" + (none ? "; " + plural(none, "task") + " named by none, so not shown" : "") + ".");
     if (act.loading) out.push("Still reading " + plural(act.loading, "repository", "repositories") + ".");
     if (act.failed) out.push(plural(act.failed, "repository", "repositories") + " could not be read; the overview says why.");
+    for (const x of act.parts) out.push(x + ", so a task may be named by more than is shown.");
+    if (act.untimed) out.push(plural(act.untimed, "event") + " had no time GitHub gave in a readable form, so " + (act.untimed === 1 ? "it is" : "they are") + " not placed on a day.");
     out.push("Activity read: the latest commits, pull requests and handoff comments of each repository, as Recent activity reads them. Days are your local days. These are not due dates and not progress.");
     return out.map(t => el("p", { class: "qual muted plain" }, t));
   }
