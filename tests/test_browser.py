@@ -1307,14 +1307,17 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(mk["star"][3], "Demo Project added to favourites", "screen readers hear the confirmation")
         self.assertEqual(mk["star"][4], ["f:p:demo"])
         self.assertEqual(mk["command"], ["true", "layout-board"], "a Go to command changes the layout")
-        self.assertEqual(mk["naming"], "view-name")
+        self.assertEqual(mk["naming"], ["view-name", "Search words and the doer are not kept; the status, stage, phase and layout are."])
         stored, focus, names, bold = mk["saved"]
         self.assertEqual(stored, {"favs": ["p:demo"], "views": [{"project": "demo", "name": "Doing <b>now</b>",
-                                  "filters": {"q": "", "stage": "", "phase": "", "status": "In Progress", "doer": ""}, "layout": "board"}]})
+                                  "filters": {"q": "", "stage": "", "phase": "", "status": "In Progress", "doer": ""}, "layout": "board"}]},
+                         "the doer picked is not stored")
         self.assertEqual((focus, names, bold), ("save-view", ["Doing <b>now</b>"], 0), "a typed name stays text")
         self.assertEqual(mk["menu"], [["Open DT201", "Add to favourites"], "menuitem"], "no GitHub item without an address GitHub gave")
         self.assertEqual(mk["starred"], [["p:demo", "t:demo:DT201"], True])
         self.assertEqual(mk["escaped"], [True, True], "Esc closes the menu and gives the focus back")
+        self.assertTrue(mk["refreshed"], "a refresh closes the menu")
+        self.assertEqual(mk["ended"], [True, 0, True, ""], "ending the session leaves no menu or confirmation")
         self.assertEqual(mk["back"], ["f:p:demo", "f:t:demo:DT201"], "the marks come back on the same browser")
         self.assertEqual(mk["opened"], ["In Progress", "true"], "a saved view opens its filters and layout")
         self.assertEqual(mk["dropped"], 0)

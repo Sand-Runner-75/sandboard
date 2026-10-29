@@ -1985,8 +1985,9 @@ function privateRepos() {
   await p.keyboard.press("Control+k"); await p.keyboard.type("tasks as board"); await p.keyboard.press("Enter"); await p.waitForTimeout(600);
   mk.command = [await p.$eval("#layout-board", b => b.getAttribute("aria-pressed")), await p.evaluate(() => document.activeElement.id)];
   await p.selectOption("#f-status", "In Progress"); await p.waitForTimeout(200);
+  await p.selectOption("#f-doer", { index: 1 }); await p.waitForTimeout(200);
   await p.click("#save-view"); await p.waitForTimeout(100);
-  mk.naming = await p.evaluate(() => document.activeElement.id);
+  mk.naming = [await p.evaluate(() => document.activeElement.id), await text(p, "#view-note")];
   await p.keyboard.type("Doing <b>now</b>"); await p.keyboard.press("Enter"); await p.waitForTimeout(200);
   mk.saved = [await p.evaluate(() => JSON.parse(localStorage.getItem("sandboard.marks"))), await p.evaluate(() => document.activeElement.id),
     await p.$$eval("[data-part=saved-views] [data-view]", n => n.map(x => x.textContent)), await p.$$eval("[data-part=saved-views] b", n => n.length)];
@@ -1997,8 +1998,16 @@ function privateRepos() {
   mk.starred = [await p.evaluate(() => JSON.parse(localStorage.getItem("sandboard.marks")).favs), await p.$eval("#ctx", n => n.hidden)];
   await p.focus(".bcard .linkbtn"); await p.keyboard.press("Shift+F10"); await p.waitForTimeout(100); await p.keyboard.press("Escape"); await p.waitForTimeout(100);
   mk.escaped = [await p.$eval("#ctx", n => n.hidden), await p.evaluate(() => document.activeElement.classList.contains("linkbtn"))];
+  // Ending the session with the menu and a confirmation still showing (as when access is lost, with no
+  // pointer press first) leaves neither, and moving to another place closes an open menu.
+  await p.focus(".bcard .linkbtn"); await p.keyboard.press("Shift+F10"); await p.waitForTimeout(100);
+  await p.evaluate(() => document.getElementById("refresh").click()); await p.waitForTimeout(100);
+  mk.refreshed = await p.$eval("#ctx", n => n.hidden);
+  await p.waitForTimeout(800);
+  await p.focus(".bcard .linkbtn"); await p.keyboard.press("Shift+F10"); await p.waitForTimeout(100);
+  await p.evaluate(() => document.getElementById("forget").click()); await p.waitForTimeout(100);
+  mk.ended = await p.evaluate(() => [document.getElementById("ctx").hidden, document.getElementById("ctx").children.length, document.getElementById("toast").hidden, document.getElementById("toast").textContent]);
   // A fresh visit on the same browser: the marks come back; the saved view opens its filters and layout.
-  await p.click("#forget"); await p.waitForTimeout(200);
   await p.evaluate(() => { document.getElementById("live").textContent = ""; });
   await demo(p);
   await p.waitForSelector("#tree [data-id='p:demo']");

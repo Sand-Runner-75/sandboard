@@ -530,11 +530,19 @@
     const pick = k => (v && typeof v === "object" && LOOK_CHOICES[k].includes(v[k])) ? v[k] : LOOK_CHOICES[k][0];
     return { density: pick("density"), accent: pick("accent") }; };
   // ---- Marks kept in this browser by the owner's choice: favourite projects and tasks, and saved
-  // task views. Only workspace-list project IDs, task IDs, a view's name, its filter words and layout:
+  // task views. Only workspace-list project IDs, task IDs, a view's name, its status, stage and phase and its layout:
   // never the token, a repository name or anything else read from GitHub. Anything else in the text is dropped.
   const MARK_ID = /^[A-Za-z0-9_.-]{1,100}$/, TASK_MARK = /^[A-Za-z0-9_.-]{1,40}$/;
   const MARK_LAYOUTS = ["list", "board", "table", "timeline", "calendar"];
-  const MARK_FILTERS = ["q", "stage", "phase", "status", "doer"];
+  // A saved view keeps its layout, status, stage and phase: a status from the fixed list, a stage or phase
+  // as a short ID. Search words and the doer are never kept, because they are text read from the tables.
+  const MARK_STATUSES = ["Not Started", "In Progress", "Blocked", "Ready for Review", "Done", "Removed"];
+  const MARK_LIMITS = { favs: 200, views: 50 };
+  const keptFilters = f => {
+    const v = f && typeof f === "object" ? f : {};
+    const id = x => typeof x === "string" && /^[A-Za-z0-9_.-]{1,20}$/.test(x) ? x : "";
+    return { q: "", stage: id(v.stage), phase: id(v.phase), status: MARK_STATUSES.includes(v.status) ? v.status : "", doer: "" };
+  };
   const favKey = (project, task) => task ? "t:" + project + ":" + task : "p:" + project;
   function savedMarks(text) {
     let v; try { v = JSON.parse(text || "{}"); } catch (e) { v = {}; }
@@ -545,17 +553,15 @@
       const [kind, project, task, more] = f.split(":");
       if (more !== undefined || !MARK_ID.test(project || "")) continue;
       if ((kind === "p" && task === undefined) || (kind === "t" && TASK_MARK.test(task || ""))) favs.push(f);
-      if (favs.length >= 200) break;
+      if (favs.length >= MARK_LIMITS.favs) break;
     }
     const views = [];
     for (const x of Array.isArray(v.views) ? v.views : []) {
       if (!x || typeof x !== "object" || !MARK_ID.test(x.project || "") || typeof x.name !== "string") continue;
       const name = x.name.trim().slice(0, 40);
       if (!name || views.some(y => y.project === x.project && y.name === name)) continue;
-      const filters = {};
-      for (const k of MARK_FILTERS) filters[k] = x.filters && typeof x.filters[k] === "string" ? x.filters[k].slice(0, 100) : "";
-      views.push({ project: x.project, name, filters, layout: MARK_LAYOUTS.includes(x.layout) ? x.layout : "list" });
-      if (views.length >= 50) break;
+      views.push({ project: x.project, name, filters: keptFilters(x.filters), layout: MARK_LAYOUTS.includes(x.layout) ? x.layout : "list" });
+      if (views.length >= MARK_LIMITS.views) break;
     }
     return { favs, views };
   }
@@ -571,10 +577,16 @@
     return path && /^[A-Za-z0-9_./-]{1,300}$/.test(path) && !path.split("/").includes("..") && /^[0-9a-f]{40}$/.test(pin.commit || "")
       ? pin.web + "/blob/" + pin.commit + "/" + path : pin.web;
   }
-  // The marks with a favourite added or taken away.
-  const toggleFav = (marks, key) => ({ favs: marks.favs.includes(key) ? marks.favs.filter(k => k !== key) : marks.favs.concat(key), views: marks.views });
-  // The marks with a view saved under its name (replacing one of the same name in that project), or removed.
-  const saveView = (marks, view) => ({ favs: marks.favs, views: marks.views.filter(v => !(v.project === view.project && v.name === view.name)).concat(view) });
+  // The marks with a favourite added or taken away; adding to full favourites changes nothing.
+  const toggleFav = (marks, key) => ({ favs: marks.favs.includes(key) ? marks.favs.filter(k => k !== key)
+    : marks.favs.length >= MARK_LIMITS.favs ? marks.favs.slice() : marks.favs.concat(key), views: marks.views });
+  // The marks with a view saved under its name (replacing one of the same name in that project), keeping
+  // only the filters a view may keep; null when the views are full and the name is new.
+  const saveView = (marks, view) => {
+    const others = marks.views.filter(v => !(v.project === view.project && v.name === view.name));
+    if (others.length >= MARK_LIMITS.views) return null;
+    return { favs: marks.favs, views: others.concat({ project: view.project, name: view.name, filters: keptFilters(view.filters), layout: view.layout }) };
+  };
   const dropView = (marks, project, name) => ({ favs: marks.favs, views: marks.views.filter(v => !(v.project === project && v.name === name)) });
 
   // IDs saved in this browser first, in their saved order, then the rest as the workspace list gives them.
@@ -1138,7 +1150,7 @@
                       historyOrder, historyGraph, commitTimes, WEEKS_SHOWN, DAYS_SHOWN, contributors,
                       workKey, workList, RUN_RESULTS, RUN_EVENTS, noRunFilter, runQuery, runState, runFiltered, runSearch, pullState, reviewEvidence, runOutcome, inboxScope, inbox, historyKey, COMPARE_FIRST, comparedBranches, historyView,
                       ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
-                      approvals, resultHref, tabKey, stageOfPhase, short, localDay, localStamp, localWhen, zoneOf, savedOrder, keptOrder, orderedIds, moveId, LOOK_CHOICES, savedLook, savedMarks, githubLink, toggleFav, saveView, dropView, favKey, homeFigures, openWork, members, team, namesIn, dayGroup, greeting, feedGaps, taskActivity, acrossActivity, timelineScale, monthWeeks, shiftMonth, weekStart,
+                      approvals, resultHref, tabKey, stageOfPhase, short, localDay, localStamp, localWhen, zoneOf, savedOrder, keptOrder, orderedIds, moveId, LOOK_CHOICES, savedLook, savedMarks, MARK_LIMITS, githubLink, toggleFav, saveView, dropView, favKey, homeFigures, openWork, members, team, namesIn, dayGroup, greeting, feedGaps, taskActivity, acrossActivity, timelineScale, monthWeeks, shiftMonth, weekStart,
                       HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs,
                       codeKey, liveKeyRepo, MAX_TEXT_LINES, MAX_SEARCH, searchSources, searchFind, searchCoverage, MAX_DIFF_LINES, MAX_FOUND, MAX_READ_BYTES, codeTree, codeFind, codeOpenable, textLines, textPieces, diffLines });
 })(typeof window !== "undefined" ? window : globalThis);

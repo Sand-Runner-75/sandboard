@@ -57,7 +57,7 @@
   const TIPS = {
     "Across projects": "Views that cover every listed project at once: the task timeline and calendar, members and teams.",
     "Favourites": "Projects and tasks you starred. Kept in this browser only, as project and task IDs; nothing is sent anywhere.",
-    "Saved views": "A name for the filters and layout shown now, to open them again from here or the tree. Kept in this browser only.",
+    "Saved views": "A name for the status, stage and phase filters and the layout shown now, to open them again from here or the tree. Kept in this browser only; search words and the doer are not kept.",
     "Workspace timeline": "Every project's tasks, placed by the commits, pull requests and handoffs that name them, grouped by project. Not due dates and not progress.",
     "Done": "The plan's table marks this task finished. Only the owner's approval, recorded by the plan's progress script, makes it count.",
     "Ready for Review": "The work is finished and waits for the other AI's review or the owner's decision.",
@@ -187,6 +187,7 @@
       el("button", { type: "button", class: "linkbtn", "data-view": v.name, onclick: () => A.openView(entry.w.id, v.name) }, v.name),
       el("button", { type: "button", class: "sv-x", "aria-label": "Remove the saved view " + v.name, title: "Remove", onclick: () => A.dropView(entry.w.id, v.name) }, "\u00d7")));
     if (!mine.length) box.append(el("span", { class: "muted qual" }, "None yet"));
+    if (S.saving && (S.filters.q || S.filters.doer)) box.append(el("span", { class: "muted qual", id: "view-note" }, "Search words and the doer are not kept; the status, stage, phase and layout are."));
     if (S.saving) {
       const input = el("input", { id: "view-name", type: "text", maxlength: "40", placeholder: "Name this view", autocomplete: "off", spellcheck: "false", "aria-label": "Name of the view",
         onkeydown: ev => { if (ev.key === "Enter") { ev.preventDefault(); A.saveView(ev.target.value); } else if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); A.savingView(false); } } });

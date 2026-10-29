@@ -51,11 +51,13 @@
   };
 
   // Favourite projects and tasks and saved task views are kept in this browser too, by the owner's
-  // choice, under one more key: workspace-list project IDs, task IDs, view names, filter words and layouts.
+  // choice, under one more key: workspace-list project IDs, task IDs, view names, statuses, stage and phase IDs, and layouts.
   const MARKS_KEY = "sandboard.marks";
   const marksStore = {
     read() { try { return SB.savedMarks(window.localStorage.getItem(MARKS_KEY)); } catch (e) { return SB.savedMarks(null); } },
-    write(marks) { try { window.localStorage.setItem(MARKS_KEY, JSON.stringify(marks)); } catch (e) { /* kept for this visit */ } },
+    // What is written passes the same check as what is read, so only allowed fields are ever stored.
+    write(raw) { const marks = SB.savedMarks(JSON.stringify(raw));
+      try { window.localStorage.setItem(MARKS_KEY, JSON.stringify(marks)); } catch (e) { /* kept for this visit */ } },
   };
 
   // Everything shown comes from here, and everything here is dropped on sign-out.
@@ -130,6 +132,7 @@
     const place = [S.signedIn, S.major, S.view.kind, S.view.name || "", S.current, S.activeTab].join("|");
     if (place === placeShown) return;
     placeShown = place;
+    closeCtx(false);  // a menu for the place left would act on what is no longer shown
     // The fade is on the area itself, which stays across redraws, so a redraw does not cut it short.
     const box = $("workspace");
     box.classList.remove("arrive");
@@ -172,7 +175,15 @@
   }
 
   // A short confirmation shown in the corner for a moment; screen readers hear it through announce.
-  let toastTimer;
+  let toastTimer, surfaceRun = 0;
+  function dropSurfaces() {
+    surfaceRun += 1;
+    clearTimeout(toastTimer);
+    $("toast").hidden = true;
+    $("toast").textContent = "";
+    closeCtx(false);
+    ctxBack = null;
+  }
   function toast(text) {
     clearTimeout(toastTimer);
     const box = $("toast");
@@ -705,6 +716,9 @@
     $("live").textContent = "";
     hideTip();
     setMenu(false);
+    // The right-click menu and the confirmation hold names and links of what was read: they go too,
+    // and a copy still finishing can no longer show a message.
+    dropSurfaces();
     render();
     $("state").textContent = {
       forget: "Access forgotten. The token and everything read with it were cleared, and open tabs were closed.",
@@ -889,6 +903,7 @@
       if (String(project).charAt(0) === "~") { toast("A repository found or opened by name can't be a favourite: its name is never stored."); return; }
       const key = SB.favKey(project, task);
       const on = !S.marks.favs.includes(key);
+      if (on && S.marks.favs.length >= SB.MARK_LIMITS.favs) { toast("Favourites are full (" + SB.MARK_LIMITS.favs + "). Take one out first."); return; }
       S.marks = SB.toggleFav(S.marks, key);
       marksStore.write(S.marks);
       render();
@@ -900,7 +915,9 @@
       const clean = String(name || "").trim().slice(0, 40);
       if (!e || !clean) return false;
       if (S.current.charAt(0) === "~") { toast("A view of a repository found or opened by name can't be saved: its name is never stored."); return false; }
-      S.marks = SB.saveView(S.marks, { project: S.current, name: clean, filters: Object.assign({}, S.filters), layout: S.taskLayout });
+      const next = SB.saveView(S.marks, { project: S.current, name: clean, filters: S.filters, layout: S.taskLayout });
+      if (!next) { toast("Saved views are full (" + SB.MARK_LIMITS.views + "). Remove one first."); return false; }
+      S.marks = next;
       marksStore.write(S.marks);
       S.saving = false;
       render();
@@ -1268,6 +1285,7 @@
     S.atlas.vprs = new Map();
     S.search = freshState().search;  // a new run searches nothing read before it
     const ctx = session.start();  // same token, new run: replies to the old run are dropped
+    closeCtx(false);
     toast("Refreshing.");
     read(ctx);
   }
@@ -1593,7 +1611,10 @@
     const items = [item("Open " + name, () => target.task ? A.go(e.w.id, { kind: "tasks" }, { phase: "", select: target.task }) : A.go(e.w.id, e.w.plan ? { kind: "overview" } : { kind: "repo", repo: e.w.code[0].repo }))];
     if (e.w.id.charAt(0) !== "~") items.push(item(fav ? "Take out of favourites" : "Add to favourites", () => A.toggleFav(e.w.id, target.task || null)));
     if (web) {
-      items.push(item("Copy GitHub link", async () => { try { await navigator.clipboard.writeText(web); toast("Link copied"); } catch (err) { toast("Copy didn't work here, so nothing was copied."); } }));
+      items.push(item("Copy GitHub link", async () => { const run = surfaceRun;
+        let said;
+        try { await navigator.clipboard.writeText(web); said = "Link copied"; } catch (err) { said = "Copy didn't work here, so nothing was copied."; }
+        if (run === surfaceRun) toast(said); }));
       items.push(V.el("a", { role: "menuitem", tabindex: "-1", href: web, target: "_blank", rel: "noopener noreferrer", onclick: () => closeCtx(false) }, "Open on GitHub"));
     }
     ctxBox.replaceChildren(...items);
