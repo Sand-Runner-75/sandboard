@@ -116,13 +116,15 @@
       n.style.left = (sc.at(c) * 100).toFixed(3) + "%"; return n; }));
     const lanes = el("div", { class: "tl-lanes" });
     const groups = [];
+    // Grouped by a stable key (a project's ID across projects, a phase in one), headed by its name.
     for (const x of items) {
-      let g = groups.find(y => y.key === x.group);
-      if (!g) groups.push(g = { key: x.group, items: [] });
+      const key = x.groupId || x.group;
+      let g = groups.find(y => y.key === key);
+      if (!g) groups.push(g = { key, name: x.group, items: [] });
       g.items.push(x);
     }
     for (const g of groups) {
-      lanes.append(el("h3", { class: "tl-group" }, g.key));
+      lanes.append(el("h3", { class: "tl-group", "data-group": g.key }, g.name));
       for (const { uid, t, d, current, open, tag } of g.items) {
         const cut = d.last < sc.start;
         const from = d.first < sc.start ? sc.start : d.first;
@@ -174,7 +176,9 @@
           el("div", { class: "cal-day" }, String(+day.slice(8))),
           items.length ? el("ul", { class: "cal-items" }, (S.calDay === day ? items : items.slice(0, CAL_SHOWN)).map(({ x, ev }) => el("li", {},
             el("button", { type: "button", class: "cal-chip st-" + (STATUS_CLASS[x.t.status] || "invalid"), "data-task": x.uid,
-              title: EVENT[ev.kind] + " " + ev.id + ": " + ev.title + (x.tag ? " (" + x.tag + ")" : ""), onclick: x.open }, EVENT[ev.kind] + " " + x.t.id))),
+              title: EVENT[ev.kind] + " " + ev.id + ": " + ev.title + (x.tag ? " (" + x.tag + ")" : ""),
+              // Across projects, the project is part of the chip's name, so two tasks with one ID stay apart.
+              "aria-label": x.tag ? EVENT[ev.kind] + " " + x.t.id + ", " + x.tag : null, onclick: x.open }, EVENT[ev.kind] + " " + x.t.id))),
             items.length > CAL_SHOWN ? el("li", {}, el("button", { type: "button", class: "linkbtn cal-more", id: "cal-more-" + day, "aria-expanded": String(S.calDay === day),
               onclick: () => A.calDay(S.calDay === day ? null : day, "cal-more-" + day) }, S.calDay === day ? "Show fewer" : "+" + (items.length - CAL_SHOWN) + " more")) : null) : null);
       })))))));
@@ -201,15 +205,10 @@
     act.left = left;
     const items = [];
     let found = 0, total = 0;
-    V.orderedEntries(S).forEach(e => {
-      if (!V.rowsVisible(e)) return;
-      const tasks = e.tasks.filter(t => !t.invalid && t.status !== "Removed");
-      const own = new Set([e.w.plan && e.w.plan.repo, ...e.w.code.map(c => c.repo)].filter(Boolean));
-      const dates = SB.taskActivity(tasks, act.events.filter(ev => own.has(ev.repo)));
-      total += tasks.length; found += dates.size;
-      for (const t of tasks) if (dates.has(t.id)) items.push({ uid: e.w.id + ":" + t.id, t, d: dates.get(t.id), group: e.w.label, tag: e.w.label, current: false,
-        open: () => A.go(e.w.id, { kind: "tasks" }, { phase: "", select: t.id }) });
-    });
+    const across = SB.acrossActivity(V.orderedEntries(S).filter(V.rowsVisible), act.events);
+    for (const { e, t, d } of across.items) items.push({ uid: e.w.id + ":" + t.id, t, d, groupId: e.w.id, group: e.w.label, tag: e.w.label, current: false,
+      open: () => A.go(e.w.id, { kind: "tasks" }, { phase: "", select: t.id }) });
+    found = across.found; total = across.total;
     return { act, got: { items, found, total } };
   }
   function scopeSwitch(S, A) {

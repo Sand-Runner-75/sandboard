@@ -420,6 +420,20 @@
     }
     return out;
   }
+  // Every project's tasks named by the activity read, each matched only against its own repositories'
+  // events, so the same task ID in two projects keeps its own dates. Each item keeps its project.
+  function acrossActivity(entries, events) {
+    const items = [];
+    let found = 0, total = 0;
+    for (const e of entries) {
+      const tasks = e.tasks.filter(t => !t.invalid && t.status !== "Removed");
+      const own = new Set([e.w.plan && e.w.plan.repo, ...e.w.code.map(c => c.repo)].filter(Boolean));
+      const dates = taskActivity(tasks, events.filter(ev => own.has(ev.repo)));
+      total += tasks.length; found += dates.size;
+      for (const t of tasks) if (dates.has(t.id)) items.push({ e, t, d: dates.get(t.id) });
+    }
+    return { items, found, total };
+  }
   const addDays = (day, n) => isoDay(Date.parse(day) + n * 864e5);
   // The columns of a timeline from its first to its last day: Mondays by week, or first days by month,
   // at most limit of them (the newest kept), with the share of the width each day takes.
@@ -1075,7 +1089,7 @@
                       historyOrder, historyGraph, commitTimes, WEEKS_SHOWN, DAYS_SHOWN, contributors,
                       workKey, workList, RUN_RESULTS, RUN_EVENTS, noRunFilter, runQuery, runState, runFiltered, runSearch, pullState, reviewEvidence, runOutcome, inboxScope, inbox, historyKey, COMPARE_FIRST, comparedBranches, historyView,
                       ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
-                      approvals, resultHref, tabKey, stageOfPhase, short, localDay, localStamp, localWhen, zoneOf, savedOrder, keptOrder, orderedIds, moveId, LOOK_CHOICES, savedLook, homeFigures, openWork, members, team, namesIn, dayGroup, greeting, feedGaps, taskActivity, timelineScale, monthWeeks, shiftMonth, weekStart,
+                      approvals, resultHref, tabKey, stageOfPhase, short, localDay, localStamp, localWhen, zoneOf, savedOrder, keptOrder, orderedIds, moveId, LOOK_CHOICES, savedLook, homeFigures, openWork, members, team, namesIn, dayGroup, greeting, feedGaps, taskActivity, acrossActivity, timelineScale, monthWeeks, shiftMonth, weekStart,
                       HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs,
                       codeKey, liveKeyRepo, MAX_TEXT_LINES, MAX_SEARCH, searchSources, searchFind, searchCoverage, MAX_DIFF_LINES, MAX_FOUND, MAX_READ_BYTES, codeTree, codeFind, codeOpenable, textLines, textPieces, diffLines });
 })(typeof window !== "undefined" ? window : globalThis);
