@@ -701,9 +701,11 @@ class BrowserTest(unittest.TestCase):
         self.assertIsNone(d["owner"]["notice"])
         self.assertEqual(d["several"][0], "invalid")
         self.assertIn("more than one repository has it (acme/garden-plan, beta/second-plan)", d["several"][1])
-        self.assertEqual(d["none"][0], "missing")
-        self.assertIn("no repository of nobody that the token reads has it", d["none"][1])
-        self.assertIn("sign in with the plan repository as owner/repo", d["none"][1])
+        self.assertEqual(d["none"]["notice"][0], "no-plan", "a token with no workspace list still signs in, on its first found repository")
+        self.assertEqual(d["none"]["projects"], ["p:~found-acme/garden", "p:~found-acme/garden-plan", "p:~found-acme/recipes", "p:~found-beta/second-plan"],
+                         "every repository the token reads is shown, marked found")
+        self.assertIn("No repository of nobody that the token reads has the workspace list", d["none"]["state"])
+        self.assertIn("every repository the token reads is shown, marked found", d["none"]["state"])
         self.assertIn("only its owner, or nothing", d["bad"]["state"])
         self.assertTrue(d["bad"]["signedOut"])
         self.assertTrue(all(u.startswith("GET ") for u in d["urls"]))
@@ -723,6 +725,8 @@ class BrowserTest(unittest.TestCase):
 
     def test_refresh_searches_again_until_a_plan_repository_is_found(self):
         d = self.r["discover"]
+        self.assertEqual(d["noneThenRefresh"]["state"], "Signed in. The token is in this page's memory only.",
+                         "the note that no list was found goes once a refresh finds one")
         for key in ("noneThenRefresh", "failedThenRefresh", "refreshWhilelisting", "refreshWhilechecking"):
             self.assertEqual(d[key]["projects"][:2], ["p:garden", "p:recipes"], key)
             self.assertIsNone(d[key]["notice"], key)
