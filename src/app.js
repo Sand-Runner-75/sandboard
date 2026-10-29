@@ -32,6 +32,16 @@
   const noRepoFilters = () => ({ q: "", visibility: "", language: "", type: "", sort: "name", group: false });
   const MAX_OPENED = 10;
 
+  // The one thing kept in the browser, by the owner's choice: the order of projects in the left tree, as
+  // the IDs the workspace list gives its projects, in this browser only. Never the token, a repository
+  // name found through the token or opened by name (their places hold for this visit), or any other read.
+  // When storage is off or full, the order holds for this visit.
+  const ORDER_KEY = "sandboard.projectOrder";
+  const orderStore = {
+    read() { try { return SB.savedOrder(window.localStorage.getItem(ORDER_KEY)); } catch (e) { return []; } },
+    write(ids) { try { window.localStorage.setItem(ORDER_KEY, JSON.stringify(ids)); } catch (e) { /* kept for this visit */ } },
+  };
+
   // Everything shown comes from here, and everything here is dropped on sign-out.
   function freshState() {
     return {
@@ -39,7 +49,7 @@
       list: { state: "loading" }, entries: [], current: null,
       view: { kind: "overview" }, filters: noFilters(), selected: null,
       tabs: [], activeTab: null, docs: new Map(), mapped: new Map(),
-      expanded: new Set(["g:projects", "g:account"]), treeFocus: null,
+      expanded: new Set(["g:projects", "g:account"]), treeFocus: null, order: orderStore.read(),
       // Repository overview: live reads by repository (languages, activity feed, the account), the
       // portfolio filters, and repositories opened by name for this visit only.
       live: new Map(), repoFilters: noRepoFilters(), opened: [],
@@ -593,6 +603,18 @@
 
   const A = {
     render,
+    // Moves a project to a place in the left tree (by dragging, or Alt with an arrow) and keeps the order.
+    moveProject(id, to) {
+      const shown = SB.orderedIds(S.entries.map(e => e.w.id), S.order);
+      const from = shown.indexOf(id);
+      if (from < 0 || to < 0 || to >= shown.length || to === from) return;
+      S.order = SB.moveId(shown, S.order, id, to);
+      orderStore.write(SB.keptOrder(S.order));
+      S.treeFocus = "p:" + id;
+      render(); V.focusTree(S);
+      const entry = S.entries.find(e => e.w.id === id);
+      announce("Moved " + entry.w.label + " to place " + (to + 1) + " of " + shown.length + ".");
+    },
     refreshProject,
     docKey,
     live: key => S.live.get(key),

@@ -23,7 +23,15 @@ FORBIDDEN = [
 ]
 
 
+# The one thing kept in the browser, by the owner's choice: the left tree's project order, under one key,
+# read and written only in app.js. Any other use of storage still breaks the rules.
+ORDER_STORE = ('window.localStorage.getItem(ORDER_KEY)', 'window.localStorage.setItem(ORDER_KEY, JSON.stringify(ids))')
+
+
 def violations(name, text):
+    if name == "app.js" and all(text.count(use) == 1 for use in ORDER_STORE) and text.count('const ORDER_KEY = "sandboard.projectOrder";') == 1:
+        for use in ORDER_STORE:
+            text = text.replace(use, "")
     found = [why for pattern, why in FORBIDDEN if re.search(pattern, text)]
     for method in re.findall(r"\bmethod\s*:\s*[\"']?([A-Za-z]+)", text):
         if method != "GET":
@@ -57,6 +65,12 @@ class SourceRulesTest(unittest.TestCase):
         for label, snippet in bad.items():
             with self.subTest(label):
                 self.assertTrue(violations("app.js", snippet))
+        # The project order's key is allowed in app.js only, and nothing else may be stored beside it.
+        order = 'const ORDER_KEY = "sandboard.projectOrder";\n' + "\n".join(ORDER_STORE)
+        self.assertEqual(violations("app.js", order), [])
+        self.assertTrue(violations("sb-views.js", order))
+        self.assertTrue(violations("app.js", order + "\nlocalStorage.setItem('token', t)"))
+        self.assertTrue(violations("app.js", order.replace("sandboard.projectOrder", "sandboard.token")))
 
     def test_page_loads_every_module_in_order(self):
         with open(os.path.join(SRC, "index.html"), encoding="utf-8") as f:

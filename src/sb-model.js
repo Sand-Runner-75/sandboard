@@ -397,6 +397,21 @@
     return { rows, width, unread: last.filter(v => v !== null).length };
   }
 
+  // The left tree's project order. Only the IDs the workspace list gives its projects are kept in the
+  // browser: a repository found through the token or opened by name ("~found-owner/name", "~opened-n")
+  // is GitHub's name or this visit's place, so its place holds for the visit only.
+  const keptOrder = ids => (ids || []).filter(id => id.charAt(0) !== "~");
+  // Saved text that is not a list of short IDs counts as no order; a visit-only ID in it is dropped.
+  const savedOrder = text => { let v; try { v = JSON.parse(text || "[]"); } catch (e) { return []; }
+    return Array.isArray(v) ? keptOrder([...new Set(v.filter(x => typeof x === "string" && x && x.length <= 200))]).slice(0, 1000) : []; };
+  // IDs saved in this browser first, in their saved order, then the rest as the workspace list gives them.
+  const orderedIds = (ids, saved) => { const rank = new Map((saved || []).map((id, i) => [id, i]));
+    return ids.filter(id => rank.has(id)).sort((a, b) => rank.get(a) - rank.get(b)).concat(ids.filter(id => !rank.has(id))); };
+  // The order with one ID moved to a place in it; the saved IDs of projects not shown now keep their places after.
+  const moveId = (shown, saved, id, to) => { if (!shown.includes(id)) return saved.slice();
+    const next = shown.filter(x => x !== id); next.splice(Math.max(0, Math.min(to, next.length)), 0, id);
+    return next.concat((saved || []).filter(x => !next.includes(x))); };
+
   // A UTC day as GitHub-style ISO text; years past 9999 or before 0 keep their sign and six digits.
   const isoDay = t => new Date(t).toISOString().split("T")[0];
   // Times are shown in the viewer's own time zone, as the device reports it (no location is looked up).
@@ -903,7 +918,7 @@
                       historyOrder, historyGraph, commitTimes, WEEKS_SHOWN, DAYS_SHOWN, contributors,
                       workKey, workList, pullState, reviewEvidence, runOutcome, inboxScope, inbox, historyKey, COMPARE_FIRST, comparedBranches, historyView,
                       ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
-                      approvals, resultHref, tabKey, stageOfPhase, short, localDay, localStamp, localWhen, zoneOf,
+                      approvals, resultHref, tabKey, stageOfPhase, short, localDay, localStamp, localWhen, zoneOf, savedOrder, keptOrder, orderedIds, moveId,
                       HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs,
                       codeKey, liveKeyRepo, MAX_TEXT_LINES, MAX_SEARCH, searchSources, searchFind, searchCoverage, MAX_DIFF_LINES, MAX_FOUND, MAX_READ_BYTES, codeTree, codeFind, codeOpenable, textLines, textPieces, diffLines });
 })(typeof window !== "undefined" ? window : globalThis);

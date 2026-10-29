@@ -299,7 +299,8 @@
 
   function treeData(S, A) {
     const projects = { id: "g:projects", label: "Projects", kids: [] };
-    for (const entry of S.entries) {
+    const byId = new Map(S.entries.map(e => [e.w.id, e]));
+    for (const entry of SB.orderedIds([...byId.keys()], S.order).map(id => byId.get(id))) {
       const w = entry.w, kids = [];
       const at = (kind, extra) => S.current === w.id && !S.activeTab && S.view.kind === kind && (!extra || extra());
       if (w.plan) {
@@ -330,7 +331,7 @@
       const plan = planState(entry);
       const sub = entry.loading ? "loading" : plan !== "current" && plan !== "none" ? (STATE[plan] || STATE.failed)[2].toLowerCase()
         : w.kind === "kit" ? "kit" : w.kind === "standalone" ? "code only" : "";
-      projects.kids.push({ id: "p:" + w.id, label: w.label, sub: w.opened ? "opened by name" : w.found ? [sub, "found"].filter(Boolean).join(", ") : sub, kids,
+      projects.kids.push({ id: "p:" + w.id, label: w.label, project: w.id, sub: w.opened ? "opened by name" : w.found ? [sub, "found"].filter(Boolean).join(", ") : sub, kids,
         tip: w.found ? TIPS.Found : undefined,
         act: () => A.go(w.id, w.plan ? { kind: "overview" } : { kind: "repo", repo: w.code[0].repo }) });
     }
@@ -364,7 +365,12 @@
       const li = el("li", { role: "treeitem", "aria-level": level, "aria-expanded": hasKids ? String(open) : null, "data-id": n.id,
         tabindex: "-1", "aria-current": n.cur ? "page" : null, "aria-label": n.label + (n.sub ? ", " + n.sub : "") });
       // The arrow opens and closes a group; the name goes to the place (and opens its group).
-      li.append(el("span", { class: "ti" + (n.cur ? " current" : ""), "data-tip": n.tip || null, onclick: e => { e.stopPropagation(); activate(n); } },
+      // A project's row can be dragged to another place among the projects.
+      const row = n.project ? { draggable: "true", ondragstart: e => drag(e, n), ondragend: () => drop(null) } : {};
+      if (n.project) Object.assign(li.dataset, { project: n.project });
+      if (n.project) for (const [type, fn] of [["dragover", e => over(e, li, n)], ["dragleave", e => { if (!li.contains(e.relatedTarget)) mark(null); }], ["drop", e => { e.preventDefault(); drop(n); }]])
+        li.addEventListener(type, fn);
+      li.append(el("span", Object.assign({ class: "ti" + (n.cur ? " current" : ""), "data-tip": n.tip || null, onclick: e => { e.stopPropagation(); activate(n); } }, row),
         el("span", { class: "tw", "aria-hidden": "true", onclick: hasKids ? e => { e.stopPropagation(); toggle(n); } : null }, hasKids ? (open ? "▾" : "▸") : ""),
         el("span", { class: "tl" }, n.label), n.sub ? el("span", { class: "sub", "aria-hidden": "true" }, n.sub) : null));
       flat.push({ n, li, parent });
@@ -383,7 +389,22 @@
       A.closeMenu();
       n.act();
     };
-    root.replaceChildren(...build(treeData(S, A), 1, null));
+    // Dragging a project: where it would land shows as a line above or below a project's row.
+    let dragged = null, target = null;
+    const mark = t => { for (const x of root.querySelectorAll(".drop-before, .drop-after")) x.classList.remove("drop-before", "drop-after");
+      target = t; if (t) t.row.classList.add(t.after ? "drop-after" : "drop-before"); };
+    const drag = (e, n) => { dragged = n; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("application/x-sandboard-project", n.project); };
+    const over = (e, li, n) => { if (!dragged) return; e.preventDefault(); e.dataTransfer.dropEffect = "move";
+      const row = li.querySelector(".ti"), r = row.getBoundingClientRect();
+      mark(n === dragged ? null : { n, row, after: e.clientY > r.top + r.height / 2 }); };
+    const drop = n => { const t = target, d = dragged; mark(null); dragged = null;
+      if (!n || !t || !d || t.n !== n) return;
+      const shown = projects.map(p => p.project), from = shown.indexOf(d.project);
+      let to = shown.indexOf(n.project) + (t.after ? 1 : 0);
+      if (to > from) to -= 1;
+      A.moveProject(d.project, to); };
+    const data = treeData(S, A), projects = data[0].kids;
+    root.replaceChildren(...build(data, 1, null));
     const focusId = S.treeFocus && flat.some(f => f.n.id === S.treeFocus) ? S.treeFocus : (flat.find(f => f.n.cur) || flat[0]).n.id;
     for (const f of flat) if (f.n.id === focusId) f.li.tabIndex = 0;
     root.onkeydown = e => {
@@ -399,6 +420,11 @@
         flat[j].li.focus();
       };
       const reopen = id => { S.treeFocus = id; A.render(); focusTree(S); };
+      // Alt with Up or Down moves a project one place among the projects.
+      if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+        if (f.n.project) { e.preventDefault(); A.moveProject(f.n.project, projects.indexOf(f.n) + (e.key === "ArrowUp" ? -1 : 1)); }
+        return;
+      }
       if (e.key === "ArrowDown") { e.preventDefault(); move(i + 1); }
       else if (e.key === "ArrowUp") { e.preventDefault(); move(i - 1); }
       else if (e.key === "Home") { e.preventDefault(); move(0); }
