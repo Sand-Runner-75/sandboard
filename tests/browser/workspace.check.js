@@ -1540,6 +1540,25 @@ function privateRepos() {
     feed: [...document.querySelectorAll("#ac-feed li")].map(n => n.textContent), gaps: !!document.getElementById("ac-gaps"), retry: !!document.getElementById("ac-retry") }));
   await p.focus("#ac-days > summary"); await p.keyboard.press("Enter"); await p.waitForTimeout(150);
   acc.daysOpen = await p.$eval("#ac-days", n => [n.open, n.querySelectorAll("li").length]);
+  // The starred repositories and public gists only once asked for too; the starred list narrows as words
+  // are typed, keeping the box's focus and saying how many are shown.
+  acc.extrasBefore = await p.evaluate(() => [!!document.getElementById("ac-extras-start"), !!document.getElementById("ac-starred"), !!document.getElementById("ac-gists")]);
+  await p.click("#ac-extras-start");
+  await p.waitForSelector("#ac-gist-list", { timeout: 8000 }).catch(() => {});
+  const starsNow = () => p.evaluate(() => ({ count: (document.getElementById("ac-star-count") || {}).textContent,
+    shown: [...document.querySelectorAll("#ac-star-list > li")].filter(li => !li.hidden).map(li => li.querySelector(".ac-star-name").textContent),
+    focus: document.activeElement ? document.activeElement.id : null, live: (document.getElementById("ac-star-count") || { getAttribute: () => null }).getAttribute("aria-live") }));
+  acc.stars = await starsNow();
+  acc.gists = await p.$$eval("#ac-gist-list > li", n => n.map(x => x.textContent));
+  acc.gistHead = await p.$eval("#ac-gists .legend", n => n.textContent).catch(() => null);
+  await p.focus("#ac-star-q"); await p.keyboard.type("svg"); await p.waitForTimeout(150);
+  acc.starsSvg = await starsNow();
+  await p.keyboard.press("Control+a"); await p.keyboard.type("JAVASCRIPT kit"); await p.waitForTimeout(150);
+  acc.starsKit = await starsNow();
+  await p.keyboard.press("Control+a"); await p.keyboard.type("nothing-like-this"); await p.waitForTimeout(150);
+  acc.starsNone = await starsNow();
+  await p.keyboard.press("Control+a"); await p.keyboard.press("Backspace"); await p.waitForTimeout(150);
+  acc.starsAll = await starsNow();
   await p.setViewportSize({ width: 390, height: 800 }); await p.waitForTimeout(300);
   acc.phone = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   await p.setViewportSize({ width: 1280, height: 900 });
@@ -1561,7 +1580,12 @@ function privateRepos() {
   const acgh = mockGitHub(F.planRepos(), [
     [/^[/]users[/]synthetic-user$/, () => json({ login: "synthetic-user", type: "User", name: "<img src=x onerror=alert(1)>", bio: "Writes <b>tests</b>", followers: 1,
       following: 0, blog: "javascript:alert(1)", created_at: "2020-01-01T00:00:00Z", html_url: "https://elsewhere.example.invalid/x" })],
-    [/^[/]users[/]synthetic-user[/]events[/]public[?]/, path => eventsReply(Number(/&page=(\d+)$/.exec(path)[1]))]]);
+    [/^[/]users[/]synthetic-user[/]events[/]public[?]/, path => eventsReply(Number(/&page=(\d+)$/.exec(path)[1]))],
+    [/^[/]users[/]synthetic-user[/]starred[?]/, () => json([
+      { full_name: "acme/garden", description: "<img src=x onerror=alert(2)>", language: "JavaScript", stargazers_count: 3, pushed_at: "2026-01-02T00:00:00Z", html_url: "javascript:alert(3)" },
+      { full_name: "not a repository" }])],
+    [/^[/]users[/]synthetic-user[/]gists[?]/, () => gistsReply()]]);
+  let gistsReply = () => json({ message: "boom" }, 500);
   p = await open();
   await p.route("https://api.github.com/**", async route => {
     const req = route.request();
@@ -1590,6 +1614,20 @@ function privateRepos() {
   await p.click("#ac-retry"); await p.waitForFunction(() => !document.getElementById("ac-retry"), null, { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(300);
   acc.again = Object.assign(await accNow(), { gaps: await p.$eval("#ac-gaps", n => n.textContent).catch(() => null) });
   acc.urls = accUrls.filter(u => /[/]users[/]/.test(u)).map(u => u.replace("https://api.github.com", ""));
+  // The starred repositories and gists: a failed gist list is said and read again on request, alone.
+  const urlsBefore = accUrls.length;
+  await p.click("#ac-extras-start");
+  await p.waitForSelector("#ac-star-list", { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(300);
+  const extrasNow = () => p.evaluate(() => ({ text: (document.getElementById("ac-extras") || {}).textContent || "", retry: !!document.getElementById("ac-retry"),
+    imgs: document.querySelectorAll("#ac-extras img").length, links: [...document.querySelectorAll("#ac-extras a")].map(a => a.getAttribute("href")),
+    gists: document.querySelectorAll("#ac-gist-list > li").length }));
+  acc.extrasFailed = await extrasNow();
+  gistsReply = () => json([{ id: "abc123", description: "", comments: 0, updated_at: "2026-01-02T00:00:00Z",
+    html_url: "https://gist.example.invalid/synthetic-user/abc123", files: { "a.txt": { filename: "a.txt", language: "Text", size: 3 } } },
+    { id: "../nope", files: {} }]);
+  await p.click("#ac-retry"); await p.waitForSelector("#ac-gist-list", { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(300);
+  acc.extrasAgain = await extrasNow();
+  acc.extraUrls = accUrls.slice(urlsBefore).map(u => u.replace("https://api.github.com", ""));
   acc.methods = [...new Set(accUrls.map(u => u.split(" ")[0]))];
   await p.close();
 

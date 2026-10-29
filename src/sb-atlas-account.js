@@ -12,11 +12,21 @@
   const DAYS = 91, FEED = 9, MIX = 5;
   const DAY = 864e5;
 
-  // Keys of the two reads. The "account" family belongs to no repository.
+  // Keys of the reads. The "account" family belongs to no repository.
   const accountKey = {
     profile: login => "account|profile|" + login,
     events: login => "account|events|" + login,
+    starred: login => "account|starred|" + login,
+    gists: login => "account|gists|" + login,
   };
+
+  const SPACES = /[ \t\n\r\f\v]+/;
+  // A starred repository matches when every word is in its name, description or language, in any case.
+  function starMatch(r, q) {
+    const words = String(q || "").toLowerCase().split(SPACES).filter(Boolean);
+    const hay = [r.repo, r.description || "", r.language || ""].join(" ").toLowerCase();
+    return words.every(w => hay.includes(w));
+  }
 
   // Each kind of public event: a short mark for the feed and its name in the mix.
   const KINDS = {
@@ -79,5 +89,5 @@
   }
 
   SB.ACCOUNT = { DAYS, FEED, MIX };
-  Object.assign(SB, { accountKey, eventLine, eventKind: kindName, eventMark: kindMark, activityDays, heatLevels, busiest, eventMix });
+  Object.assign(SB, { accountKey, starMatch, eventLine, eventKind: kindName, eventMark: kindMark, activityDays, heatLevels, busiest, eventMix });
 })(typeof window !== "undefined" ? window : globalThis);

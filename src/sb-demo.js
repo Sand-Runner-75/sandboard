@@ -43,11 +43,18 @@
       if (path === "/users/demo-user") {
         return account ? reply(Object.assign({ login: "demo-user", type: "User" }, account.profile)) : reply({ message: "Not Found" }, 404);
       }
-      let ev = /^[/]users[/]demo-user[/]events[/]public[?]per_page=100&page=([1-3])$/.exec(path);
+      let ev = /^[/]users[/]demo-user[/](events[/]public|starred|gists)[?]per_page=100&page=([1-3])$/.exec(path);
       if (ev) {
-        const now = Date.now(), all = account ? account.events : [];
-        const list = all.map(([hours, type, name, payload]) => ({ type, created_at: new Date(now - hours * 36e5).toISOString(), repo: { name }, payload }));
-        return reply(list.slice((Number(ev[1]) - 1) * 100, Number(ev[1]) * 100));
+        const now = Date.now(), ago = (n, unit) => new Date(now - n * unit).toISOString(), page = Number(ev[2]);
+        const list = !account ? [] : ev[1] === "starred"
+          ? (account.starred || []).map(([full_name, description, language, stargazers_count, days, archived]) =>
+              ({ full_name, description, language, stargazers_count, pushed_at: ago(days, 864e5), archived, fork: /fork/.test(full_name) }))
+          : ev[1] === "gists"
+          ? (account.gists || []).map(([id, description, files, days, comments]) =>
+              ({ id, description, comments, public: true, created_at: ago(days + 30, 864e5), updated_at: ago(days, 864e5),
+                 files: Object.fromEntries(files.map(([filename, language, size]) => [filename, { filename, language, size }])) }))
+          : account.events.map(([hours, type, name, payload]) => ({ type, created_at: ago(hours, 36e5), repo: { name }, payload }));
+        return reply(list.slice((page - 1) * 100, page * 100));
       }
       // The demo token reads no repository beyond the demo's own workspace list.
       if (/^[/]user[/]repos[?]/.test(path)) return reply([]);

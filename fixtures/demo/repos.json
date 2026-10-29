@@ -1020,6 +1020,18 @@
    [2011, "IssuesEvent", "example-org/demo-app", {"action": "opened"}],
    [2025, "PushEvent", "example-org/demo-app", {"size": 1}],
    [2085, "PushEvent", "example-org/demo-app", {"size": 1}]
+  ],
+  "starred": [
+   ["example-org/tools", "Small command line helpers for the demo.", "Python", 42, 3, false],
+   ["example-org/starter-kit", "A starting point for a new made-up project.", "JavaScript", 17, 12, false],
+   ["sample-labs/chart-bits", "Tiny charts drawn with SVG, made up for the demo.", "TypeScript", 310, 40, false],
+   ["sample-labs/old-notes", "Notes from a made-up project that has ended.", "Markdown", 5, 400, true],
+   ["another-org/fork-of-kit", "A made-up fork.", "JavaScript", 0, 90, false]
+  ],
+  "gists": [
+   ["a1b2c3d4e5f60718293a4b5c6d7e8f90", "Shell aliases for the demo", [["aliases.sh", "Shell", 420]], 2, 1],
+   ["0f1e2d3c4b5a69788796a5b4c3d2e1f0", "", [["notes.md", "Markdown", 1200], ["plan.txt", "Text", 300]], 20, 0],
+   ["9a8b7c6d5e4f30211203f4e5d6c7b8a9", "A made-up query", [["report.sql", "SQL", 880]], 75, 3]
   ]
  }
 }
