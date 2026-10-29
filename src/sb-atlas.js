@@ -97,6 +97,7 @@
     box.atlasOlder = () => A.atlasOlder(repo);
     filesTips(A, repo, box);
     panel.append(box);
+    if (box.replay && box.replay.step) panel.append(stepBar(A, repo, box));
     if (g.retry) panel.append(retryRow(A, repo, g));
     else if (g.meta.pulls.state === "loading") panel.append(el("div", { class: "qual plain" }, "Reading the pull requests, to label branches with their pull request numbers."));
     else if (g.meta.pulls.state === "partial") panel.append(el("div", { class: "qual plain" }, "Branch labels name pull requests from the newest 100 and the open ones only; any other branch shows its name."));
@@ -314,12 +315,30 @@
     box.replay = null;
     if (finish && rp.pic.isConnected) showUpTo(rp.pic, Infinity);
   }
+  function stepTo(box, k) {
+    const rp = box.replay, steps = box.steps;
+    rp.k = Math.max(0, Math.min(steps.length - 1, k));
+    showUpTo(rp.pic, rp.k);
+    box.scrollLeft = Math.max(0, steps[rp.k].x * (box.zoom || 1) - box.clientWidth * 0.7);
+    remember(box);
+  }
+  // The step-by-step replay's controls: the commit shown so far, and the one before or after it.
+  function stepBar(A, repo, box) {
+    const rp = box.replay, steps = box.steps, s = steps[rp.k], last = steps.length - 1;
+    const go = (d, id) => { if (rp.k + d < 0 || rp.k + d > last) return; stepTo(box, rp.k + d); A.render(); const b = doc.getElementById(id); if (b) b.focus(); };
+    return el("div", { class: "acts", id: "ag-steps", role: "group", "aria-label": "Replay one commit at a time" },
+      el("button", { type: "button", class: "btn ghost small", id: "ag-prev", "aria-disabled": rp.k === 0 ? "true" : null, onclick: () => go(-1, "ag-prev") }, "Previous commit"),
+      el("button", { type: "button", class: "btn ghost small", id: "ag-next", "aria-disabled": rp.k >= last ? "true" : null, onclick: () => go(1, "ag-next") }, "Next commit"),
+      el("span", { class: "mono", id: "ag-step", "aria-live": "polite" }, (rp.k + 1) + "/" + steps.length + " · " + (SB.localDay(s.date) || "no time given") + " · " + s.msg));
+  }
   function toggleReplay(A, repo) {
     const holder = A.atlasBox(repo);
     if (!holder) return;
     const box = holder.box, pic = box.querySelector("svg"), steps = box.steps;
     if (box.replay) { stopReplay(box, true); A.render(); return; }
     if (!pic || !steps || !steps.length) return;
+    // With reduced motion asked for, nothing moves by itself: the replay goes one commit at a time on request.
+    if (reduced()) { box.replay = { pic, timer: null, k: 0, step: true }; stepTo(box, 0); A.render(); return; }
     let k = 0;
     box.replay = { pic, timer: null };
     showUpTo(pic, 0);

@@ -1463,6 +1463,20 @@ function privateRepos() {
   await p.click("#major-atlas"); await p.waitForTimeout(800);
   await p.click("#ct-start"); await p.waitForSelector("#ct-where", { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(400);
   atl.treeReduced = await p.evaluate(() => [document.getElementById("ct-where").textContent, document.getElementById("ct-play").getAttribute("aria-pressed")]);
+  // The graph replay goes one commit at a time on request, and nothing moves by itself.
+  const stepNow = () => p.evaluate(() => ({ hidden: [...document.querySelectorAll(".atlas-graph [data-s]")].filter(x => x.style.opacity === "0").length,
+    step: (document.getElementById("ag-step") || {}).textContent || null, prev: (document.getElementById("ag-prev") || { getAttribute: () => "none" }).getAttribute("aria-disabled"),
+    focus: document.activeElement.id, button: document.getElementById("ag-replay").textContent }));
+  await p.click("#ag-replay"); await p.waitForTimeout(100);
+  const rs = atl.replayReduced = { start: await stepNow() };
+  await p.click("#ag-next"); await p.waitForTimeout(100);
+  rs.next = await stepNow();
+  await p.waitForTimeout(1200);
+  rs.still = await stepNow();
+  await p.keyboard.press("Enter"); await p.waitForTimeout(100);
+  rs.third = await stepNow();
+  await p.click("#ag-replay"); await p.waitForTimeout(100);
+  rs.stopped = await stepNow();
   await p.close();
   // On a mocked private run, reads that fail are said with their error and read again on request: first the
   // only commit page, then the tags and the pull requests, which are never shown as none.
