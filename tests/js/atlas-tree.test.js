@@ -200,3 +200,21 @@ test("the tree draws at most its file limit and says how many it leaves out", ()
   assert.equal(s.files.has("g/new.js"), false, "still full");
   assert.deepEqual([...s.over], ["g/new.js"], "the file left out was removed; the new one is left out instead");
 });
+
+test("the time drawn at the top of the tree, and so on every saved frame, is local and names its zone", () => {
+  const data = { initial: ["a.js"], commits: [{ sha: "x", date: Date.parse("2026-10-28T22:30:00Z"), msg: "m", author: "a", inferred: false, files: [{ p: "a.js", s: "modified" }] }],
+                 whole: true, failed: 0, cut: 0, names: { state: "current" }, treeMissing: false, treePartial: false };
+  const texts = [];
+  const ctx = new Proxy({}, { get: (o, k) => k === "fillText" ? (t => texts.push(String(t))) : k === "measureText" ? (t => ({ width: String(t).length * 6 })) :
+    /^create.*Gradient$/.test(k) ? (() => ({ addColorStop() {} })) :
+    k in o ? o[k] : () => {}, set: (o, k, v) => { o[k] = v; return true; } });
+  const was = process.env.TZ;
+  try {
+    for (const [tz, want] of [["Asia/Riyadh", "Thursday, 2026-10-29 01:30 UTC+3"], ["UTC", "Wednesday, 2026-10-28 22:30 UTC"], ["America/St_Johns", "Wednesday, 2026-10-28 20:00 UTC-2:30"]]) {
+      process.env.TZ = tz; texts.length = 0;
+      const s = SB.treeStart(data, new Map()); s.next();
+      SB.treeDraw(ctx, 640, 420, s, { x: 0, y: 0, s: 1 }, { title: "acme/garden", footer: "f" });
+      assert.ok(texts.includes(want), tz + ": " + texts.join(" | "));
+    }
+  } finally { if (was === undefined) delete process.env.TZ; else process.env.TZ = was; }
+});
