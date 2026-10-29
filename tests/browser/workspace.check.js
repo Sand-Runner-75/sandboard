@@ -1561,7 +1561,7 @@ function privateRepos() {
   const acgh = mockGitHub(F.planRepos(), [
     [/^[/]users[/]synthetic-user$/, () => json({ login: "synthetic-user", type: "User", name: "<img src=x onerror=alert(1)>", bio: "Writes <b>tests</b>", followers: 1,
       following: 0, blog: "javascript:alert(1)", created_at: "2020-01-01T00:00:00Z", html_url: "https://elsewhere.example.invalid/x" })],
-    [/^[/]users[/]synthetic-user[/]events[/]public[?]/, () => eventsReply()]]);
+    [/^[/]users[/]synthetic-user[/]events[/]public[?]/, path => eventsReply(Number(/&page=(\d+)$/.exec(path)[1]))]]);
   p = await open();
   await p.route("https://api.github.com/**", async route => {
     const req = route.request();
@@ -1580,9 +1580,15 @@ function privateRepos() {
     imgs: document.querySelectorAll("#ac-panel img").length, links: [...document.querySelectorAll("#ac-panel a")].map(a => a.getAttribute("href")),
     name: (document.getElementById("ac-name") || {}).textContent, cells: document.querySelectorAll("#ac-heat rect").length }));
   acc.failed = await accNow();
-  eventsReply = () => json([{ type: "PushEvent", created_at: new Date(Date.now() - 3600e3).toISOString(), repo: { name: "acme/garden" }, payload: { size: 2 } }]);
-  await p.click("#ac-retry"); await p.waitForSelector("#ac-feed", { timeout: 8000 }).catch(() => {});
-  acc.again = await accNow();
+  // Read again: the first page now comes back full and the second fails, so what was read is shown, said as
+  // partial, with Read again; then the second page comes back and the list is whole.
+  const push = i => ({ type: "PushEvent", created_at: new Date(Date.now() - 3600e3 - i * 60e3).toISOString(), repo: { name: "acme/garden" }, payload: { size: 2 } });
+  eventsReply = n => n === 1 ? json(Array.from({ length: 100 }, (_, i) => push(i))) : json({ message: "boom" }, 500);
+  await p.click("#ac-retry"); await p.waitForSelector("#ac-feed", { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(300);
+  acc.later = Object.assign(await accNow(), { gaps: await p.$eval("#ac-gaps", n => n.textContent).catch(() => null) });
+  eventsReply = n => n === 1 ? json(Array.from({ length: 100 }, (_, i) => push(i))) : json([push(100)]);
+  await p.click("#ac-retry"); await p.waitForFunction(() => !document.getElementById("ac-retry"), null, { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(300);
+  acc.again = Object.assign(await accNow(), { gaps: await p.$eval("#ac-gaps", n => n.textContent).catch(() => null) });
   acc.urls = accUrls.filter(u => /[/]users[/]/.test(u)).map(u => u.replace("https://api.github.com", ""));
   acc.methods = [...new Set(accUrls.map(u => u.split(" ")[0]))];
   await p.close();

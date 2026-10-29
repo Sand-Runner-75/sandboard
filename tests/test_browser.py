@@ -827,12 +827,19 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual([f["imgs"], f["links"], f["name"], f["cells"]], [0, [], "<img src=x onerror=alert(1)>", 0],
                          "GitHub's text stays text; a profile page elsewhere and the website are never linked")
         self.assertIn("javascript:alert(1)", f["text"])
+        later = a["later"]
+        self.assertTrue(later["retry"], "a later page that failed can be read again")
+        self.assertIn("A later page of events could not be read (HTTP 500)", later["gaps"])
+        self.assertIn("Pushed 2 commits to acme/garden", later["text"])
+        self.assertIn("<img src=x onerror=alert(1)>", later["name"], "the profile stays while the events are read again")
         g = a["again"]
         self.assertFalse(g["retry"])
+        self.assertIsNone(g["gaps"])
         self.assertEqual(g["cells"], 91)
-        self.assertIn("Pushed 2 commits to acme/garden", g["text"])
-        self.assertEqual(a["urls"], ["GET /users/synthetic-user", "GET /users/synthetic-user/events/public?per_page=100&page=1",
-                                     "GET /users/synthetic-user/events/public?per_page=100&page=1"], "Read again reads only what failed")
+        self.assertIn("101 events read", g["text"])
+        ev = "GET /users/synthetic-user/events/public?per_page=100&page="
+        self.assertEqual(a["urls"], ["GET /users/synthetic-user", ev + "1", ev + "1", ev + "2", ev + "1", ev + "2"],
+                         "Read again reads only the events again; the profile is read once")
         self.assertEqual(a["methods"], ["GET"])
 
     def test_projects_can_be_put_in_order_by_dragging_or_the_keyboard_and_it_is_kept_in_this_browser_only(self):

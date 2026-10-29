@@ -809,9 +809,12 @@
       render();
       announce("Reading your public profile and activity.");
     },
-    // What the account could not read is dropped, so it is read again; what worked is kept.
+    // What the account could not read is dropped, so it is read again, with an event list a later page of
+    // which failed; what worked, and the profile, are kept.
     atlasAccountRetry() {
-      for (const [key, res] of [...S.live]) if ((key === "user" || key.startsWith("account|")) && res.state !== "loading" && !res.data) S.live.delete(key);
+      for (const [key, res] of [...S.live]) {
+        if ((key === "user" || key.startsWith("account|")) && res.state !== "loading" && (!res.data || res.data.stopped)) S.live.delete(key);
+      }
       render();
     },
     atlasShow: repo => S.atlas.show.get(repo) || SB.ATLAS.FIRST,

@@ -83,7 +83,9 @@
     }
     const user = A.live("user"), login = user && user.data ? user.data.login : null;
     const prof = login ? A.live(SB.accountKey.profile(login)) : null, evs = login ? A.live(SB.accountKey.events(login)) : null;
-    const failed = [user, prof, evs].some(x => x && x.state !== "loading" && !x.data);
+    // A failure to read again: a read that gave nothing, or an event list a later page of which failed
+    // (GitHub's own 300-event limit is not a failure).
+    const failed = [user, prof, evs].some(x => x && x.state !== "loading" && (!x.data || !!x.data.stopped));
     const retry = failed ? el("button", { type: "button", class: "linkbtn", id: "ac-retry", onclick: () => A.atlasAccountRetry() }, "Read again") : null;
     if (!login) {
       panel.append(!user || user.state === "loading" ? notice("loading", "Reading who the token reads as.")
