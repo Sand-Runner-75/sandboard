@@ -102,8 +102,8 @@
 
   // One account's public numbers, to put beside another's: from its profile, its own public repositories
   // and its public events of the last 90 days, as the earlier app counted them (stars and languages from
-  // repositories that are not forks). The lists are reads as the client gives them; one that is partial
-  // makes its counts lower bounds ("cut").
+  // repositories that are not forks). The lists are reads as the client gives them. A number is a lower
+  // bound (low) when its list is partial, left entries out, or lacks a value it adds up.
   function accountStats(profile, repos, events, now) {
     now = now === undefined ? Date.now() : now;
     const R = repos.data.repos, own = R.filter(r => !r.fork);
@@ -119,24 +119,30 @@
       top: top ? { repo: top.repo, stars: top.stars } : null,
       active: R.filter(r => r.pushed !== null && now - r.pushed < 30 * DAY).length,
       actions: days.reduce((a, d) => a + d.count, 0), streak: bestStreak(days),
-      reposCut: repos.state === "partial", eventsCut: events.state === "partial",
+      low: lowBounds(repos, events, own, R),
     };
   }
 
-  // The eight rounds, each won by the higher number; a number not known wins nothing. A side's number from
-  // a cut list is a lower bound (cutA, cutB).
+  function lowBounds(repos, events, own, R) {
+    const reposLow = repos.state === "partial" || repos.data.skipped > 0, eventsLow = events.state === "partial" || events.data.skipped > 0;
+    return { stars: reposLow || own.some(r => r.stars === null), repos: reposLow, langCount: reposLow,
+             active: reposLow || R.some(r => r.pushed === null), actions: eventsLow, streak: eventsLow, followers: false, years: false };
+  }
+
+  // The eight rounds. A round is won only when it is proven: the higher number wins unless the other side's
+  // number is a lower bound (lowA, lowB) that could reach it; a number not known wins nothing.
   function duelRows(a, b, now) {
     const thisYear = year(now === undefined ? Date.now() : now);
     const yrs = s => s.since === null || thisYear === null ? null : thisYear - s.since;
     const rows = [
-      ["Stars earned", "stars", "repos"], ["Public repositories", "repos", "repos"], ["Followers", "followers", null],
-      ["Actions, 90 days", "actions", "events"], ["Best streak (days)", "streak", "events"], ["Languages", "langCount", "repos"],
-      ["Years on GitHub", yrs, null], ["Active repositories, 30 days", "active", "repos"],
+      ["Stars earned", "stars"], ["Public repositories", "repos"], ["Followers", "followers"], ["Actions, 90 days", "actions"],
+      ["Best streak (days)", "streak"], ["Languages", "langCount"], ["Years on GitHub", "years"], ["Active repositories, 30 days", "active"],
     ];
-    return rows.map(([label, key, list]) => {
-      const x = typeof key === "function" ? key(a) : a[key], y = typeof key === "function" ? key(b) : b[key];
-      return { label, a: x, b: y, cutA: !!list && a[list + "Cut"], cutB: !!list && b[list + "Cut"],
-               win: x === null || y === null || x === y ? null : x > y ? "a" : "b" };
+    return rows.map(([label, key]) => {
+      const x = key === "years" ? yrs(a) : a[key], y = key === "years" ? yrs(b) : b[key];
+      const lowA = x !== null && a.low[key], lowB = y !== null && b.low[key];
+      return { label, a: x, b: y, lowA, lowB,
+               win: x === null || y === null ? null : x > y && !lowB ? "a" : y > x && !lowA ? "b" : null };
     });
   }
 

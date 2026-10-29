@@ -105,11 +105,15 @@
 
   // What a list about the account leaves out, in words: a later page that failed, GitHub's 300 read, and
   // entries not in the expected form.
-  function listGaps(res, one, many) {
+  function gapsText(res, one, many, capped) {
     const said = [];
-    if (res.state === "partial") said.push(res.data.stopped ? "A later page could not be read (" + res.data.stopped + "), so some are missing" : "Only the first 300 are read");
+    if (res.state === "partial") said.push(res.data.stopped ? "A later page could not be read (" + res.data.stopped + "), so some are missing" : "Only " + (capped || "the first 300") + " are read");
     if (res.data.skipped) said.push(plural(res.data.skipped, one, many) + " not in the expected form " + (res.data.skipped === 1 ? "was" : "were") + " left out");
-    return said.length ? el("p", { class: "qual" }, said.join(". ") + ".") : null;
+    return said.length ? said.join(". ") + "." : "";
+  }
+  function listGaps(res, one, many) {
+    const said = gapsText(res, one, many);
+    return said ? el("p", { class: "qual" }, said) : null;
   }
 
   // The starred repositories and public gists, read only once asked for.
@@ -154,7 +158,7 @@
     const who = s => s.web ? el("a", { href: s.web, target: "_blank", rel: "noopener noreferrer" }, s.name) : s.name;
     box.append(el("p", { class: "ac-vs-score", id: "ac-vs-score" }, who(a), " ", el("strong", {}, sa + " – " + sb), " ", who(b)),
       el("p", { class: "muted", id: "ac-vs-verdict" }, (sa === sb ? "A tie" : (sa > sb ? a : b).name + " leads " + Math.max(sa, sb) + " of " + rows.length + " rounds") +
-        ", by public numbers only. A round with an unknown number is won by neither."));
+        ", by public numbers only. A round is won only when it is sure: one with an unknown number, or an \"at least\" number that could reach the other, is won by neither."));
     const val = (n, cut) => n === null ? "unknown" : (cut ? "at least " : "") + n.toLocaleString("en");
     const bar = (n, max, win) => { const fil = el("span", { class: "fil" + (win ? " win" : "") }); fil.style.width = Math.round((n || 0) / max * 100) + "%"; return el("span", { class: "trk", "aria-hidden": "true" }, fil); };
     box.append(el("div", { class: "table-wrap" }, el("table", { class: "ac-vs-table", id: "ac-vs-table" },
@@ -162,7 +166,7 @@
       el("thead", {}, el("tr", {}, el("th", { scope: "col" }, "Round"), el("th", { scope: "col" }, a.name), el("th", { scope: "col" }, b.name))),
       el("tbody", {}, rows.map(r => {
         const max = Math.max(r.a || 0, r.b || 0) || 1;
-        const cell = (n, side) => el("td", { class: r.win === side ? "win" : null }, el("span", { class: "val" }, val(n, side === "a" ? r.cutA : r.cutB)),
+        const cell = (n, side) => el("td", { class: r.win === side ? "win" : null }, el("span", { class: "val" }, val(n, side === "a" ? r.lowA : r.lowB)),
           bar(n, max, r.win === side), r.win === side ? el("span", { class: "ac-won" }, " won") : null);
         return el("tr", {}, el("th", { scope: "row" }, r.label), cell(r.a, "a"), cell(r.b, "b"));
       })))));
@@ -173,9 +177,16 @@
       s.top ? el("p", { class: "muted" }, "Most starred: " + s.top.repo + " (★ " + s.top.stars.toLocaleString("en") + ")") : null);
     box.append(el("div", { class: "ac-vs-pair" }, langs(a), langs(b)));
     if (shared.length) box.append(el("p", { class: "muted" }, "Both write " + shared.join(", ") + "."));
-    const cutSaid = [a, b].flatMap(s => [s.reposCut ? s.name + "'s public repositories (only the 300 most recently pushed are read)" : null,
-      s.eventsCut ? s.name + "'s public events (some may be missing)" : null]).filter(Boolean);
-    if (cutSaid.length) box.append(el("p", { class: "qual", id: "ac-vs-gaps" }, "Counts from " + cutSaid.join(" and ") + " are lower bounds."));
+    // What each side's lists leave out, with the reason: a later page that failed (with its error, and Read
+    // again), GitHub's 300 read on purpose, entries not in the expected form, and values GitHub did not give.
+    const gapSaid = [[a, mine, evs], [b, theirs, theirEvs]].flatMap(([s, rr, ee]) => [
+      gapsText(rr, "repository", "repositories", "the 300 most recently pushed"), gapsText(ee, "event", "events", "the 300 newest")]
+      .map((t, i) => t ? s.name + "'s public " + (i ? "events" : "repositories") + ": " + t : null)
+      .concat(s.low.stars && !s.low.repos ? [s.name + "'s stars: a repository's star count was not given"] : [],
+              s.low.active && !s.low.repos ? [s.name + "'s active repositories: a repository's last push was not given"] : []))
+      .filter(Boolean);
+    if (gapSaid.length) box.append(el("div", { class: "qual", id: "ac-vs-gaps" }, el("p", {}, "These make some numbers lower bounds (\"at least\"):"),
+      el("ul", {}, gapSaid.map(t => el("li", {}, t)))));
     box.append(el("p", {}, el("button", { type: "button", class: "linkbtn", id: "ac-vs-clear", onclick: () => A.atlasCompareClear() }, "Compare with someone else")));
     return box;
   }
