@@ -66,9 +66,10 @@
       code: new Map(),
       // Search: the words typed, every project or only the current one, and whether task details count.
       search: { q: "", all: false, inside: false },
-      // The two main tabs, and the Atlas: the repository it shows, how many commits each repository's
-      // branch graph shows, and each drawn graph kept with what it was drawn from.
-      major: "dashboard", atlas: { repo: null, show: new Map(), boxes: new Map(), trees: new Map() },
+      // The two main tabs, and the Atlas: its part (a repository's pictures or the account), the repository
+      // it shows, how many commits each repository's branch graph shows, each drawn graph kept with what it
+      // was drawn from, and whether the account's public profile and activity were asked for.
+      major: "dashboard", atlas: { part: "repo", repo: null, show: new Map(), boxes: new Map(), trees: new Map(), account: false },
     };
   }
   let S = freshState();
@@ -287,6 +288,7 @@
   // branch's commits, and the pull requests that name branches. They share the history's and the work
   // evidence's reads, so a refresh drops them the same way.
   function atlasReads() {
+    if (S.atlas.part === "account") return accountReads();
     const r = A.atlasRepo();
     if (!r) return;
     const K = SB.historyKey, repo = r.repo;
@@ -307,6 +309,17 @@
       else if (w.kind === "pullCommits") loadLive(SB.treeKey.pullCommits(repo, w.number), ctx => SB.readPullCommits(ctx, client, repo, w.number));
       else if (w.kind === "change") loadLive(SB.codeKey.commit(repo, w.sha), ctx => SB.readCommitChanges(ctx, client, repo, w.sha));
     }
+  }
+
+  // The Atlas account reads only once it is asked for: who the token reads as, then that login's public
+  // profile and public events.
+  function accountReads() {
+    if (!S.atlas.account) return;
+    loadLive("user", ctx => SB.readUser(ctx, client));
+    const user = S.live.get("user"), login = user && user.data ? user.data.login : null;
+    if (!login) return;
+    loadLive(SB.accountKey.profile(login), ctx => SB.readProfile(ctx, client, login));
+    loadLive(SB.accountKey.events(login), ctx => SB.readPublicEvents(ctx, client, login));
   }
 
   // A repository's history reads what its view still wants: pages, the branch and tag lists, each
@@ -785,6 +798,26 @@
       return rows[0] ? Object.assign({ web: rows[0].pinned.data.web }, rows[0]) : null;
     },
     setAtlasRepo(repo) { S.atlas.repo = repo; render(); },
+    setAtlasPart(part, focus) {
+      S.atlas.part = part === "account" ? "account" : "repo";
+      render();
+      const n = $("atlas-part-" + S.atlas.part);
+      if (focus && n) n.focus();
+    },
+    // The account's public profile and activity are read only once asked for.
+    atlasAccountRead() {
+      S.atlas.account = true;
+      render();
+      announce("Reading your public profile and activity.");
+    },
+    // What the account could not read is dropped, so it is read again, with an event list a later page of
+    // which failed; what worked, and the profile, are kept.
+    atlasAccountRetry() {
+      for (const [key, res] of [...S.live]) {
+        if ((key === "user" || key.startsWith("account|")) && res.state !== "loading" && (!res.data || res.data.stopped)) S.live.delete(key);
+      }
+      render();
+    },
     atlasShow: repo => S.atlas.show.get(repo) || SB.ATLAS.FIRST,
     atlasOlder(repo) {
       S.atlas.show.set(repo, SB.ATLAS.older(A.atlasShow(repo)));
@@ -836,7 +869,7 @@
       S.view = view;
       S.activeTab = null;
       // In the Atlas, a repository picked in the tree is shown there; anything else is on the dashboard.
-      if (S.major === "atlas" && view.kind === "repo") S.atlas.repo = view.repo;
+      if (S.major === "atlas" && view.kind === "repo") { S.atlas.repo = view.repo; S.atlas.part = "repo"; }
       else S.major = "dashboard";
       // A phase picked from the tree or a phase card brings its stage with it, as the filters show it.
       if (opts && opts.phase !== undefined) S.filters = Object.assign(noFilters(), { stage: V.stageIdOf(entryOf(project), opts.phase), phase: opts.phase });
@@ -1033,7 +1066,8 @@
   function places() {
     const out = [["All repositories", "Account", () => A.goAccount("portfolio")], ["Activity and languages", "Account", () => A.goAccount("activity")],
                  ["Inbox", "Account", () => A.goAccount("inbox")], ["Search what is read", "Account", () => A.goAccount("search")],
-                 ["Atlas", "View", () => A.setMajor("atlas")], ["Progress (main tab)", "View", () => A.setMajor("dashboard")]];
+                 ["Atlas", "View", () => A.setMajor("atlas")], ["Progress (main tab)", "View", () => A.setMajor("dashboard")],
+                 ["Your account (Atlas)", "Atlas", () => { S.atlas.part = "account"; A.setMajor("atlas"); $("main").focus(); }]];
     for (const e of S.entries) {
       const w = e.w;
       if (w.plan) {
@@ -1043,7 +1077,7 @@
       for (const r of [w.plan && w.plan.repo, ...w.code.map(c => c.repo)].filter(Boolean)) {
         out.push([r + " (" + w.label + ")", "Repository", () => A.go(w.id, { kind: "repo", repo: r })]);
         out.push([r + " history (" + w.label + ")", "Repository", () => A.go(w.id, { kind: "repo", repo: r, sub: "history" })]);
-        out.push([r + " branch graph (Atlas)", "Atlas", () => { S.atlas.repo = r; A.setMajor("atlas"); $("main").focus(); }]);
+        out.push([r + " branch graph (Atlas)", "Atlas", () => { S.atlas.repo = r; S.atlas.part = "repo"; A.setMajor("atlas"); $("main").focus(); }]);
         for (const [sub, label] of [["pulls", "pull requests"], ["issues", "issues"], ["runs", "Actions"], ["releases", "releases"], ["files", "files"]]) {
           out.push([r + " " + label + " (" + w.label + ")", "Repository", () => A.go(w.id, { kind: "repo", repo: r, sub })]);
         }

@@ -375,7 +375,7 @@ class BrowserTest(unittest.TestCase):
     def test_untrusted_text_is_shown_as_text(self):
         p = self.r["progress"]
         self.assertIn('<script>alert("never runs")</script>', p["hostile"])
-        self.assertEqual((p["scripts"], p["imgs"]), (17, 0))
+        self.assertEqual((p["scripts"], p["imgs"]), (18, 0))
         self.assertEqual(p["writeControls"], [])
 
     def test_copy_is_exactly_the_shown_text_and_a_refusal_is_reported(self):
@@ -800,6 +800,53 @@ class BrowserTest(unittest.TestCase):
         self.assertGreater(d["heat"], 0)
         for word in ("Checkout", "Merge", "Delete", "Reset", "Create branch"):
             self.assertNotIn(word, d["controls"], "no control changes anything")
+
+    def test_the_atlas_account_reads_nothing_until_asked_then_shows_profile_calendar_and_events(self):
+        a = self.r["account"]
+        self.assertEqual(a["parts"], ["atlas-part-account", [["Repository", "false"], ["Your account", "true"]], True, False, False],
+                         "Right moves to Your account, which only offers to read")
+        d = a["demo"]
+        self.assertEqual([d["name"], d["login"], d["links"]], ["Demo User", "@demo-user", 0], "no profile page link without GitHub's address for it")
+        self.assertIn("12 followers", d["meta"])
+        self.assertIn("On GitHub since 2019", d["meta"])
+        self.assertEqual(d["cells"], 91)
+        self.assertEqual(d["levels"], ["ac-cell ac-l%d" % i for i in range(5)])
+        self.assertEqual(d["labels"][-3:], ["Mon", "Wed", "Fri"])
+        self.assertRegex(d["lastTip"], r"^\d+ actions? · \d{4}-\d\d-\d\d$")
+        self.assertRegex(d["busiest"], r"^Busiest day: \d+ on \d{4}-\d\d-\d\d$")
+        self.assertIn("by your local day", d["total"])
+        self.assertGreater(d["days"], 10)
+        self.assertEqual(len(d["mix"]), 5)
+        self.assertEqual(d["mix"][0], "Pushes")
+        self.assertEqual(len(d["feed"]), 9)
+        self.assertTrue(all(re.search(r"\d{4}-\d\d-\d\d \d\d:\d\d$", x) for x in d["feed"]), d["feed"])
+        self.assertFalse(d["gaps"] or d["retry"])
+        self.assertEqual(a["daysOpen"], [True, d["days"]], "the days with activity, as a list by keyboard")
+        self.assertEqual(a["phone"], 0, "no sideways page scroll on a phone")
+        self.assertEqual(a["goto"][0], "Your account (Atlas)Atlas")
+        self.assertEqual(a["gotoShown"], ["true", "true", True])
+        self.assertEqual(a["afterForget"], ["true", True, False], "signing out goes back to Repository and forgets the ask and what was read")
+        self.assertEqual(a["before"], 0, "nothing about the account is read before it is asked for")
+        f = a["failed"]
+        self.assertIn("Your public events could not be read (HTTP 500)", f["text"])
+        self.assertTrue(f["retry"])
+        self.assertEqual([f["imgs"], f["links"], f["name"], f["cells"]], [0, [], "<img src=x onerror=alert(1)>", 0],
+                         "GitHub's text stays text; a profile page elsewhere and the website are never linked")
+        self.assertIn("javascript:alert(1)", f["text"])
+        later = a["later"]
+        self.assertTrue(later["retry"], "a later page that failed can be read again")
+        self.assertIn("A later page of events could not be read (HTTP 500)", later["gaps"])
+        self.assertIn("Pushed 2 commits to acme/garden", later["text"])
+        self.assertIn("<img src=x onerror=alert(1)>", later["name"], "the profile stays while the events are read again")
+        g = a["again"]
+        self.assertFalse(g["retry"])
+        self.assertIsNone(g["gaps"])
+        self.assertEqual(g["cells"], 91)
+        self.assertIn("101 events read", g["text"])
+        ev = "GET /users/synthetic-user/events/public?per_page=100&page="
+        self.assertEqual(a["urls"], ["GET /users/synthetic-user", ev + "1", ev + "1", ev + "2", ev + "1", ev + "2"],
+                         "Read again reads only the events again; the profile is read once")
+        self.assertEqual(a["methods"], ["GET"])
 
     def test_projects_can_be_put_in_order_by_dragging_or_the_keyboard_and_it_is_kept_in_this_browser_only(self):
         o = self.r["order"]

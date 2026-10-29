@@ -1531,6 +1531,80 @@ function privateRepos() {
   atl.fail.treeAgain = await tNow();
   await p.close();
 
+  // 6e. The Atlas account: nothing is read until asked; then the public profile, the activity calendar of the
+  // last 91 local days, the kinds of event and the latest events. Go to reaches it, by keyboard too.
+  const acc = out.account = {};
+  p = await open();
+  await demo(p);
+  await p.click("#major-atlas"); await p.waitForTimeout(500);
+  await p.focus("#atlas-part-repo"); await p.keyboard.press("ArrowRight"); await p.waitForTimeout(300);
+  acc.parts = await p.evaluate(() => [document.activeElement.id, [...document.querySelectorAll(".atlas-parts button")].map(b => [b.textContent, b.getAttribute("aria-pressed")]),
+    !!document.getElementById("ac-start"), !!document.getElementById("ac-profile"), !!document.getElementById("ag-box")]);
+  await p.click("#ac-start");
+  await p.waitForSelector("#ac-feed", { timeout: 8000 }).catch(() => {});
+  acc.demo = await p.evaluate(() => ({
+    name: (document.getElementById("ac-name") || {}).textContent, login: (document.querySelector("#ac-profile .ac-who > .muted") || {}).textContent,
+    links: document.querySelectorAll("#ac-profile a").length, meta: (document.querySelector(".ac-meta") || {}).textContent,
+    cells: document.querySelectorAll("#ac-heat rect").length, levels: [...new Set([...document.querySelectorAll("#ac-heat rect")].map(r => r.getAttribute("class")))].sort(),
+    labels: [...document.querySelectorAll("#ac-heat text")].map(t => t.textContent), lastTip: document.querySelector("#ac-heat rect:last-of-type").getAttribute("data-tip"),
+    busiest: (document.getElementById("ac-busiest") || {}).textContent, total: (document.getElementById("ac-total") || {}).textContent,
+    days: document.querySelectorAll("#ac-days li").length, mix: [...document.querySelectorAll("#ac-mix .lbl")].map(n => n.textContent),
+    feed: [...document.querySelectorAll("#ac-feed li")].map(n => n.textContent), gaps: !!document.getElementById("ac-gaps"), retry: !!document.getElementById("ac-retry") }));
+  await p.focus("#ac-days > summary"); await p.keyboard.press("Enter"); await p.waitForTimeout(150);
+  acc.daysOpen = await p.$eval("#ac-days", n => [n.open, n.querySelectorAll("li").length]);
+  await p.setViewportSize({ width: 390, height: 800 }); await p.waitForTimeout(300);
+  acc.phone = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  await p.setViewportSize({ width: 1280, height: 900 });
+  await p.click("#major-dashboard"); await p.waitForTimeout(200);
+  await p.keyboard.press("Control+k"); await p.fill("#goto-q", "your account"); await p.waitForTimeout(100);
+  acc.goto = await p.$$eval("#goto-list [role=option]", n => n.map(x => x.textContent).slice(0, 2));
+  await p.keyboard.press("Enter"); await p.waitForTimeout(400);
+  acc.gotoShown = await p.evaluate(() => [document.getElementById("major-atlas").getAttribute("aria-selected"), document.getElementById("atlas-part-account").getAttribute("aria-pressed"), !!document.getElementById("ac-feed")]);
+  await p.click("#forget"); await p.waitForTimeout(300); await demo(p);
+  await p.click("#major-atlas"); await p.waitForTimeout(400);
+  const partNow = await p.$eval("#atlas-part-repo", n => n.getAttribute("aria-pressed"));
+  await p.click("#atlas-part-account"); await p.waitForTimeout(300);
+  acc.afterForget = await p.evaluate(part => [part, !!document.getElementById("ac-start"), !!document.getElementById("ac-profile")], partNow);
+  await p.close();
+  // On a mocked private run: no account read until asked; a failed event list is said with its error and
+  // read again on request; GitHub's text is shown as text; only GET reads of the allowed paths.
+  const accUrls = [];
+  let eventsReply = () => json({ message: "boom" }, 500);
+  const acgh = mockGitHub(F.planRepos(), [
+    [/^[/]users[/]synthetic-user$/, () => json({ login: "synthetic-user", type: "User", name: "<img src=x onerror=alert(1)>", bio: "Writes <b>tests</b>", followers: 1,
+      following: 0, blog: "javascript:alert(1)", created_at: "2020-01-01T00:00:00Z", html_url: "https://elsewhere.example.invalid/x" })],
+    [/^[/]users[/]synthetic-user[/]events[/]public[?]/, path => eventsReply(Number(/&page=(\d+)$/.exec(path)[1]))]]);
+  p = await open();
+  await p.route("https://api.github.com/**", async route => {
+    const req = route.request();
+    accUrls.push(req.method() + " " + req.url());
+    const res = await acgh.fetch(req.url(), { method: req.method() });
+    await route.fulfill({ status: res.status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }, body: await res.text() });
+  });
+  await p.fill("#plan-repo", "acme/garden-plan"); await p.fill("#token", "synthetic-token"); await p.click("#connect button[type=submit]");
+  await finished(); await p.waitForTimeout(400);
+  await p.click("#major-atlas"); await p.waitForTimeout(400);
+  await p.click("#atlas-part-account"); await p.waitForTimeout(400);
+  acc.before = accUrls.filter(u => /[/]users[/]/.test(u)).length;
+  await p.click("#ac-start");
+  await p.waitForSelector("#ac-retry", { timeout: 8000 }).catch(() => {});
+  const accNow = () => p.evaluate(() => ({ text: (document.getElementById("ac-panel") || {}).textContent || "", retry: !!document.getElementById("ac-retry"),
+    imgs: document.querySelectorAll("#ac-panel img").length, links: [...document.querySelectorAll("#ac-panel a")].map(a => a.getAttribute("href")),
+    name: (document.getElementById("ac-name") || {}).textContent, cells: document.querySelectorAll("#ac-heat rect").length }));
+  acc.failed = await accNow();
+  // Read again: the first page now comes back full and the second fails, so what was read is shown, said as
+  // partial, with Read again; then the second page comes back and the list is whole.
+  const push = i => ({ type: "PushEvent", created_at: new Date(Date.now() - 3600e3 - i * 60e3).toISOString(), repo: { name: "acme/garden" }, payload: { size: 2 } });
+  eventsReply = n => n === 1 ? json(Array.from({ length: 100 }, (_, i) => push(i))) : json({ message: "boom" }, 500);
+  await p.click("#ac-retry"); await p.waitForSelector("#ac-feed", { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(300);
+  acc.later = Object.assign(await accNow(), { gaps: await p.$eval("#ac-gaps", n => n.textContent).catch(() => null) });
+  eventsReply = n => n === 1 ? json(Array.from({ length: 100 }, (_, i) => push(i))) : json([push(100)]);
+  await p.click("#ac-retry"); await p.waitForFunction(() => !document.getElementById("ac-retry"), null, { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(300);
+  acc.again = Object.assign(await accNow(), { gaps: await p.$eval("#ac-gaps", n => n.textContent).catch(() => null) });
+  acc.urls = accUrls.filter(u => /[/]users[/]/.test(u)).map(u => u.replace("https://api.github.com", ""));
+  acc.methods = [...new Set(accUrls.map(u => u.split(" ")[0]))];
+  await p.close();
+
   // 13. Project order: a project dragged or moved with Alt and an arrow, the move announced, the order kept
   // in this browser only (as project IDs under one key) across a reload, and only projects can be dragged.
   const po = out.order = {};

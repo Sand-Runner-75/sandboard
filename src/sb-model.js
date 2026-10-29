@@ -633,10 +633,10 @@
   // The repository a live read belongs to, from the key's own repository slot: the field after the
   // family name (after the list kind for work lists), up to "@", "|", "#" or the end. A repository
   // name has none of those characters, so a path or ref later in the key is never taken for one.
-  // The account read ("user") belongs to none.
+  // The account reads ("user", and the Atlas account's "account|…") belong to none.
   function liveKeyRepo(key) {
     const parts = String(key).split("|");
-    if (parts.length < 2) return null;
+    if (parts.length < 2 || parts[0] === "account") return null;
     const slot = parts[0] === "work" ? parts[2] : parts[1];
     return slot ? slot.split(/[@#]/)[0] || null : null;
   }
