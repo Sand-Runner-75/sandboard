@@ -294,6 +294,19 @@ class BrowserTest(unittest.TestCase):
         self.assertIn("8 commits (whole history)", g["summary"])
         self.assertIn(g["links"], [[], ["_blank noopener noreferrer"]], "a dot links to its commit only in a new tab without the opener")
         self.assertFalse(g["html"], "the picture is drawn with picture elements only")
+        v = a["versions"]
+        self.assertEqual(v["start"]["picked"], ["main"], "the default branch is the first version")
+        self.assertEqual([x[0] for x in v["start"]["cards"]], ["main"])
+        self.assertGreater(v["start"]["cards"][0][1], 0, "the version has its own graph")
+        self.assertEqual(v["added"]["picked"], ["main", "list-data"])
+        self.assertEqual([x[0] for x in v["added"]["cards"]], ["main", "list-data"], "a branch picked adds its own version")
+        self.assertEqual(v["added"]["boxes"], ["av-0-box"], "a branch with nothing main lacks has no graph of its own")
+        self.assertIn("list-data has no commits that main does not have", v["ownText"])
+        self.assertEqual(v["shared"]["boxes"], ["av-0-box", "av-1-box"], "with the shared history it has its own graph, by its own name")
+        self.assertGreater(v["shared"]["cards"][1][1], 0)
+        self.assertEqual(v["moved"]["boxes"], ["av-0-box"], "a kept graph takes the name of its new place")
+        self.assertEqual([x[0] for x in v["moved"]["cards"]], ["list-data"])
+        self.assertEqual(v["focus"], "list-data", "the focus stays on the branch just picked")
         z = a["zoom"]
         self.assertGreater(z["in"], z["start"])
         self.assertEqual(z["reset"], z["start"])
@@ -1251,7 +1264,7 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual([m[1:] for m in tv["more"]], [["+1 more", "false"]] * 4)
         self.assertEqual(tv["opened"], [["Handoff DT101", "Commit DT101", "Handoff DT101"], ["cal-more-2026-01-09", "true"]],
                          "the day's button shows every event, a task named again included, and keeps the focus")
-        self.assertTrue(tv["afterMore"].startswith("cal-chip"), "the next Tab reaches the next event")
+        self.assertEqual(tv["afterMore"], ["cal-chip st-done", "DT101", "Merged DT101", "10 Jan, 1 event"], "the next Tab reaches the next day's event")
         self.assertEqual(tv["next"], ["February 2026", 0, "cal-next"])
         self.assertEqual(tv["latest"], ["January 2026", ["cal-h", -1]], "the focus lands on the month's heading when Latest activity goes")
         self.assertTrue(tv["phone"], "no sideways page scroll on a phone")

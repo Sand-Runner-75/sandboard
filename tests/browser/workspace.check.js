@@ -1401,18 +1401,38 @@ function privateRepos() {
   atl.dashboardFirst = await p.evaluate(() => { const m = document.querySelector("#workspace .major"); return m && m.nextElementSibling && m.nextElementSibling.className; });
   await p.focus("#major-dashboard"); await p.keyboard.press("ArrowRight"); await p.waitForTimeout(300);
   atl.byKey = await p.evaluate(() => [document.activeElement.id, document.getElementById("major-atlas").getAttribute("aria-selected"), !!document.getElementById("atlas-panel")]);
-  await p.waitForFunction(() => document.querySelectorAll(".atlas-graph .gn").length > 0, null, { timeout: 8000 }).catch(() => {});
+  await p.waitForFunction(() => document.querySelectorAll("#ag-box .gn").length > 0, null, { timeout: 8000 }).catch(() => {});
   atl.repo = await p.$eval("#atlas-repo", n => n.value);
   atl.graph = await p.evaluate(() => ({
-    dots: document.querySelectorAll(".atlas-graph .gn").length,
-    colours: [...new Set([...document.querySelectorAll(".atlas-graph .gn circle")].map(c => c.getAttribute("fill")))].sort(),
-    labels: [...document.querySelectorAll(".atlas-graph text.fl")].map(t => t.textContent).sort(),
-    key: [...document.querySelectorAll(".gkey tbody tr")].map(r => [...r.cells].slice(1).map(c => c.textContent)),
+    dots: document.querySelectorAll("#ag-box .gn").length,
+    colours: [...new Set([...document.querySelectorAll("#ag-box .gn circle")].map(c => c.getAttribute("fill")))].sort(),
+    labels: [...document.querySelectorAll("#ag-box text.fl")].map(t => t.textContent).sort(),
+    key: [...document.getElementById("ag-box").parentElement.querySelectorAll(".gkey tbody tr")].map(r => [...r.cells].slice(1).map(c => c.textContent)),
     summary: document.getElementById("ag-sum").textContent,
-    links: [...new Set([...document.querySelectorAll(".atlas-graph a")].map(a => a.getAttribute("target") + " " + a.getAttribute("rel")))],
-    html: [...document.querySelectorAll(".atlas-graph *")].some(n => n.namespaceURI !== "http://www.w3.org/2000/svg"),
+    links: [...new Set([...document.querySelectorAll("#ag-box a")].map(a => a.getAttribute("target") + " " + a.getAttribute("rel")))],
+    html: [...document.querySelectorAll("#ag-box *")].some(n => n.namespaceURI !== "http://www.w3.org/2000/svg"),
   }));
-  const width = () => p.$eval(".atlas-graph svg", n => parseFloat(n.style.width));
+  // The versions: the default branch to start with, one card each with its own graph and the pull requests into it;
+  // another branch picked from the rest adds its own card.
+  const versions = () => p.evaluate(() => ({
+    picked: [...document.querySelectorAll("#av-pick input:checked")].map(n => n.value),
+    cards: [...document.querySelectorAll("#av-panel .vcard")].map(c => [c.dataset.version, c.querySelectorAll(".atlas-graph .gn").length,
+      [...c.querySelectorAll(".vpulls tbody tr")].map(r => r.dataset.pull)]),
+    boxes: [...document.querySelectorAll("#av-panel .atlas-graph")].map(b => b.id),
+  }));
+  atl.versions = { start: await versions() };
+  await p.click("#av-more summary"); await p.waitForTimeout(100);
+  await p.check('#av-pick input[value="list-data"]'); await p.waitForTimeout(600);
+  atl.versions.added = await versions();
+  atl.versions.focus = await p.evaluate(() => document.activeElement && document.activeElement.value);
+  atl.versions.ownText = await p.$eval("#av-1", n => n.textContent).catch(() => null);
+  await p.check('#av-panel input[data-shared="list-data"]'); await p.waitForTimeout(600);
+  atl.versions.shared = await versions();
+  // Taking the first version away moves the second one up: its kept graph takes the new place's name.
+  await p.uncheck('#av-pick input[value="main"]'); await p.waitForTimeout(400);
+  atl.versions.moved = await versions();
+  await p.check('#av-pick input[value="main"]'); await p.waitForTimeout(400);
+  const width = () => p.$eval("#ag-box svg", n => parseFloat(n.style.width));
   atl.zoom = { start: await width() };
   await p.click("#ag-zin"); await p.waitForTimeout(100); atl.zoom.in = await width();
   await p.click("#ag-zreset"); await p.waitForTimeout(100); atl.zoom.reset = await width();
@@ -1426,18 +1446,18 @@ function privateRepos() {
   // Replay: everything is hidden, then shown commit by commit, then all of it again.
   await p.click("#ag-replay"); await p.waitForTimeout(150);
   atl.replay = { during: await p.$eval("#ag-replay", n => [n.textContent, n.getAttribute("aria-pressed")]),
-                hidden: await p.$$eval(".atlas-graph [data-s]", n => n.filter(x => x.style.opacity === "0").length) };
+                hidden: await p.$$eval("#ag-box [data-s]", n => n.filter(x => x.style.opacity === "0").length) };
   await p.waitForFunction(() => document.getElementById("ag-replay").textContent === "Replay history", null, { timeout: 8000 }).catch(() => {});
-  atl.replay.after = await p.$$eval(".atlas-graph [data-s]", n => n.filter(x => x.style.opacity === "0").length);
+  atl.replay.after = await p.$$eval("#ag-box [data-s]", n => n.filter(x => x.style.opacity === "0").length);
   // A commit's files show in its bubble once the pointer rests on its dot.
-  const dot = (await p.$$(".atlas-graph .gn"))[0];
+  const dot = (await p.$$("#ag-box .gn"))[0];
   await dot.hover(); await p.waitForTimeout(1200);
   atl.bubble = await p.evaluate(() => { const t = document.getElementById("tip"); return t.hidden ? null : t.textContent; });
   // The keyboard reaches the same details: Tab goes from the graph to its newest commit, its files are read
   // at once, and Left moves to the commit before.
   await p.mouse.move(0, 0); await p.focus("#ag-box"); await p.keyboard.press("Tab"); await p.waitForTimeout(1200);
   const focused = () => p.evaluate(() => { const n = document.activeElement; return { sha: n.getAttribute("data-sha"), s: n.getAttribute("data-s"), label: n.getAttribute("aria-label"),
-    tabbable: document.querySelectorAll(".atlas-graph [data-sha][tabindex='0']").length, tip: document.getElementById("tip").hidden ? null : document.getElementById("tip").textContent }; });
+    tabbable: document.querySelectorAll("#ag-box [data-sha][tabindex='0']").length, tip: document.getElementById("tip").hidden ? null : document.getElementById("tip").textContent }; });
   atl.keys = { first: await focused() };
   await p.keyboard.press("ArrowLeft"); await p.waitForTimeout(1200);
   atl.keys.left = await focused();
@@ -1514,7 +1534,7 @@ function privateRepos() {
   await p.click("#ct-start"); await p.waitForSelector("#ct-where", { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(400);
   atl.treeReduced = await p.evaluate(() => [document.getElementById("ct-where").textContent, document.getElementById("ct-play").getAttribute("aria-pressed")]);
   // The graph replay goes one commit at a time on request, and nothing moves by itself.
-  const stepNow = () => p.evaluate(() => ({ hidden: [...document.querySelectorAll(".atlas-graph [data-s]")].filter(x => x.style.opacity === "0").length,
+  const stepNow = () => p.evaluate(() => ({ hidden: [...document.querySelectorAll("#ag-box [data-s]")].filter(x => x.style.opacity === "0").length,
     step: (document.getElementById("ag-step") || {}).textContent || null, prev: (document.getElementById("ag-prev") || { getAttribute: () => "none" }).getAttribute("aria-disabled"),
     focus: document.activeElement.id, button: document.getElementById("ag-replay").textContent }));
   await p.click("#ag-replay"); await p.waitForTimeout(100);
@@ -1547,7 +1567,7 @@ function privateRepos() {
   await finished(); await p.waitForTimeout(400);
   await garden();
   await p.click("#major-atlas"); await p.waitForTimeout(1200);
-  const aNow = () => p.evaluate(() => ({ text: (document.getElementById("atlas-panel") || {}).textContent || "", dots: document.querySelectorAll(".atlas-graph [data-sha]").length,
+  const aNow = () => p.evaluate(() => ({ text: (document.getElementById("atlas-panel") || {}).textContent || "", dots: document.querySelectorAll("#ag-box [data-sha]").length,
     retry: !!document.getElementById("ag-retry"), failed: (document.getElementById("ag-failed") || {}).textContent || null, sum: (document.getElementById("ag-sum") || {}).textContent || null }));
   atl.fail = { first: await aNow() };
   arepos["acme/garden"].history = { [F.CODE_COMMIT]: [[ahead]] };
@@ -1902,7 +1922,7 @@ function privateRepos() {
   await p.focus("#cal-more-2026-01-09"); await p.keyboard.press("Enter"); await p.waitForTimeout(200);
   tv.opened = [await p.$$eval("td[aria-label^='9 Jan'] .cal-chip", n => n.map(x => x.textContent)), await p.evaluate(() => [document.activeElement.id, document.activeElement.getAttribute("aria-expanded")])];
   await p.keyboard.press("Tab"); await p.waitForTimeout(50);
-  tv.afterMore = await p.evaluate(() => document.activeElement.className);
+  tv.afterMore = await p.evaluate(() => [document.activeElement.className, document.activeElement.dataset.task, document.activeElement.textContent, document.activeElement.closest("td").getAttribute("aria-label")]);
   await p.click("#cal-next"); await p.waitForTimeout(300);
   tv.next = [await text(p, "#cal-h"), await p.$$eval(".cal-chip", n => n.length), await p.evaluate(() => document.activeElement.id)];
   // Latest activity leaves the page, so the focus goes to the month's heading, which can hold it.

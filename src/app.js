@@ -81,7 +81,11 @@
       // was drawn from, and whether the account's public profile and activity were asked for.
       // Tasks: the layout they are shown in, the timeline's scale and the calendar's month (null: the newest activity's).
       taskLayout: "list", tlZoom: "weeks", calMonth: null, calDay: null,
-      homeWork: "Ready for Review", major: "dashboard", atlas: { part: "repo", repo: null, show: new Map(), boxes: new Map(), trees: new Map(), account: false, extras: false, starQ: "", vs: null, vsAsk: "", vsSaid: null, badge: false, badgeTheme: "dark" },
+      homeWork: "Ready for Review", major: "dashboard", atlas: { part: "repo", repo: null, show: new Map(), boxes: new Map(), trees: new Map(), account: false, extras: false, starQ: "", vs: null, vsAsk: "", vsSaid: null, badge: false, badgeTheme: "dark",
+        // Versions: the branches picked per repository (none yet: the starting ones), how many commits each
+        // version shows (by repository and branch), how many pages of pull requests are read per repository,
+        // and the versions that also show the commits they share with the default branch.
+        vpick: new Map(), vshow: new Map(), vprs: new Map(), vshared: new Set() },
     };
   }
   let S = freshState();
@@ -310,6 +314,15 @@
     const g = SB.atlasGraph(key => S.live.get(key), repo, r.meta.branch, A.atlasShow(repo));
     for (const w of g.wanted) {
       if (w.kind === "refs") loadLive(K.refs(repo, w.list), ctx => SB.readRefs(ctx, client, repo, w.list));
+      else if (w.kind === "lane") loadLive(K.lane(repo, w.head, w.page), ctx => SB.readHistoryPage(ctx, client, repo, w.head, w.page));
+      else if (w.kind === "pulls") workRead(repo, "pulls", w.state, w.page);
+    }
+    // The versions read the same lists: each picked branch's commits, open pull requests' newest commits,
+    // and the repository's pull requests page by page.
+    const v = SB.atlasVersions(key => S.live.get(key), repo, r.meta.branch, A.atlasVersionPick(repo), name => A.atlasVersionShow(repo, name), A.atlasVersionPrPages(repo), name => A.atlasVersionShared(repo, name));
+    for (const w of v.wanted) {
+      if (w.kind === "compare") loadLive(K.compare(repo, w.base, w.head), ctx => SB.readCompare(ctx, client, repo, w.base, w.head));
+      else if (w.kind === "refs") loadLive(K.refs(repo, w.list), ctx => SB.readRefs(ctx, client, repo, w.list));
       else if (w.kind === "lane") loadLive(K.lane(repo, w.head, w.page), ctx => SB.readHistoryPage(ctx, client, repo, w.head, w.page));
       else if (w.kind === "pulls") workRead(repo, "pulls", w.state, w.page);
     }
@@ -958,6 +971,36 @@
       for (const [key, res] of [...S.live]) if (mine(key) && res.state !== "loading" && !res.data) S.live.delete(key);
       render();
     },
+    // Versions: the branches picked (null until one is changed), how far back each one shows, and how
+    // many pages of pull requests are read for them, and which also show the commits they share with the default branch.
+    atlasVersionPick: repo => S.atlas.vpick.get(repo) || null,
+    atlasVersionToggle(repo, name, on, now) {
+      const list = now.filter(n => n !== name);
+      if (on) list.push(name);
+      S.atlas.vpick.set(repo, list.slice(0, SB.ATLAS.VERSIONS));
+      render();
+      const n = [...document.querySelectorAll("#av-pick input")].find(x => x.value === name);
+      if (n) n.focus();
+    },
+    atlasVersionShow: (repo, name) => S.atlas.vshow.get(repo + "|" + name) || SB.ATLAS.FIRST,
+    atlasVersionOlder(repo, name) {
+      S.atlas.vshow.set(repo + "|" + name, SB.ATLAS.older(A.atlasVersionShow(repo, name)));
+      render();
+      announce("Reading older commits of " + name + ".");
+    },
+    atlasVersionShared: (repo, name) => S.atlas.vshared.has(repo + "|" + name),
+    atlasVersionShare(repo, name, on) {
+      S.atlas.vshared[on ? "add" : "delete"](repo + "|" + name);
+      render();
+      const n = [...document.querySelectorAll("#av-panel input[data-shared]")].find(x => x.dataset.shared === name);
+      if (n) n.focus();
+    },
+    atlasVersionPrPages: repo => S.atlas.vprs.get(repo) || SB.ATLAS.PR_FIRST,
+    atlasVersionPrMore(repo) {
+      S.atlas.vprs.set(repo, Math.min(SB.ATLAS.PR_MAX, A.atlasVersionPrPages(repo) + 1));
+      render();
+      announce("Reading more pull requests.");
+    },
     // The graph drawn for a repository, kept while what it is drawn from is the same, so its zoom, scroll
     // and replay survive the page being drawn again. A new drawing keeps the old one's zoom and place.
     atlasBox(repo, sig, build) {
@@ -1122,6 +1165,8 @@
     S.atlas.show = new Map();
     S.atlas.boxes = new Map();
     S.atlas.trees = new Map();
+    S.atlas.vshow = new Map();
+    S.atlas.vprs = new Map();
     S.search = freshState().search;  // a new run searches nothing read before it
     const ctx = session.start();  // same token, new run: replies to the old run are dropped
     announce("Refreshing.");
@@ -1147,7 +1192,10 @@
       if (t && t.view) t.view.dispose();
       if (h && h.box.replay) { clearInterval(h.box.replay.timer); h.box.replay = null; }
     }
-    for (const m of [S.atlas.show, S.atlas.boxes, S.atlas.trees]) for (const repo of repos) m.delete(repo);
+    for (const m of [S.atlas.show, S.atlas.boxes, S.atlas.trees, S.atlas.vprs]) for (const repo of repos) m.delete(repo);
+    // A version's graph and how far back it shows, kept by repository and branch.
+    for (const key of [...S.atlas.vshow.keys()]) if (repos.includes(key.split("|")[0])) S.atlas.vshow.delete(key);
+    for (const [key, h] of [...S.atlas.boxes]) if (key.startsWith("v|") && repos.includes(key.split("|")[1])) { if (h.box.replay) clearInterval(h.box.replay.timer); S.atlas.boxes.delete(key); }
     for (const [key, res] of [...S.docs]) {
       if (key.startsWith(id + "|") && (!["current", "empty", "missing", "invalid"].includes(res.state) || key.includes("|live|"))) S.docs.delete(key);
     }
