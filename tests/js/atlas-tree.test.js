@@ -157,3 +157,46 @@ test("a pull request's commits are read from its first page only, by ID, and not
   assert.deepEqual([!refused.data, ["denied", "unavailable"].includes(refused.state)], [true, true], "a refusal is never an empty list");
   assert.equal((await SB.readPullCommits(ctx, client, REPO, 0)).state, "invalid");
 });
+
+test("what the tree misses is kept apart: cut file lists, pull requests not read, agent commits not read; Read again only for failures", () => {
+  const commits = line(5);
+  const live = new Map([[K.refs(REPO, "branches"), branches("c5")], [K.lane(REPO, sha("c5"), 1), { state: "current", data: { commits, end: true } }]]);
+  const many = Array.from({ length: 300 }, (_, i) => ["big/f" + i + ".txt", "added"]);
+  for (const x of commits) live.set(SB.codeKey.commit(REPO, x.sha), changes([["a.js", "modified"]]));
+  live.set(SB.codeKey.commit(REPO, sha("c2")), Object.assign(changes(many), { state: "partial" }));
+  live.set(SB.workKey.list("pulls", REPO, "all", 1), { state: "denied", data: null, error: "HTTP 403" });
+  const denied = SB.atlasTree(liveOf(live), REPO, "main");
+  assert.equal(denied.state, "current");
+  assert.deepEqual([denied.data.cut, denied.data.failed, denied.data.names.state, denied.data.names.error, denied.retry], [1, 0, "failed", "HTTP 403", true]);
+  assert.equal(denied.data.commits[1].files.length, 300, "a cut list still plays what it has");
+  assert.match(SB.treeNote(denied.data, null), /1 commit with only GitHub's first 300 files · agents not fully named/);
+  // A partial pull request list names agents from what it has and needs no Read again; one agent
+  // pull request's commits failing does.
+  live.set(SB.workKey.list("pulls", REPO, "all", 1), { state: "partial", data: { pulls: [
+    { number: 3, merged: at(4), headRef: "gpt/a", mergeCommit: null }, { number: 4, merged: at(5), headRef: "claude/b", mergeCommit: null }] } });
+  live.set(SB.treeKey.pullCommits(REPO, 3), { state: "rate-limited", data: null, error: "HTTP 429" });
+  live.set(SB.treeKey.pullCommits(REPO, 4), { state: "partial", data: { shas: [sha("c5")] } });
+  const some = SB.atlasTree(liveOf(live), REPO, "main");
+  assert.deepEqual(some.data.names, { state: "partial", error: null, failedPulls: 1, partialPulls: 1, listed: 2 });
+  assert.equal(some.retry, true);
+  assert.equal(some.data.commits[4].author, "Claude");
+  // Read again brings the failed read back: nothing is left to read again, and the agent is named.
+  live.set(SB.treeKey.pullCommits(REPO, 3), { state: "current", data: { shas: [sha("c4")] } });
+  const back = SB.atlasTree(liveOf(live), REPO, "main");
+  assert.deepEqual([back.retry, back.data.names.failedPulls, back.data.commits[3].author], [false, 0, "ChatGPT"]);
+  assert.equal(SB.treeNote(back.data, null), "1 commit with only GitHub's first 300 files");
+});
+
+test("the tree draws at most its file limit and says how many it leaves out", () => {
+  const max = SB.TREE.MAX_FILES;
+  const initial = Array.from({ length: max + 1 }, (_, i) => "f/" + String(i).padStart(5, "0") + ".js");
+  const data = { initial, commits: [{ sha: "x", date: at(1), msg: "m", author: "a", inferred: false, files: [{ p: initial[max], s: "removed" }, { p: "g/new.js", s: "added" }] }],
+                 whole: true, failed: 0, cut: 0, names: { state: "current" }, treeMissing: false, treePartial: false };
+  const s = SB.treeStart(data, new Map());
+  assert.equal(s.files.size, max);
+  assert.equal(s.over.size, 1);
+  assert.equal(SB.treeNote(data, s), "1 file not drawn (at most " + max.toLocaleString("en") + ")");
+  s.next();
+  assert.equal(s.files.has("g/new.js"), false, "still full");
+  assert.deepEqual([...s.over], ["g/new.js"], "the file left out was removed; the new one is left out instead");
+});

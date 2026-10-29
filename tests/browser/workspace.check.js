@@ -1392,6 +1392,16 @@ function privateRepos() {
   await p.focus("#ct-canvas"); await p.keyboard.press("Home"); await p.keyboard.press("Space"); await p.waitForTimeout(100);
   ct.keys = await p.evaluate(() => [document.getElementById("ct-play").getAttribute("aria-pressed"), document.getElementById("ct-where").textContent]);
   await p.keyboard.press("Space");
+  // Without a pointer: the files at the playback point as a list, opened by keyboard.
+  await p.focus("#ct-canvas"); await p.keyboard.press("End"); await p.waitForTimeout(150);
+  await p.focus("#ct-files > summary"); await p.keyboard.press("Enter"); await p.waitForTimeout(200);
+  ct.files = await p.evaluate(() => ({ head: (document.querySelector("#ct-files-body > p") || {}).textContent || "", changed: [...document.querySelectorAll("#ct-changed li")].map(n => n.textContent) }));
+  await p.focus("#ct-all > summary"); await p.keyboard.press("Enter"); await p.waitForTimeout(200);
+  ct.allFiles = await p.evaluate(() => [(document.querySelector("#ct-all > summary") || {}).textContent, [...document.querySelectorAll("#ct-all li")].map(n => n.textContent)]);
+  await p.focus("#ct-files > summary"); await p.keyboard.press("Enter");
+  // The graph GIF's frames: every picture handed to the browser is kept, to count the commit dots shown in each.
+  await p.evaluate(() => { const I = window.Image; window.frames_ = [];
+    window.Image = class extends I { set src(v) { if (String(v).startsWith("data:image/svg")) window.frames_.push(v); super.src = v; } get src() { return super.src; } }; });
   const saved = async (button, out) => {
     await p.click(button); await p.waitForSelector(out + " img", { timeout: 60000 }).catch(() => {});
     const info = await p.evaluate(o => { const n = document.querySelector(o); return n ? { src: (n.querySelector("img") || {}).src ? n.querySelector("img").src.slice(0, 15) : null, text: n.textContent } : null; }, out);
@@ -1402,6 +1412,11 @@ function privateRepos() {
   ct.gif = await saved("#ct-gif", "#ct-saved");
   ct.png = await saved("#ct-png", "#ct-saved");
   ct.graphGif = await saved("#ag-gif", "#ag-saved");
+  ct.graphFrames = await p.evaluate(() => {
+    const dots = src => { const d = new DOMParser().parseFromString(decodeURIComponent(src.slice(src.indexOf(",") + 1)), "image/svg+xml");
+      return [...d.querySelectorAll("circle")].filter(c => { for (let e = c; e && e.getAttribute; e = e.parentNode) if (e.getAttribute("opacity") === "0") return false; return true; }).length; };
+    const f = window.frames_;  // the first picture sets the palette; then one per frame
+    return { pictures: f.length, first: f.length > 1 ? dots(f[1]) : null, second: f.length > 2 ? dots(f[2]) : null, last: f.length ? dots(f[f.length - 1]) : null }; });
   await p.click("#ag-saved-close").catch(() => {}); await p.waitForTimeout(200);
   ct.graphClosed = await p.evaluate(() => !document.getElementById("ag-saved"));
   ct.requests = out.requests.filter(r => !/^GET /.test(r));
@@ -1418,10 +1433,16 @@ function privateRepos() {
   await p.setViewportSize({ width: 390, height: 800 }); await p.waitForTimeout(300);
   atl.phone = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   await p.setViewportSize({ width: 1280, height: 900 });
+  // Leaving while a graph GIF is being made: the code tree views go, and the GIF never shows up later.
+  atl.viewsBefore = await p.evaluate(() => window.SB.views.atlasViews());
+  await p.click("#ag-gif").catch(() => {});
   await p.click("#forget"); await p.waitForTimeout(300);
   atl.afterLeave = await p.evaluate(() => [document.querySelectorAll(".atlas-graph, .major").length, document.getElementById("workspace").textContent]);
+  atl.viewsAfter = await p.evaluate(() => window.SB.views.atlasViews());
   await demo(p);
   atl.again = await p.evaluate(() => document.getElementById("major-dashboard").getAttribute("aria-selected"));
+  await p.click("#major-atlas"); await p.waitForTimeout(3000);
+  atl.lateGif = await p.evaluate(() => [!!document.getElementById("atlas-panel"), !!document.getElementById("ag-saved"), !!document.getElementById("ct-canvas"), window.SB.views.atlasViews()]);
   await p.close();
   // With reduced motion asked for, Play shows the finished tree still instead of playing it.
   p = await open({ reducedMotion: "reduce" });
@@ -1459,6 +1480,16 @@ function privateRepos() {
   delete arepos["acme/garden"].work;
   await p.click("#ag-retry"); await p.waitForTimeout(1200);
   atl.fail.all = await aNow();
+  // The code tree on the same run: a commit whose files fail to read is said, with Read again for it, and
+  // the playback is made anew from what Read again brings.
+  arepos["acme/garden"].changes = { [F.CODE_COMMIT]: 429 };
+  const tNow = () => p.evaluate(() => ({ gaps: (document.getElementById("ct-gaps") || {}).textContent || null, retry: !!document.getElementById("ct-retry"),
+    sub: (document.getElementById("ct-sub") || {}).textContent || null, views: window.SB.views.atlasViews() }));
+  await p.click("#ct-start"); await p.waitForSelector("#ct-sub", { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(300);
+  atl.fail.tree = await tNow();
+  arepos["acme/garden"].changes = { [F.CODE_COMMIT]: Object.assign({}, ahead, { files: [{ filename: "src/only.js", status: "added", additions: 1, deletions: 0, changes: 1 }] }) };
+  await p.click("#ct-retry"); await p.waitForFunction(() => document.getElementById("ct-sub") && !document.getElementById("ct-gaps"), null, { timeout: 8000 }).catch(() => {});
+  atl.fail.treeAgain = await tNow();
   await p.close();
 
   // 7. Framed: the page refuses to show.

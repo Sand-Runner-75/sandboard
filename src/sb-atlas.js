@@ -388,7 +388,13 @@
     const copy = pic.cloneNode(true);
     copy.removeAttribute("style");
     if (x0 > 0) { copy.setAttribute("viewBox", x0 + " 0 " + W0 + " " + H0); copy.setAttribute("width", W0); }
-    for (const a of copy.querySelectorAll("a")) a.replaceWith(...a.childNodes);
+    // Links go, but each commit's reveal step stays on a plain group in the link's place.
+    for (const a of copy.querySelectorAll("a")) {
+      const g = doc.createElementNS(a.namespaceURI, "g");
+      for (const name of ["class", "data-s"]) if (a.hasAttribute(name)) g.setAttribute(name, a.getAttribute(name));
+      g.append(...a.childNodes);
+      a.replaceWith(g);
+    }
     for (const n of copy.querySelectorAll("[style]")) n.removeAttribute("style");
     for (const c of copy.querySelectorAll(".gn circle")) { c.setAttribute("stroke", css("--surface") || "#ffffff"); c.setAttribute("stroke-width", "3"); }
     for (const g of copy.querySelectorAll(".guide")) g.setAttribute("stroke", css("--line") || "#cccccc");
@@ -428,19 +434,24 @@
       ctx.textAlign = "right"; ctx.fillStyle = muted; ctx.font = "600 12px " + FONT; ctx.fillText("Made with Sandboard", W - PAD, H - 12);
       return ctx.getImageData(0, 0, W, H).data;
     };
+    // Work stops, and nothing is shown, once the session ends or the graph is drawn anew.
+    const same = () => A.atlasBox(r.repo) === holder;
     let blob = null;
     try {
       const gif = SB.gifWriter(W, H, SB.gifPalette(await frame(n - 1)));
-      for (let k = 0; k < n; k++) {
+      for (let k = 0; k < n && same(); k++) {
         gif.add(await frame(k), k === n - 1 ? 2600 : Math.max(80, Math.min(200, 7000 / n)));
         if (k % 8 === 0) await new Promise(ok => setTimeout(ok));
       }
       blob = new root.Blob([gif.finish()], { type: "image/gif" });
     } catch (err) { blob = null; }
+    if (!same()) return;
     const name = r.repo.split("/")[1] + "-history.gif";
-    box.saved = blob ? await savedOutput("ag-saved", blob, name, "The branch history replayed commit by commit",
+    const saved = blob ? await savedOutput("ag-saved", blob, name, "The branch history replayed commit by commit",
       (first ? "The newest " + n : n) + " commits, " + n + " frames", () => { box.saved = null; A.render(); })
       : el("div", { class: "qual plain", role: "alert", id: "ag-saved" }, "The GIF could not be made in this browser.");
+    if (!same()) return;
+    box.saved = saved;
     A.render();
     const dl = doc.getElementById("ag-saved-dl");
     if (dl) dl.focus();
@@ -473,20 +484,31 @@
         el("button", { type: "button", class: "linkbtn", id: "ct-retry", onclick: () => A.atlasTreeRetry(repo) }, "Read again"));
       return panel;
     }
-    if (!holder.view) holder.view = treeView(A, r, t.data);
+    // A view is kept while its data is the same; once Read again brings more, it is made anew.
+    const d = t.data, sig = [d.commits.length, d.failed, d.cut, d.names.state, d.names.failedPulls, d.names.partialPulls, d.initial.length, d.treeMissing, d.treePartial].join("|");
+    if (holder.view && holder.sig !== sig) { holder.view.dispose(); holder.view = null; }
+    if (!holder.view) { holder.view = treeView(A, r, d); holder.sig = sig; }
     head.append(holder.view.sub);
     panel.append(holder.view.node);
     holder.view.shown();
     return panel;
   }
 
+  // Every code tree view on the page, to pause when the tab is hidden; a view leaves when it is disposed.
   const views = new Set();
   doc.addEventListener("visibilitychange", () => { if (doc.hidden) for (const v of views) v.pause(); });
+  // When the session ends: every code tree view and graph replay of it stops and lets go of what it holds.
+  function atlasDispose(at) {
+    for (const t of at.trees.values()) if (t.view) t.view.dispose();
+    for (const h of at.boxes.values()) if (h.box.replay) { clearInterval(h.box.replay.timer); h.box.replay = null; }
+    for (const v of [...views]) v.dispose();
+  }
+  const atlasViews = () => views.size;
   const reduced = () => !!(root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches);
 
   function treeView(A, r, data) {
     const T = SB.TREE, n = data.commits.length;
-    const V = { sim: null, keep: new Map(), cam: { x: 0, y: 0, s: 1 }, free: false, playing: false, speed: 1, raf: 0, last: 0, hits: [], acc: 0, settle: 0 };
+    const V = { sim: null, keep: new Map(), cam: { x: 0, y: 0, s: 1 }, free: false, playing: false, speed: 1, raf: 0, last: 0, hits: [], acc: 0, settle: 0, gone: false };
     const inferred = data.commits.some(c => c.inferred);
     const sub = el("span", { class: "legend", id: "ct-sub" },
       el("span", {}, el("b", {}, n.toLocaleString("en")), (n === 1 ? " commit" : " commits") + (data.whole ? " (whole history)" : " (the newest)")),
@@ -494,6 +516,16 @@
       data.treePartial ? el("span", {}, "GitHub listed only part of the files") : null,
       data.failed ? el("span", {}, plural(data.failed, "commit's files", "commits' files") + " could not be read") : null,
       inferred ? el("span", {}, "* named from the pull request's branch") : null);
+    // What the playback is missing, said in words, with Read again for reads that failed.
+    const nm = data.names, gaps = [
+      data.cut ? plural(data.cut, "commit lists", "commits list") + " only the first 300 files GitHub gives" : null,
+      nm.state === "failed" ? "The pull requests could not be read" + (nm.error ? " (" + nm.error + ")" : "") + ", so agents are not named" : null,
+      nm.state === "partial" ? "Agents are named from the newest " + nm.listed + " pull requests only" : null,
+      nm.failedPulls ? plural(nm.failedPulls, "agent pull request's", "agent pull requests'") + " commits could not be read, so some of their work is under the account that committed it" : null,
+      nm.partialPulls ? plural(nm.partialPulls, "agent pull request has", "agent pull requests have") + " more than 100 commits; only the first 100 are named" : null,
+    ].filter(Boolean);
+    const gapNote = gaps.length || data.retry ? el("p", { class: "qual", id: "ct-gaps" }, gaps.join(". ") + (gaps.length ? ". " : ""),
+      data.retry ? el("button", { type: "button", class: "linkbtn", id: "ct-retry", onclick: () => A.atlasTreeRetry(r.repo) }, "Read again what failed") : null) : null;
     const play = el("button", { type: "button", class: "btn", id: "ct-play", "aria-pressed": "false", onclick: () => toggle() }, "Play");
     const speeds = el("div", { class: "seg", role: "group", "aria-label": "Speed" }, [1, 2, 4].map(x =>
       el("button", { type: "button", class: "btn ghost small", id: "ct-speed-" + x, "aria-pressed": String(x === 1), onclick: e => {
@@ -506,28 +538,53 @@
     const tipBox = el("div", { class: "ct-tip", hidden: true, "aria-hidden": "true" });
     const range = el("input", { type: "range", id: "ct-time", min: "0", max: String(n), value: "0", step: "1", "aria-label": "Commit", oninput: e => seek(Number(e.target.value)) });
     const at = el("span", { class: "mono", id: "ct-where" });
+    const cap = el("span", { class: "qual", id: "ct-cap", hidden: true });
     const out = el("div", { class: "ct-out" });
-    const node = el("div", { class: "ct" },
+    // The files, in words: the commit at the playback point and what it changed, and every file in the tree.
+    const filesBody = el("div", { id: "ct-files-body" });
+    const filesBox = el("details", { class: "ct-files", id: "ct-files", ontoggle: () => list() }, el("summary", {}, "Files at this point, as a list"), filesBody);
+    const node = el("div", { class: "ct" }, gapNote,
       el("div", { class: "ct-tools" }, play, speeds, gifBtn, pngBtn),
       el("div", { class: "ct-wrap" }, cv, tipBox),
-      el("div", { class: "ct-bar" }, range, at, el("button", { type: "button", class: "btn ghost small", id: "ct-fit", onclick: () => fitNow() }, "Fit")),
-      el("div", { class: "cthint" }, TREE_HINT), out);
+      el("div", { class: "ct-bar" }, range, at, cap, el("button", { type: "button", class: "btn ghost small", id: "ct-fit", onclick: () => fitNow() }, "Fit")),
+      el("div", { class: "cthint" }, TREE_HINT), filesBox, out);
 
     function size() { return [cv.clientWidth || 600, cv.clientHeight || 400]; }
+    let listed = -1, listing = 0;
+    function list() {
+      clearTimeout(listing); listing = 0;
+      if (V.gone || !filesBox.open) return;
+      const s = V.sim, c = s.k ? data.commits[s.k - 1] : null;
+      listed = s.k;
+      const STATUS = { added: "added", removed: "removed", modified: "changed", renamed: "renamed", copied: "copied", changed: "changed" };
+      const all = el("details", { id: "ct-all", ontoggle: e => { if (e.currentTarget.open) e.currentTarget.append(el("ol", { class: "ct-paths mono" }, [...s.files.keys()].sort().map(p => el("li", {}, p)))); else { const ol = e.currentTarget.querySelector("ol"); if (ol) ol.remove(); } } },
+        el("summary", {}, "Every file in the tree now (" + s.files.size.toLocaleString("en") + (s.over.size ? ", and " + s.over.size.toLocaleString("en") + " not drawn" : "") + ")"));
+      filesBody.replaceChildren(
+        el("p", {}, c ? "Commit " + s.k + " of " + n + ": " + (SB.localDay ? SB.localDay(c.date) || "" : String(c.date || "").slice(0, 10)) + ", " + c.msg + " by " + c.author + (c.inferred ? " (named from the pull request's branch)" : "") : "Before the first commit played: the files the playback starts with."),
+        c ? (c.files.length ? el("ul", { class: "ct-paths mono", id: "ct-changed", "aria-label": "Files this commit changed" }, c.files.map(f => el("li", {}, (STATUS[f.s] || f.s) + ": " + f.p + (f.prev ? " (was " + f.prev + ")" : ""))))
+          : el("p", { class: "muted" }, "No files listed for this commit.")) : null,
+        all);
+    }
     function where() {
+      if (V.gone) return;
       const s = V.sim, c = data.commits[Math.max(0, s.k - 1)];
       range.value = String(s.k);
       at.textContent = s.k + "/" + n;
+      cap.hidden = !s.over.size;
+      cap.textContent = s.over.size ? s.over.size.toLocaleString("en") + " files not drawn (the tree shows at most " + T.MAX_FILES.toLocaleString("en") + ")" : "";
+      if (filesBox.open && listed !== s.k && !listing) listing = setTimeout(list, 250);
       cv.setAttribute("aria-label", "Code tree at commit " + s.k + " of " + n + (s.k && c ? ": " + String(c.date || "").slice(0, 10) + ", " + c.msg + " by " + c.author : "") +
         ". " + s.files.size.toLocaleString("en") + " files. " + TREE_HINT);
     }
     function seek(k) {
+      if (V.gone) return;
       V.sim = SB.treeSeek(data, V.keep, Math.max(0, Math.min(n, k)));
       V.acc = 0; V.settle = 90;
       if (!V.free) { const [W, H] = size(); SB.treeFit(V.sim, W, H, V.cam); }
       where(); paint();
     }
     function toggle(on) {
+      if (V.gone) return;
       V.playing = (on === undefined ? !V.playing : on) && cv.isConnected;
       if (V.playing && V.sim.k >= n) seek(0);
       play.textContent = V.playing ? "Pause" : "Play";
@@ -538,8 +595,10 @@
     function fitNow() { V.free = false; V.settle = 60; paint(); }
     function paint() {
       if (V.raf) return;
+      if (V.gone) return;
       V.raf = root.requestAnimationFrame(now => {
         V.raf = 0;
+        if (V.gone) return;
         if (!cv.isConnected) { if (V.playing) toggle(false); return; }
         const dpr = root.devicePixelRatio || 1, [W, H] = size();
         if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
@@ -593,12 +652,15 @@
       else return;
       e.preventDefault();
     });
-    if (root.ResizeObserver) new root.ResizeObserver(() => paint()).observe(cv);
+    const ro = root.ResizeObserver ? new root.ResizeObserver(() => paint()) : null;
+    if (ro) ro.observe(cv);
 
     // Saving: the whole playback as a GIF, or the tree as it is now as a picture.
     const title = r.repo, footer = "Made with Sandboard";
     async function show(blob, name, alt, about) {
-      out.replaceChildren(await savedOutput("ct-saved", blob, name, alt, about, () => out.replaceChildren()));
+      const saved = await savedOutput("ct-saved", blob, name, alt, about, () => out.replaceChildren());
+      if (V.gone) return;
+      out.replaceChildren(saved);
       const dl = doc.getElementById("ct-saved-dl");
       if (dl) dl.focus();
     }
@@ -609,9 +671,12 @@
       const canvas = doc.createElement("canvas");
       canvas.width = 640; canvas.height = 420;
       try {
-        const made = await SB.treeGif(data, canvas, title, footer, (f, of) => { gifBtn.textContent = "Making the GIF… " + Math.round(f / of * 100) + "%"; });
+        // A view disposed while recording stops the recording at its next step.
+        const made = await SB.treeGif(data, canvas, title, footer, (f, of) => { if (V.gone) throw new Error("gone"); gifBtn.textContent = "Making the GIF… " + Math.round(f / of * 100) + "%"; });
+        if (V.gone) return;
         await show(new root.Blob([made.bytes], { type: "image/gif" }), r.repo.split("/")[1] + "-tree.gif", "The code tree playing back", made.commits + " commits, " + made.frames + " frames");
       } catch (err) {
+        if (V.gone) return;
         out.replaceChildren(el("div", { class: "qual plain", role: "alert", id: "ct-saved" }, "The GIF could not be made in this browser."));
       }
       gifBtn.removeAttribute("aria-disabled");
@@ -621,24 +686,36 @@
       const W = 1600, H = 900, canvas = doc.createElement("canvas");
       canvas.width = W; canvas.height = H;
       const cam = SB.treeFit(V.sim, W, H, { x: 0, y: 0, s: 1 });
-      SB.treeDraw(canvas.getContext("2d"), W, H, V.sim, cam, { title, footer });
+      SB.treeDraw(canvas.getContext("2d"), W, H, V.sim, cam, { title, footer, note: SB.treeNote(data, V.sim) });
       const blob = await new Promise(ok => canvas.toBlob(ok, "image/png"));
-      if (blob) await show(blob, r.repo.split("/")[1] + "-tree.png", "The code tree at commit " + V.sim.k + " of " + n, "The tree at commit " + V.sim.k + " of " + n);
+      if (blob && !V.gone) await show(blob, r.repo.split("/")[1] + "-tree.png", "The code tree at commit " + V.sim.k + " of " + n, "The tree at commit " + V.sim.k + " of " + n);
     }
 
+    // Disposed when the session ends, the project is read again or Read again brings new data: drawing,
+    // timers, the size watch and any recording stop, and the view lets go of the data and pictures.
+    function dispose() {
+      if (V.gone) return;
+      V.gone = true; V.playing = false;
+      if (V.raf) root.cancelAnimationFrame(V.raf);
+      clearTimeout(listing);
+      if (ro) ro.disconnect();
+      views.delete(v);
+      for (const box of [node, sub, out, filesBody]) box.replaceChildren();
+      V.sim = null; V.keep.clear(); V.hits = [];
+      data = null;
+    }
     const v = {
-      sub, node,
+      sub, node, dispose, stop: dispose,
       pause: () => { if (V.playing) toggle(false); },
-      stop: () => { V.playing = false; views.delete(v); },
       // Each time the panel is shown: draw again (playing stops while the tree is not on the page).
-      shown: () => { views.add(v); Promise.resolve().then(() => paint()); },
+      shown: () => { if (!V.gone) { views.add(v); Promise.resolve().then(() => paint()); } },
     };
     // Play starts at once, as asked; with reduced motion, the finished tree is shown still instead.
-    Promise.resolve().then(() => { if (reduced()) seek(n); else { seek(0); toggle(true); } });
+    Promise.resolve().then(() => { if (V.gone) return; if (reduced()) seek(n); else { seek(0); toggle(true); } });
     V.sim = SB.treeSeek(data, V.keep, 0);
     where();
     return v;
   }
 
-  Object.assign(V, { majorTabs, atlas });
+  Object.assign(V, { majorTabs, atlas, atlasDispose, atlasViews });
 })(typeof window !== "undefined" ? window : globalThis);

@@ -96,6 +96,10 @@
     // Pull requests merged inside the window from an agent's branch: their merge commit and commits.
     const pulls = ask(SB.workKey.list("pulls", repo, "all", 1), { kind: "pulls", state: "all", page: 1 });
     const bySha = new Map();
+    // How far agents could be named: the pull request list and each agent pull request's commits.
+    const names = { state: "current", error: null, failedPulls: 0, partialPulls: 0, listed: pulls && pulls.data ? pulls.data.pulls.length : 0 };
+    if (pulls && pulls.state !== "loading" && !pulls.data) Object.assign(names, { state: "failed", error: pulls.error || null });
+    else if (pulls && pulls.state === "partial") names.state = "partial";
     if (pulls && pulls.data) {
       const prs = pulls.data.pulls.filter(p => p.merged && (!since || p.merged >= since) && p.headRef && agentOf(p.headRef)).slice(0, AGENT_PRS);
       for (const p of prs) {
@@ -103,14 +107,17 @@
         if (p.mergeCommit) bySha.set(p.mergeCommit, who);  // a squash merge lands as this one commit
         const res = ask(treeKey.pullCommits(repo, p.number), { kind: "pullCommits", number: p.number });
         if (res && res.data) for (const sha of res.data.shas) bySha.set(sha, who);
+        if (res && res.state !== "loading" && !res.data) names.failedPulls++;
+        else if (res && res.state === "partial") names.partialPulls++;
       }
     }
     // Each commit's files.
-    let done = 0, failed = 0;
+    // A commit's files that could not be read count as failed; one GitHub listed only part of counts as cut.
+    let done = 0, failed = 0, cut = 0;
     const out = commits.map(c => {
       const res = ask(SB.codeKey.commit(repo, c.sha), { kind: "change", sha: c.sha });
       let files = [];
-      if (res && res.state !== "loading") { done++; if (res.data) files = res.data.files.map(f => ({ p: f.path, s: f.status, prev: f.from })); else failed++; }
+      if (res && res.state !== "loading") { done++; if (res.data) { files = res.data.files.map(f => ({ p: f.path, s: f.status, prev: f.from })); if (res.state === "partial") cut++; } else failed++; }
       const login = c.author || "", named = bySha.get(c.sha) || BOTS[login] || null;
       return { sha: c.sha, date: c.at, msg: c.title, author: named && named !== login ? named : login || "someone", inferred: !!(named && named !== login), files };
     });
@@ -119,8 +126,11 @@
     const progress = { done, of: commits.length };
     if (!settled) return { state: "loading", step: "files", head, wanted, progress };
     const initial = tree && tree.data ? tree.data.entries.filter(e => e.kind === "file" || e.kind === "symlink").map(e => e.path) : [];
-    return { state: out.length ? "current" : "empty", why: out.length ? null : "commits", head, wanted: [], progress,
-             data: { initial, commits: out, whole, failed, treeMissing: !!(tree && !tree.data), treePartial: !!(tree && tree.state === "partial") } };
+    const treeMissing = !!(tree && !tree.data);
+    // Read again only helps with reads that failed; GitHub's own limits (a cut list) stay as they are.
+    const retry = failed > 0 || treeMissing || names.state === "failed" || names.failedPulls > 0;
+    return { state: out.length ? "current" : "empty", why: out.length ? null : "commits", head, wanted: [], progress, retry,
+             data: { initial, commits: out, whole, failed, cut, names, retry, treeMissing, treePartial: !!(tree && tree.state === "partial") } };
   }
 
   // The number of reads a code tree of want commits costs at most: the commit pages, the tree, the pull
@@ -134,7 +144,8 @@
   class Sim {
     constructor(data, keep) {
       this.data = data; this.keep = keep || new Map();
-      this.dirs = new Map(); this.files = new Map(); this.dying = []; this.authors = new Map(); this.k = 0; this.t = 0; this.busy = -99;
+      // over: files past the MAX_FILES drawn, kept by path so the picture can say how many it leaves out.
+      this.dirs = new Map(); this.files = new Map(); this.over = new Set(); this.dying = []; this.authors = new Map(); this.k = 0; this.t = 0; this.busy = -99;
       this.seed = 7;
       this.root = this.dir("");
       for (const p of data.initial) this.add(p, -10);
@@ -155,7 +166,7 @@
     add(path, t) {
       let f = this.files.get(path);
       if (!f) {
-        if (this.files.size >= MAX_FILES) return null;
+        if (this.files.size >= MAX_FILES) { this.over.add(path); return null; }
         const d = this.dir(path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ""), ext = extOf(path);
         f = { path, d, ext, c: colorOf(ext), born: t, hot: -99, x: d.x, y: d.y };
         this.files.set(path, f); d.files.push(f); d.r = 8 + 4.2 * Math.sqrt(d.files.length);
@@ -164,7 +175,7 @@
     }
     remove(path, t) {
       const f = this.files.get(path);
-      if (!f) return;
+      if (!f) { this.over.delete(path); return; }
       this.files.delete(path);
       const d = f.d;
       d.files.splice(d.files.indexOf(f), 1); d.r = 8 + 4.2 * Math.sqrt(d.files.length);
@@ -329,7 +340,30 @@
     ctx.textAlign = "right";
     if (opt.title) { ctx.fillStyle = INK; ctx.font = "600 14px " + FONT; ctx.fillText(opt.title, W - 14, 22); }
     if (opt.footer) { ctx.fillStyle = MUTED; ctx.font = "600 12px " + FONT; ctx.fillText(opt.footer, W - 14, H - 14); }
+    // What the picture leaves out, bottom left, so a saved picture says it too.
+    if (opt.note) {
+      ctx.textAlign = "left"; ctx.fillStyle = "#e3b341"; ctx.font = "12px " + FONT;
+      let text = "Not shown: " + opt.note;
+      const max = W - 28 - (opt.footer ? ctx.measureText(opt.footer).width + 24 : 0);
+      if (ctx.measureText(text).width > max) { while (text.length > 1 && ctx.measureText(text + "…").width > max) text = text.slice(0, -1); text += "…"; }
+      ctx.fillText(text, 14, H - 14);
+    }
     return hits;
+  }
+
+  // What a picture of the tree leaves out, in one line: files past the limit, commits whose files could
+  // not be read or were cut by GitHub, a missing or cut starting tree, and agents not fully named.
+  function treeNote(data, sim) {
+    const n = (k, one, many) => k.toLocaleString("en") + " " + (k === 1 ? one : many);
+    const parts = [];
+    if (sim && sim.over.size) parts.push(n(sim.over.size, "file", "files") + " not drawn (at most " + MAX_FILES.toLocaleString("en") + ")");
+    if (data.failed) parts.push(n(data.failed, "commit's files", "commits' files") + " not read");
+    if (data.cut) parts.push(n(data.cut, "commit", "commits") + " with only GitHub's first 300 files");
+    if (data.treeMissing) parts.push("starting files not read");
+    else if (data.treePartial) parts.push("starting files only partly listed");
+    const nm = data.names || {};
+    if (nm.state === "failed" || nm.failedPulls) parts.push("agents not fully named");
+    return parts.join(" · ");
   }
 
   // A camera that keeps the whole tree in view; ease below 1 moves it part of the way.
@@ -355,7 +389,7 @@
         if (f % per === 0) for (let j = 0; j < step; j++) s.next();
         s.step(1 / FPS); treeFit(s, W, H, cam, 0.15);
         if (each) {
-          treeDraw(ctx, W, H, s, cam, { title, footer, legend: 14 });
+          treeDraw(ctx, W, H, s, cam, { title, footer, legend: 14, note: treeNote(data, s) });
           each(ctx.getImageData(0, 0, W, H).data, f === total - 1 ? 2500 : Math.round(1000 / FPS));
           if (onStep) onStep(f + 1, total);
           if (f % 10 === 0) await pause();
@@ -364,7 +398,7 @@
       return { s, cam };
     };
     const end = await play(null);
-    treeDraw(ctx, W, H, end.s, end.cam, { title, footer, legend: 14 });
+    treeDraw(ctx, W, H, end.s, end.cam, { title, footer, legend: 14, note: treeNote(data, end.s) });
     const gif = SB.gifWriter(W, H, SB.gifPalette(ctx.getImageData(0, 0, W, H).data));
     await play((px, delay) => gif.add(px, delay));
     return { bytes: gif.finish(), frames: gif.frames, commits: n };
@@ -372,6 +406,6 @@
 
   Object.assign(SB, {
     TREE: { WANT, POOL, AGENT_PRS, MAX_FILES, RATE, BG, FONT, MONO, agentOf, extOf, colorOf, cost: treeCost },
-    treeKey, atlasTree, TreeSim: Sim, treeStart, treeSeek, treeDraw, treeFit, treeGif,
+    treeKey, atlasTree, TreeSim: Sim, treeStart, treeSeek, treeDraw, treeFit, treeGif, treeNote,
   });
 })(typeof window !== "undefined" ? window : globalThis);

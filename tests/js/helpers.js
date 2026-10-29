@@ -122,6 +122,8 @@ function mockGitHub(repos, overrides = []) {
     if (m) {
       const r = repos[m[1]];
       const ref = decodeURIComponent(m[2]);
+      // A commit's own reply with its changed files (changes: {sha: reply or status}), when a test gives one.
+      if (r && r.changes && r.changes[ref] !== undefined) { const v = r.changes[ref]; return typeof v === "number" ? json({ message: "no" }, v) : json(v); }
       const commit = r && (r.branches[ref] || (/^[0-9a-f]{40}$/.test(ref) && r.files[ref] ? ref : null));
       return commit ? json({ sha: commit, commit: { committer: { date: "2026-01-02T03:04:05Z" } } })
                     : json({ message: "No commit found" }, 404);

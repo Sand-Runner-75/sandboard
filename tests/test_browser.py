@@ -8,6 +8,7 @@ missing browser fails; set SANDBOARD_PLAYWRIGHT to the playwright module's
 folder when it is not found on its own."""
 import hashlib
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -326,6 +327,22 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual((t["graphGif"]["src"], t["graphGif"]["head"], t["graphGif"]["name"]), ("data:image/gif;", "GIF89a", "demo-app-history.gif"))
         self.assertTrue(t["graphClosed"])
         self.assertEqual(t["requests"], [], "saving sends nothing anywhere")
+        f = t["files"]
+        self.assertRegex(f["head"], r"^Commit 5 of 5: ", "the file list says which commit it is at")
+        self.assertTrue(f["changed"] and all(re.match(r"^(added|changed|removed|renamed|copied): \S", x) for x in f["changed"]), f["changed"])
+        self.assertRegex(t["allFiles"][0], r"^Every file in the tree now \(\d+\)$")
+        self.assertEqual(len(t["allFiles"][1]), int(re.search(r"\((\d+)\)", t["allFiles"][0]).group(1)), "every file is listed by keyboard")
+        g = t["graphFrames"]
+        self.assertEqual((g["first"], g["second"], g["last"]), (1, 2, 8), "the graph GIF reveals one commit dot per frame, all 8 by the end")
+        self.assertGreaterEqual(a["viewsBefore"], 1)
+        self.assertEqual(a["viewsAfter"], 0, "Forget access disposes every code tree view")
+        tf = a["fail"]["tree"]
+        self.assertTrue(tf["retry"], tf)
+        self.assertIn("1 commit's files could not be read", tf["sub"])
+        tb = a["fail"]["treeAgain"]
+        self.assertEqual((tb["gaps"], tb["retry"], tb["views"]), (None, False, 1), "Read again brings the files and the old view is let go")
+        self.assertNotIn("could not be read", tb["sub"])
+        self.assertEqual(a["lateGif"], [True, False, False, 0], "a GIF begun before leaving never shows up in the next session")
         self.assertEqual(a["treeReduced"], ["5/5", "false"], "with reduced motion, Play shows the finished tree still")
         f = a["fail"]
         self.assertEqual(f["first"]["dots"], 0)
