@@ -58,7 +58,7 @@
       search: { q: "", all: false, inside: false },
       // The two main tabs, and the Atlas: the repository it shows, how many commits each repository's
       // branch graph shows, and each drawn graph kept with what it was drawn from.
-      major: "dashboard", atlas: { repo: null, show: new Map(), boxes: new Map() },
+      major: "dashboard", atlas: { repo: null, show: new Map(), boxes: new Map(), trees: new Map() },
     };
   }
   let S = freshState();
@@ -285,6 +285,17 @@
       if (w.kind === "refs") loadLive(K.refs(repo, w.list), ctx => SB.readRefs(ctx, client, repo, w.list));
       else if (w.kind === "lane") loadLive(K.lane(repo, w.head, w.page), ctx => SB.readHistoryPage(ctx, client, repo, w.head, w.page));
       else if (w.kind === "pulls") workRead(repo, "pulls", w.state, w.page);
+    }
+    // The code tree reads only once Play was pressed for this repository, a few reads at a time.
+    if (!S.atlas.trees.has(repo)) return;
+    const t = SB.atlasTree(key => S.live.get(key), repo, r.meta.branch);
+    for (const w of t.wanted) {
+      if (w.kind === "refs") loadLive(K.refs(repo, w.list), ctx => SB.readRefs(ctx, client, repo, w.list));
+      else if (w.kind === "lane") loadLive(K.lane(repo, w.head, w.page), ctx => SB.readHistoryPage(ctx, client, repo, w.head, w.page));
+      else if (w.kind === "tree") loadLive(SB.codeKey.tree(repo, w.commit), ctx => SB.readTree(ctx, client, repo, w.commit));
+      else if (w.kind === "pulls") workRead(repo, "pulls", w.state, w.page);
+      else if (w.kind === "pullCommits") loadLive(SB.treeKey.pullCommits(repo, w.number), ctx => SB.readPullCommits(ctx, client, repo, w.number));
+      else if (w.kind === "change") loadLive(SB.codeKey.commit(repo, w.sha), ctx => SB.readCommitChanges(ctx, client, repo, w.sha));
     }
   }
 
@@ -554,6 +565,8 @@
     if (session) session.forget();
     session = null;
     client = null;
+    // The Atlas's code trees and graph replays stop and let go of what they hold before the state goes.
+    V.atlasDispose(S.atlas);
     S = freshState();
     $("token").value = "";
     if (gotoBox.open) gotoBox.close();
@@ -778,6 +791,20 @@
       S.atlas.boxes.set(repo, holder);
       return holder;
     },
+    // The code tree of a repository: nothing until Play is pressed, then its playback, kept across drawing.
+    atlasTree: repo => S.atlas.trees.get(repo) || null,
+    atlasTreePlay(repo) {
+      if (!S.atlas.trees.has(repo)) S.atlas.trees.set(repo, { view: null });
+      render();
+      announce("Reading the code tree.");
+    },
+    // What the code tree could not read is dropped, so it is read again.
+    atlasTreeRetry(repo) {
+      const mine = key => key === SB.historyKey.refs(repo, "branches") || key.startsWith("lane|" + repo + "@") || key.startsWith("tree|" + repo + "@") ||
+        key.startsWith("work|pulls|" + repo + "|") || key.startsWith("pullcommits|" + repo + "|") || key.startsWith("change|" + repo + "|");
+      for (const [key, res] of [...S.live]) if (mine(key) && res.state !== "loading" && !res.data) S.live.delete(key);
+      render();
+    },
     atlasFiles(repo, sha) { loadLive(SB.codeKey.commit(repo, sha), ctx => SB.readCommitChanges(ctx, client, repo, sha)); render(); },
     // A bubble showing for a node gets the node's new text.
     retip(node) { if (tipFor === node && !tipBox.hidden) tipBox.textContent = node.getAttribute("data-tip"); },
@@ -910,8 +937,10 @@
     S.histDepth = new Map();
     S.histScroll = new Map();
     S.workDepth = new Map();
+    V.atlasDispose(S.atlas);
     S.atlas.show = new Map();
     S.atlas.boxes = new Map();
+    S.atlas.trees = new Map();
     S.search = freshState().search;  // a new run searches nothing read before it
     const ctx = session.start();  // same token, new run: replies to the old run are dropped
     announce("Refreshing.");
@@ -932,7 +961,12 @@
     for (const key of [...S.live.keys()]) if (repos.includes(SB.liveKeyRepo(key))) S.live.delete(key);
     for (const m of [S.histDepth, S.histScroll]) for (const key of [...m.keys()]) if (repos.includes(key.split("@")[0])) m.delete(key);
     for (const key of [...S.workDepth.keys()]) if (repos.includes(key.split("|")[1])) S.workDepth.delete(key);
-    for (const m of [S.atlas.show, S.atlas.boxes]) for (const repo of repos) m.delete(repo);
+    for (const repo of repos) {
+      const t = S.atlas.trees.get(repo), h = S.atlas.boxes.get(repo);
+      if (t && t.view) t.view.dispose();
+      if (h && h.box.replay) { clearInterval(h.box.replay.timer); h.box.replay = null; }
+    }
+    for (const m of [S.atlas.show, S.atlas.boxes, S.atlas.trees]) for (const repo of repos) m.delete(repo);
     for (const [key, res] of [...S.docs]) {
       if (key.startsWith(id + "|") && (!["current", "empty", "missing", "invalid"].includes(res.state) || key.includes("|live|"))) S.docs.delete(key);
     }

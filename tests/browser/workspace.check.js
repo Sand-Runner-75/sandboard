@@ -1378,6 +1378,48 @@ function privateRepos() {
   atl.keys = { first: await focused() };
   await p.keyboard.press("ArrowLeft"); await p.waitForTimeout(1200);
   atl.keys.left = await focused();
+  // The code tree reads nothing until Play; then it plays the demo's commits, seeks, changes speed, and saves
+  // the playback as a GIF and the tree as a picture; the branch graph's replay saves as a GIF too.
+  const ct = atl.tree = { before: await p.evaluate(() => [!!document.getElementById("ct-start"), !!document.getElementById("ct-canvas")]) };
+  await p.click("#ct-start");
+  await p.waitForFunction(() => document.getElementById("ct-where") && document.getElementById("ct-where").textContent === "5/5" &&
+    document.getElementById("ct-play").textContent === "Play", null, { timeout: 10000 }).catch(() => {});
+  ct.sub = await p.$eval("#ct-sub", n => n.textContent).catch(() => null);
+  ct.played = await p.evaluate(() => [document.getElementById("ct-where").textContent, document.getElementById("ct-play").textContent, document.getElementById("ct-canvas").getAttribute("aria-label")]);
+  await p.$eval("#ct-time", n => { n.value = "2"; n.dispatchEvent(new Event("input")); }); await p.waitForTimeout(100);
+  ct.seek = await p.$eval("#ct-where", n => n.textContent);
+  await p.click("#ct-speed-4"); ct.speed = await p.$$eval("[id^=ct-speed-]", n => n.map(x => x.getAttribute("aria-pressed")));
+  await p.focus("#ct-canvas"); await p.keyboard.press("Home"); await p.keyboard.press("Space"); await p.waitForTimeout(100);
+  ct.keys = await p.evaluate(() => [document.getElementById("ct-play").getAttribute("aria-pressed"), document.getElementById("ct-where").textContent]);
+  await p.keyboard.press("Space");
+  // Without a pointer: the files at the playback point as a list, opened by keyboard.
+  await p.focus("#ct-canvas"); await p.keyboard.press("End"); await p.waitForTimeout(150);
+  await p.focus("#ct-files > summary"); await p.keyboard.press("Enter"); await p.waitForTimeout(200);
+  ct.files = await p.evaluate(() => ({ head: (document.querySelector("#ct-files-body > p") || {}).textContent || "", changed: [...document.querySelectorAll("#ct-changed li")].map(n => n.textContent) }));
+  await p.focus("#ct-all > summary"); await p.keyboard.press("Enter"); await p.waitForTimeout(200);
+  ct.allFiles = await p.evaluate(() => [(document.querySelector("#ct-all > summary") || {}).textContent, [...document.querySelectorAll("#ct-all li")].map(n => n.textContent)]);
+  await p.focus("#ct-files > summary"); await p.keyboard.press("Enter");
+  // The graph GIF's frames: every picture handed to the browser is kept, to count the commit dots shown in each.
+  await p.evaluate(() => { const I = window.Image; window.frames_ = [];
+    window.Image = class extends I { set src(v) { if (String(v).startsWith("data:image/svg")) window.frames_.push(v); super.src = v; } get src() { return super.src; } }; });
+  const saved = async (button, out) => {
+    await p.click(button); await p.waitForSelector(out + " img", { timeout: 60000 }).catch(() => {});
+    const info = await p.evaluate(o => { const n = document.querySelector(o); return n ? { src: (n.querySelector("img") || {}).src ? n.querySelector("img").src.slice(0, 15) : null, text: n.textContent } : null; }, out);
+    const [dl] = await Promise.all([p.waitForEvent("download", { timeout: 10000 }).catch(() => null), p.click(out + "-dl").catch(() => {})]);
+    if (dl && info) { const file = await dl.path(); info.name = dl.suggestedFilename(); info.head = file ? fs.readFileSync(file).slice(0, 6).toString("latin1") : null; }
+    return info;
+  };
+  ct.gif = await saved("#ct-gif", "#ct-saved");
+  ct.png = await saved("#ct-png", "#ct-saved");
+  ct.graphGif = await saved("#ag-gif", "#ag-saved");
+  ct.graphFrames = await p.evaluate(() => {
+    const dots = src => { const d = new DOMParser().parseFromString(decodeURIComponent(src.slice(src.indexOf(",") + 1)), "image/svg+xml");
+      return [...d.querySelectorAll("circle")].filter(c => { for (let e = c; e && e.getAttribute; e = e.parentNode) if (e.getAttribute("opacity") === "0") return false; return true; }).length; };
+    const f = window.frames_;  // the first picture sets the palette; then one per frame
+    return { pictures: f.length, first: f.length > 1 ? dots(f[1]) : null, second: f.length > 2 ? dots(f[2]) : null, last: f.length ? dots(f[f.length - 1]) : null }; });
+  await p.click("#ag-saved-close").catch(() => {}); await p.waitForTimeout(200);
+  ct.graphClosed = await p.evaluate(() => !document.getElementById("ag-saved"));
+  ct.requests = out.requests.filter(r => !/^GET /.test(r));
   // In the Atlas, a repository picked in the tree is shown there; a project's overview goes to the dashboard.
   await tree(p, "r:demo:example-org/demo-plan").catch(() => {}); await p.waitForTimeout(500);
   atl.treePick = await p.evaluate(() => [document.getElementById("major-atlas").getAttribute("aria-selected"), (document.getElementById("atlas-repo") || {}).value || null]);
@@ -1391,10 +1433,23 @@ function privateRepos() {
   await p.setViewportSize({ width: 390, height: 800 }); await p.waitForTimeout(300);
   atl.phone = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   await p.setViewportSize({ width: 1280, height: 900 });
+  // Leaving while a graph GIF is being made: the code tree views go, and the GIF never shows up later.
+  atl.viewsBefore = await p.evaluate(() => window.SB.views.atlasViews());
+  await p.click("#ag-gif").catch(() => {});
   await p.click("#forget"); await p.waitForTimeout(300);
   atl.afterLeave = await p.evaluate(() => [document.querySelectorAll(".atlas-graph, .major").length, document.getElementById("workspace").textContent]);
+  atl.viewsAfter = await p.evaluate(() => window.SB.views.atlasViews());
   await demo(p);
   atl.again = await p.evaluate(() => document.getElementById("major-dashboard").getAttribute("aria-selected"));
+  await p.click("#major-atlas"); await p.waitForTimeout(3000);
+  atl.lateGif = await p.evaluate(() => [!!document.getElementById("atlas-panel"), !!document.getElementById("ag-saved"), !!document.getElementById("ct-canvas"), window.SB.views.atlasViews()]);
+  await p.close();
+  // With reduced motion asked for, Play shows the finished tree still instead of playing it.
+  p = await open({ reducedMotion: "reduce" });
+  await demo(p);
+  await p.click("#major-atlas"); await p.waitForTimeout(800);
+  await p.click("#ct-start"); await p.waitForSelector("#ct-where", { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(400);
+  atl.treeReduced = await p.evaluate(() => [document.getElementById("ct-where").textContent, document.getElementById("ct-play").getAttribute("aria-pressed")]);
   await p.close();
   // On a mocked private run, reads that fail are said with their error and read again on request: first the
   // only commit page, then the tags and the pull requests, which are never shown as none.
@@ -1425,6 +1480,16 @@ function privateRepos() {
   delete arepos["acme/garden"].work;
   await p.click("#ag-retry"); await p.waitForTimeout(1200);
   atl.fail.all = await aNow();
+  // The code tree on the same run: a commit whose files fail to read is said, with Read again for it, and
+  // the playback is made anew from what Read again brings.
+  arepos["acme/garden"].changes = { [F.CODE_COMMIT]: 429 };
+  const tNow = () => p.evaluate(() => ({ gaps: (document.getElementById("ct-gaps") || {}).textContent || null, retry: !!document.getElementById("ct-retry"),
+    sub: (document.getElementById("ct-sub") || {}).textContent || null, views: window.SB.views.atlasViews() }));
+  await p.click("#ct-start"); await p.waitForSelector("#ct-sub", { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(300);
+  atl.fail.tree = await tNow();
+  arepos["acme/garden"].changes = { [F.CODE_COMMIT]: Object.assign({}, ahead, { files: [{ filename: "src/only.js", status: "added", additions: 1, deletions: 0, changes: 1 }] }) };
+  await p.click("#ct-retry"); await p.waitForFunction(() => document.getElementById("ct-sub") && !document.getElementById("ct-gaps"), null, { timeout: 8000 }).catch(() => {});
+  atl.fail.treeAgain = await tNow();
   await p.close();
 
   // 7. Framed: the page refuses to show.

@@ -366,7 +366,7 @@
      "parents": [
       "search1"
      ],
-     "author": "demo-gpt"
+     "author": "demo-gpt", "files": [["src/search.js", "modified"]]
     },
     {
      "id": "data2",
@@ -375,7 +375,7 @@
      "parents": [
       "data1"
      ],
-     "author": "demo-claude"
+     "author": "demo-claude", "files": [["src/list.js", "modified"], ["src/data/model.js", "modified"], ["tests/list.test.js", "modified"], ["docs/untrusted.html", "added"]]
     },
     {
      "id": "readme",
@@ -383,7 +383,7 @@
      "at": "2025-12-04T15:00:00Z",
      "parents": [
       "setup"
-     ]
+     ], "files": [["README.md", "modified"], ["docs/links.md", "added"]]
     },
     {
      "id": "search1",
@@ -392,7 +392,7 @@
      "parents": [
       "data1"
      ],
-     "author": "demo-gpt"
+     "author": "demo-gpt", "files": [["src/search.js", "added"]]
     },
     {
      "id": "data1",
@@ -401,14 +401,14 @@
      "parents": [
       "setup"
      ],
-     "author": "demo-claude"
+     "author": "demo-claude", "files": [["src/list.js", "modified"], ["src/data/model.js", "added"], ["tests/list.test.js", "added"]]
     },
     {
      "id": "setup",
      "title": "Set up the app",
      "at": "2025-04-20T12:00:00Z",
      "parents": [],
-     "author": "demo-owner"
+     "author": "demo-owner", "files": [["README.md", "added"], ["package.json", "added"], ["src/app.js", "added"], ["src/list.js", "added"], [".gitignore", "added"]]
     }
    ],
    "branches": [

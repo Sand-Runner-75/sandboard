@@ -653,7 +653,8 @@
         !(pr.draft === undefined || typeof pr.draft === "boolean") ||
         !["merged_at", "created_at", "updated_at", "closed_at"].every(k => isTime(time(pr[k])))) return null;
     return { number: pr.number, title: pr.title.slice(0, 300), state: pr.state, draft: pr.draft === true, merged: time(pr.merged_at),
-             head: pr.head.sha, headRef: pr.head.ref || null, headRepo: isObject(pr.head.repo) && SB.validRepo(pr.head.repo.full_name) ? pr.head.repo.full_name : null, baseRef: pr.base && pr.base.ref ? pr.base.ref : null, author: loginOf(pr.user),
+             head: pr.head.sha, headRef: pr.head.ref || null, headRepo: isObject(pr.head.repo) && SB.validRepo(pr.head.repo.full_name) ? pr.head.repo.full_name : null,
+             mergeCommit: isSha(pr.merge_commit_sha) ? pr.merge_commit_sha : null, baseRef: pr.base && pr.base.ref ? pr.base.ref : null, author: loginOf(pr.user),
              reviewers: logins(pr.requested_reviewers), teams: Array.isArray(pr.requested_teams) ? pr.requested_teams.length : 0,
              created: time(pr.created_at), updated: time(pr.updated_at), closed: time(pr.closed_at) };
   }
@@ -670,6 +671,20 @@
     const pulls = body.map(pullOf);
     if (pulls.some(x => !x)) return result("invalid", null, source, { error: "malformed pull request" });
     return pageResult(pulls, { pulls }, source);
+  }
+
+  // The commits of a pull request, as GitHub lists them on its first page (at most 100), by ID only.
+  function readPullCommits(ctx, client, repo, number) {
+    return SB.guard(readPullCommitsUnguarded(ctx, client, repo, number), { repo, number });
+  }
+  async function readPullCommitsUnguarded(ctx, client, repo, number) {
+    const source = { repo, number };
+    if (!SB.validRepo(repo) || !Number.isInteger(number) || number < 1 || number > 999999999) return result("invalid", null, source, { error: "not a pull request" });
+    const { out, body } = await getList(ctx, client, "/repos/" + repo + "/pulls/" + number + "/commits?per_page=100&page=1", source, "Pull requests: read");
+    if (out) return out;
+    if (!Array.isArray(body) || body.length > 100 || !body.every(c => isObject(c) && isSha(c.sha))) return result("invalid", null, source, { error: "unexpected commit list" });
+    const shas = body.map(c => c.sha);
+    return shas.length === 100 ? result("partial", { shas }, source, { coverage: { shown: 100, total: null } }) : result(shas.length ? "current" : "empty", { shas }, source);
   }
 
   // A pull request's reviews, oldest first, each with the commit it was given at.
@@ -926,6 +941,6 @@
                       validateProgress, readProgress, readCheckRuns, readPulls, readComments,
                       COMMIT_LIMIT, REPO_COMMENT_LIMIT, readLanguages, readCommits, readRepoComments, readUser, readAccountRepos, FIND_LIMIT, findPlanRepos,
                       HISTORY_PAGE, historyCommit, readHistoryPage, readRefs, readCompare,
-                      WORK_PAGE, MAX_WORK_PAGES, readPullPage, readReviews, readIssuePage, readRunPage, readReleasePage, assetLink,
+                      WORK_PAGE, MAX_WORK_PAGES, readPullPage, readPullCommits, readReviews, readIssuePage, readRunPage, readReleasePage, assetLink,
                       MAX_DIFF_FILES, readTree, readCodeFile, readCommitChanges, readCompareChanges });
 })(typeof window !== "undefined" ? window : globalThis);

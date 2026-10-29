@@ -98,6 +98,8 @@
     // Code inspection: the whole file tree at a pinned commit. A file's text is read by readFile above,
     // and a commit's changes, or the changes between two commits, by the commit and compare reads above.
     new RegExp("^/repos/" + NAME + "/" + NAME + "/git/trees/" + SHA + "[?]recursive=1$"),
+    // The Atlas code tree: the commits of a merged pull request (its first page), to tell whose branch they came from.
+    new RegExp("^/repos/" + NAME + "/" + NAME + "/pulls/[1-9][0-9]{0,8}/commits[?]per_page=100&page=1$"),
   ];
 
   function allowed(path) {

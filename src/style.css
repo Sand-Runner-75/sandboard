@@ -358,3 +358,24 @@ pre.diff .hunk, pre.diff .note { color: var(--muted); }
 .gkey th { text-align: left; font-weight: 600; color: var(--muted); padding: 0 14px 4px 0; }
 .gkey td { padding: 2px 14px 2px 0; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cthint { color: var(--muted); font-size: 0.78rem; }
+/* Atlas code tree: a dark stage of its own, as the picture is drawn on dark in every theme. */
+.ct-start { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.ct-start p { margin: 0; max-width: 46rem; font-size: 0.8rem; }
+.ct-tools, .ct-bar, .atlas-panel .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ct-tools .seg { display: inline-flex; gap: 2px; }
+.ct-tools .seg button[aria-pressed="true"], #ct-play[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+.ct-wrap { position: relative; margin: 8px 0 4px; }
+#ct-canvas { display: block; width: 100%; height: 28rem; max-height: 70vh; border-radius: var(--r); background: #0b0e14; cursor: grab; touch-action: none; }
+.ct-tip { position: absolute; z-index: 2; max-width: 260px; padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); color: var(--fg);
+  font-size: 0.78rem; white-space: pre-line; overflow-wrap: anywhere; pointer-events: none; }
+.ct-bar input[type="range"] { flex: 1 1 12rem; min-width: 8rem; }
+#ct-gaps { margin: 0 0 6px; font-size: 0.8rem; }
+#ct-cap { font-size: 0.78rem; }
+.ct-files { margin: 6px 0; font-size: 0.82rem; }
+.ct-files summary { cursor: pointer; min-height: 24px; }
+.ct-files p { margin: 6px 0; }
+.ct-paths { max-height: 16rem; overflow: auto; margin: 4px 0; padding-left: 1.6rem; font-size: 0.78rem; overflow-wrap: anywhere; }
+.btn[aria-disabled="true"] { opacity: 0.7; cursor: progress; }
+.saved { display: grid; gap: 6px; margin: 8px 0; padding: 8px; border: 1px solid var(--line); border-radius: var(--r); background: var(--sunken); }
+.saved .preview { display: block; max-width: 100%; height: auto; border-radius: var(--r); }
+.saved p { margin: 0; font-size: 0.78rem; }

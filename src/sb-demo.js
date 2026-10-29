@@ -105,6 +105,10 @@
           return pr;
         }));
       }
+      if ((m = /^[/]pulls[/](\d+)[/]commits[?]per_page=100&page=1$/.exec(rest))) {
+        const pr = (r.pulls || []).find(p => p.number === Number(m[1]));
+        return pr ? reply((pr.commit_ids || []).map(sha => ({ sha }))) : reply({ message: "Not Found" }, 404);
+      }
       if ((m = /^[/]pulls[/](\d+)[/]reviews[?]per_page=100&page=(\d+)$/.exec(rest))) {
         const pr = (r.pulls || []).find(p => p.number === Number(m[1]));
         return pr ? reply(pageOf(pr.reviews || [], Number(m[2]))) : reply({ message: "Not Found" }, 404);
@@ -136,7 +140,7 @@
         const c = all.find(x => x.sha === sha);
         if (!c) return reply({ message: "No commit found" }, 404);
         return reply(Object.assign({}, c, { commit: { message: c.commit.message, committer: { date: c.commit.committer.date || r.date || null } },
-                                            files: sha === r.commit ? r.changes || [] : [] }));
+                                            files: sha === r.commit ? r.changes || [] : c.files || [] }));
       }
       if ((m = /^[/]contents[/](.+)[?]ref=([0-9a-f]{40})$/.exec(rest))) {
         const files = r.files || {};
