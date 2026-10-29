@@ -856,8 +856,12 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual([a["vsCleared"]["table"], a["vsCleared"]["focus"]], [False, "ac-vs-q"], "Compare with someone else goes back to the box")
         self.assertEqual(a["badgeBefore"], [True, False], "the README badge is only offered until asked for")
         b = a["badge"]
-        self.assertEqual([b["role"], b["label"]], ["img", "Demo User: 24 stars, 5 repos, 213 actions (90d), 5d best streak"])
-        self.assertEqual(b["texts"][2:10], ["24", "Stars", "5", "Repos", "213", "Actions (90d)", "5d", "Best streak"], "the same numbers as the comparison")
+        # The demo's events are dated hours before now, so the best streak in local days depends on the hour the
+        # test runs; the badge must show the comparison's own number.
+        streak = vs["rows"][4][1].replace(" won", "")
+        self.assertRegex(streak, r"^[0-9]+$")
+        self.assertEqual([b["role"], b["label"]], ["img", "Demo User: 24 stars, 5 repos, 213 actions (90d), %sd best streak" % streak])
+        self.assertEqual(b["texts"][2:10], ["24", "Stars", "5", "Repos", "213", "Actions (90d)", streak + "d", "Best streak"], "the same numbers as the comparison")
         self.assertIn("@demo-user · on GitHub since 2019", b["texts"])
         self.assertEqual([b["squares"], b["bg"], b["pressed"]], [91, "#0d1117", ["true", "false"]], "the last 13 weeks by local day, dark first")
         self.assertEqual([b["line"], b["dl"]], ["![GitHub stats](./github-stats-dark.svg)", "Download github-stats-dark.svg"])
