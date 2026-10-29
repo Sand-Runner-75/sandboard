@@ -140,6 +140,29 @@
     });
   }
 
+  // GitHub's own colours for common languages; any other gets a steady colour from its name.
+  const LANG = { JavaScript: "#f1e05a", TypeScript: "#3178c6", Python: "#3572A5", Java: "#b07219", C: "#555555", "C++": "#f34b7d", "C#": "#178600",
+    Go: "#00ADD8", Rust: "#dea584", Ruby: "#701516", PHP: "#4F5D95", Swift: "#F05138", Kotlin: "#A97BFF", Dart: "#00B4AB", HTML: "#e34c26",
+    CSS: "#663399", SCSS: "#c6538c", Shell: "#89e051", "Jupyter Notebook": "#DA5B0B", Vue: "#41b883", Svelte: "#ff3e00", Lua: "#000080", R: "#198CE7",
+    Scala: "#c22d40", Haskell: "#5e5086", Elixir: "#6e4a7e", Dockerfile: "#384d54", PowerShell: "#012456", "Objective-C": "#438eff", Julia: "#a270ba",
+    Zig: "#ec915c", Nix: "#7e7eff", HCL: "#844FBA", Astro: "#ff5a03", GDScript: "#355570", OCaml: "#ef7a08", Elm: "#60B5CC" };
+  function langColor(name) {
+    if (!name) return "#9d9d9d";
+    if (Object.prototype.hasOwnProperty.call(LANG, name)) return LANG[name];
+    let h = 0;
+    for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
+    return "hsl(" + h + " 55% 52%)";
+  }
+
+  // A short number for the badge: 12,345 as 12.3k and 2,000,000 as 2M.
+  const shortNumber = n => n === null ? "?" : n >= 1e6 ? (n / 1e6).toFixed(1).replace(/[.]0$/, "") + "M" : n >= 1e4 ? (n / 1e3).toFixed(1).replace(/[.]0$/, "") + "k" : n.toLocaleString("en");
+
+  // The README badge's four numbers, as the earlier app's card shows them; a lower bound gets a "+".
+  function badgeNumbers(s) {
+    return [["Stars", shortNumber(s.stars) + (s.reposCut ? "+" : "")], ["Repos", shortNumber(s.repos) + (s.reposCut ? "+" : "")],
+            ["Actions (90d)", shortNumber(s.actions) + (s.eventsCut ? "+" : "")], ["Best streak", s.streak + "d"]];
+  }
+
   SB.ACCOUNT = { DAYS, FEED, MIX };
-  Object.assign(SB, { accountKey, starMatch, bestStreak, accountStats, duelRows, eventLine, eventKind: kindName, eventMark: kindMark, activityDays, heatLevels, busiest, eventMix });
+  Object.assign(SB, { accountKey, starMatch, bestStreak, accountStats, duelRows, langColor, shortNumber, badgeNumbers, eventLine, eventKind: kindName, eventMark: kindMark, activityDays, heatLevels, busiest, eventMix });
 })(typeof window !== "undefined" ? window : globalThis);

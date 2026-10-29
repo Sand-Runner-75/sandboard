@@ -438,3 +438,7 @@ rect.ac-l4 { fill: var(--accent); } i.ac-l4 { background: var(--accent); }
 .ac-vs-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 12px; }
 .ac-vs-langs h4 { margin: 0 0 4px; font-size: 0.88rem; overflow-wrap: anywhere; }
 .ac-vs-langs .ac-list { max-height: none; }
+#ac-badge h3 { margin: 0; font-size: 0.95rem; }
+.ac-badge-box { overflow-x: auto; }
+.ac-badge { display: block; width: 100%; max-width: 495px; height: auto; }
+#ac-badge-md { overflow-wrap: anywhere; }

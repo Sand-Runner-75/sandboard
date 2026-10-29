@@ -1578,6 +1578,25 @@ function privateRepos() {
   await p.click("#ac-vs-clear"); await p.waitForTimeout(150);
   acc.vsCleared = await vsNow();
   await p.keyboard.press("Enter"); await p.waitForSelector("#ac-vs-table", { timeout: 8000 }).catch(() => {});
+  // The README badge: offered until asked, then a picture of the public numbers in two colourings, a file
+  // to download and the README line to copy.
+  acc.badgeBefore = await p.evaluate(() => [!!document.getElementById("ac-badge-start"), !!document.getElementById("ac-badge-svg")]);
+  await p.click("#ac-badge-start");
+  await p.waitForSelector("#ac-badge-svg", { timeout: 8000 }).catch(() => {});
+  const badgeNow = () => p.evaluate(() => { const s = document.getElementById("ac-badge-svg");
+    return { label: s && s.getAttribute("aria-label"), role: s && s.getAttribute("role"), texts: s ? [...s.querySelectorAll("text")].map(t => t.textContent) : [],
+      bg: s && s.querySelector("rect").getAttribute("fill"), squares: s ? s.querySelectorAll("rect[width='4']").length : 0,
+      pressed: ["dark", "light"].map(k => document.getElementById("ac-badge-" + k).getAttribute("aria-pressed")), focus: document.activeElement.id,
+      line: (document.getElementById("ac-badge-md") || {}).textContent, dl: (document.getElementById("ac-badge-dl") || {}).textContent }; });
+  acc.badge = await badgeNow();
+  await p.focus("#ac-badge-light"); await p.keyboard.press("Enter"); await p.waitForTimeout(150);
+  acc.badgeLight = await badgeNow();
+  const [badgeFile] = await Promise.all([p.waitForEvent("download", { timeout: 8000 }).catch(() => null), p.click("#ac-badge-dl")]);
+  acc.badgeFile = badgeFile ? { name: badgeFile.suggestedFilename(), text: require("fs").readFileSync(await badgeFile.path(), "utf8") } : null;
+  if (acc.badgeFile) acc.badgeFile = { name: acc.badgeFile.name, start: acc.badgeFile.text.slice(0, 4), script: /<script|onload|href=/i.test(acc.badgeFile.text),
+    hasName: acc.badgeFile.text.includes("Demo User"), svgNs: /^<svg[^>]* xmlns="[^"]+[/]svg"/.test(acc.badgeFile.text) };
+  await p.click("#ac-badge-copy"); await p.waitForTimeout(150);
+  acc.badgeCopy = await p.textContent("#ac-badge-status");
   await p.setViewportSize({ width: 390, height: 800 }); await p.waitForTimeout(300);
   acc.phone = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   await p.setViewportSize({ width: 1280, height: 900 });

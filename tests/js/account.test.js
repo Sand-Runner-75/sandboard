@@ -233,3 +233,15 @@ test("the demo answers another made-up account and each one's own public reposit
   assert.equal((await serve(SB.API + "/users/nobody-here")).status, 404);
   assert.equal((await serve(SB.API + "/users/nobody-here/repos?sort=pushed&per_page=100&page=1")).status, 404);
 });
+
+test("the README badge's numbers are short, lower bounds get a plus, and every language has a steady colour", () => {
+  assert.deepEqual([0, 999, 9999, 12345, 2000000, 2500000, null].map(SB.shortNumber), ["0", "999", "9,999", "12.3k", "2M", "2.5M", "?"]);
+  const s = { stars: 15000, repos: 300, actions: 40, streak: 3, reposCut: true, eventsCut: false };
+  assert.deepEqual(SB.badgeNumbers(s), [["Stars", "15k+"], ["Repos", "300+"], ["Actions (90d)", "40"], ["Best streak", "3d"]]);
+  assert.equal(SB.langColor("Go"), "#00ADD8");
+  assert.equal(SB.langColor(null), "#9d9d9d");
+  assert.equal(SB.langColor("Made-up Lang"), SB.langColor("Made-up Lang"));
+  assert.match(SB.langColor("Made-up Lang"), /^hsl\(\d+ 55% 52%\)$/);
+  assert.equal(SB.langColor("constructor"), SB.langColor("constructor"));
+  assert.match(SB.langColor("constructor"), /^hsl/, "a name that is also an object key is not taken for a colour");
+});

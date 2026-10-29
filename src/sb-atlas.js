@@ -87,7 +87,8 @@
     // (GitHub's own 300-event limit is not a failure).
     const stars = login && S.atlas.extras ? A.live(SB.accountKey.starred(login)) : null, gists = login && S.atlas.extras ? A.live(SB.accountKey.gists(login)) : null;
     const vs = login && S.atlas.vs, vsReads = vs ? [A.live(SB.accountKey.repos(login)), A.live(SB.accountKey.profile(vs)), A.live(SB.accountKey.events(vs)), A.live(SB.accountKey.repos(vs))] : [];
-    const failed = [user, prof, evs, stars, gists, ...vsReads].some(x => x && x.state !== "loading" && (!x.data || !!x.data.stopped));
+    const myRepos = login && (vs || S.atlas.badge) ? A.live(SB.accountKey.repos(login)) : null;
+    const failed = [user, prof, evs, stars, gists, myRepos, ...vsReads].some(x => x && x.state !== "loading" && (!x.data || !!x.data.stopped));
     const retry = failed ? el("button", { type: "button", class: "linkbtn", id: "ac-retry", onclick: () => A.atlasAccountRetry() }, "Read again") : null;
     if (!login) {
       panel.append(!user || user.state === "loading" ? notice("loading", "Reading who the token reads as.")
@@ -98,7 +99,7 @@
     if (!evs || evs.state === "loading") panel.append(notice("loading", "Reading your public events."));
     else if (!evs.data) panel.append(notice(evs.state, "Your public events could not be read" + (evs.error ? " (" + evs.error + ")" : "") + ". The activity calendar and the feed need them."));
     else panel.append(activityBlock(evs));
-    panel.append(extrasBlock(S, A, stars, gists), compareBlock(S, A, prof, evs, vsReads));
+    panel.append(extrasBlock(S, A, stars, gists), compareBlock(S, A, prof, evs, vsReads), badgeBlock(S, A, prof, evs, myRepos));
     if (retry) panel.append(el("p", {}, retry));
     return panel;
   }
@@ -177,6 +178,71 @@
       s.eventsCut ? s.name + "'s public events (some may be missing)" : null]).filter(Boolean);
     if (cutSaid.length) box.append(el("p", { class: "qual", id: "ac-vs-gaps" }, "Counts from " + cutSaid.join(" and ") + " are lower bounds."));
     box.append(el("p", {}, el("button", { type: "button", class: "linkbtn", id: "ac-vs-clear", onclick: () => A.atlasCompareClear() }, "Compare with someone else")));
+    return box;
+  }
+
+  // A README badge of the account's public numbers, as the earlier app drew its card: a picture made here
+  // from what was read, to download and add to a README by hand. It does not update by itself.
+  const BADGE = {
+    dark: { bg: "#0d1117", border: "#30363d", ink: "#e6edf3", muted: "#8d96a0", accent: "#4daafc", track: "#21262d", heat: ["#161b22", "#0e4429", "#006d32", "#26a641", "#39d353"] },
+    light: { bg: "#ffffff", border: "#d0d7de", ink: "#1f2328", muted: "#656d76", accent: "#0969da", track: "#eaeef2", heat: ["#ebedf0", "#9be9a8", "#40c463", "#30a14e", "#216e39"] },
+  };
+  function badgeSvg(s, days, theme) {
+    const t = BADGE[theme] || BADGE.dark, W = 495, H = 195;
+    const label = s.name + ": " + SB.badgeNumbers(s).map(([k, v]) => v + " " + k.toLowerCase()).join(", ");
+    const out = svg("svg", { width: W, height: H, viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": label, id: "ac-badge-svg", class: "ac-badge" },
+      svg("title", {}, label));
+    const g = svg("g", { "font-family": "'Segoe UI', -apple-system, Ubuntu, sans-serif" });
+    out.append(g);
+    g.append(svg("rect", { x: 0.5, y: 0.5, width: W - 1, height: H - 1, rx: 6, fill: t.bg, stroke: t.border }),
+      svg("text", { x: 25, y: 35, fill: t.ink, "font-size": 17, "font-weight": 600 }, s.name.length > 26 ? s.name.slice(0, 25) + "…" : s.name),
+      svg("text", { x: 25, y: 53, fill: t.muted, "font-size": 12 }, "@" + s.login + (s.since ? " · on GitHub since " + s.since : "")));
+    // The last 13 weeks as a strip of squares at the top right, by the viewer's local day.
+    const levels = SB.heatLevels(days), weeks = Math.ceil(days.length / 7);
+    days.forEach((d, i) => g.append(svg("rect", { x: W - 25 - (weeks - Math.floor(i / 7)) * 5 + 1, y: 18 + (i % 7) * 5, width: 4, height: 4, rx: 1, fill: t.heat[levels[i]] })));
+    SB.badgeNumbers(s).forEach(([k, v], i) => g.append(svg("g", { transform: "translate(" + (25 + i * 115) + ",78)" },
+      svg("text", { y: 0, fill: t.ink, "font-size": 22, "font-weight": 600 }, v), svg("text", { y: 18, fill: t.muted, "font-size": 11 }, k))));
+    const bw = W - 50;
+    g.append(svg("rect", { x: 25, y: 122, width: bw, height: 8, rx: 4, fill: t.track }));
+    let x = 25, lx = 25;
+    for (const l of s.langs) { const w = Math.max(2, l.share * bw); g.append(svg("rect", { x: x.toFixed(1), y: 122, width: w.toFixed(1), height: 8, fill: SB.langColor(l.name) })); x += w; }
+    for (const l of s.langs.slice(0, 4)) {
+      const text = l.name + " " + Math.round(l.share * 100) + "%";
+      if (lx + 22 + text.length * 6.2 >= W - 20) break;
+      g.append(svg("g", { transform: "translate(" + lx + ",150)" }, svg("circle", { cx: 4, cy: -4, r: 4, fill: SB.langColor(l.name) }),
+        svg("text", { x: 12, y: 0, fill: t.muted, "font-size": 11 }, text)));
+      lx += 22 + text.length * 6.2;
+    }
+    g.append(svg("text", { x: W - 25, y: H - 14, fill: t.muted, "font-size": 10, "text-anchor": "end" }, "Public GitHub numbers"));
+    return out;
+  }
+  function badgeBlock(S, A, prof, evs, repos) {
+    const box = el("section", { class: "stack", id: "ac-badge", "aria-labelledby": "ac-badge-h" }, el("h3", { id: "ac-badge-h" }, "README badge"));
+    if (!S.atlas.badge) {
+      box.append(el("div", { class: "ct-start" },
+        el("button", { type: "button", class: "btn ghost", id: "ac-badge-start", onclick: () => A.atlasBadge() }, "Make a README badge"),
+        el("p", { class: "muted" }, "Draws a card of your public numbers to download and put in a README by hand. Reads your own public repositories " +
+          "(up to 3 GitHub reads), only after you press it. Nothing is posted or changed on GitHub.")));
+      return box;
+    }
+    if (!repos || repos.state === "loading" || !prof || prof.state === "loading" || !evs || evs.state === "loading") { box.append(notice("loading", "Reading your public repositories for the badge.")); return box; }
+    const bad = [[prof, "your public profile"], [evs, "your public events"], [repos, "your public repositories"]].filter(([x]) => !x.data);
+    if (bad.length) { box.append(notice(bad[0][0].state, "Cannot draw the badge: " + bad.map(([x, what]) => what + (x.error ? " (" + x.error + ")" : "")).join(", ") + " could not be read.")); return box; }
+    const now = Date.now(), s = SB.accountStats(prof.data, repos, evs, now), theme = S.atlas.badgeTheme;
+    const pic = badgeSvg(s, SB.activityDays(evs.data.events, now), theme);
+    const file = "github-stats-" + theme + ".svg";
+    const dl = () => download(new root.Blob([new root.XMLSerializer().serializeToString(pic)], { type: "image/svg+xml" }), file);
+    const line = el("code", { id: "ac-badge-md" }, "![GitHub stats](./" + file + ")");
+    const status = el("span", { class: "muted", id: "ac-badge-status", "aria-live": "polite" });
+    box.append(el("div", { class: "seg", role: "group", "aria-label": "Badge colours" },
+      ["dark", "light"].map(k => el("button", { type: "button", id: "ac-badge-" + k, "aria-pressed": String(theme === k), onclick: () => A.atlasBadgeTheme(k) }, k === "dark" ? "Dark" : "Light"))),
+      el("div", { class: "ac-badge-box" }, pic),
+      el("div", { class: "acts" }, el("button", { type: "button", class: "btn", id: "ac-badge-dl", onclick: dl }, "Download " + file)),
+      el("p", { class: "muted" }, "To show it: add the file to your profile repository and put this line in its README. ",
+        line, " ", el("button", { type: "button", class: "linkbtn", id: "ac-badge-copy", onclick: () => A.copy(line, status) }, "Copy the line"), " ", status),
+      el("p", { class: "muted" }, "A picture of today's public numbers: it does not update by itself. It shows your name, login and public numbers to anyone who sees it. " +
+        "The file is saved by your browser; nothing is posted or sent from here."));
+    if (s.reposCut || s.eventsCut) box.append(el("p", { class: "qual" }, "A number with + is a lower bound: GitHub's list was longer than what is read."));
     return box;
   }
 

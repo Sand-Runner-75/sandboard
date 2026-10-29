@@ -848,6 +848,19 @@ class BrowserTest(unittest.TestCase):
         self.assertIn("by public numbers only", vs["verdict"])
         self.assertIn("Most starred: sample-builder/charts (★ 120)", vs["langs"][1])
         self.assertEqual([a["vsCleared"]["table"], a["vsCleared"]["focus"]], [False, "ac-vs-q"], "Compare with someone else goes back to the box")
+        self.assertEqual(a["badgeBefore"], [True, False], "the README badge is only offered until asked for")
+        b = a["badge"]
+        self.assertEqual([b["role"], b["label"]], ["img", "Demo User: 24 stars, 5 repos, 213 actions (90d), 5d best streak"])
+        self.assertEqual(b["texts"][2:10], ["24", "Stars", "5", "Repos", "213", "Actions (90d)", "5d", "Best streak"], "the same numbers as the comparison")
+        self.assertIn("@demo-user · on GitHub since 2019", b["texts"])
+        self.assertEqual([b["squares"], b["bg"], b["pressed"]], [91, "#0d1117", ["true", "false"]], "the last 13 weeks by local day, dark first")
+        self.assertEqual([b["line"], b["dl"]], ["![GitHub stats](./github-stats-dark.svg)", "Download github-stats-dark.svg"])
+        lt = a["badgeLight"]
+        self.assertEqual([lt["bg"], lt["pressed"], lt["focus"], lt["line"]], ["#ffffff", ["false", "true"], "ac-badge-light", "![GitHub stats](./github-stats-light.svg)"],
+                         "the colouring changes by keyboard and keeps focus")
+        self.assertEqual(a["badgeFile"], {"name": "github-stats-light.svg", "start": "<svg", "script": False, "hasName": True, "svgNs": True},
+                         "the download is a standalone SVG with no script or link")
+        self.assertRegex(a["badgeCopy"], r"^(Copied\. Nothing was sent anywhere\.|Copy didn't work here)")
         self.assertEqual(a["phone"], 0, "no sideways page scroll on a phone")
         self.assertEqual(a["goto"][0], "Your account (Atlas)Atlas")
         self.assertEqual(a["gotoShown"], ["true", "true", True])
