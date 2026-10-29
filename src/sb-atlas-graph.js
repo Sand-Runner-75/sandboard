@@ -170,7 +170,9 @@
     };
     // Of two branches of one kind sharing commits, the one with the older pull request claims them.
     const byPr = (a, b) => (a.pr ? 0 : 1) - (b.pr ? 0 : 1) || (a.pr || 0) - (b.pr || 0);
-    for (const b of heads.slice().sort((a, b) => rankOf(a.name, def) - rankOf(b.name, def) || byPr(a, b))) walk(b.sha, { name: b.name, flow: flowOf(b.name, def), pr: b.pr });
+    // The branch the graph is drawn for claims its commits before any other.
+    const own = b => b.name === def ? 0 : 1;
+    for (const b of heads.slice().sort((a, b) => own(a) - own(b) || rankOf(a.name, def) - rankOf(b.name, def) || byPr(a, b))) walk(b.sha, { name: b.name, flow: flowOf(b.name, def), pr: b.pr });
     // The first commit that merged each commit in.
     const mergedBy = new Map();
     for (const k of order) for (const p of k.parents.slice(1)) if (!mergedBy.has(p)) mergedBy.set(p, k);
@@ -250,5 +252,121 @@
              steps: order.map(c => ({ date: c.date, msg: c.msg, x: X(c) })) };
   }
 
-  Object.assign(SB, { ATLAS: { FLOW, OTHER, RANK, FIRST, MORE, BRANCHES, flowOf, rankOf, older }, atlasGraph, atlasLayout });
+  // ---- Versions: the long-lived branches a repository keeps a version of its product on (its default
+  // branch and, say, a staging branch), each drawn on its own: the commits behind that branch, the pull
+  // requests merged into it as lanes of their own, the open ones that target it, and every pull request
+  // whose base is that branch. Plain data from the same cached reads as the branch graph.
+
+  // Branch names that usually hold a version, offered first and picked to start with.
+  const VERSION = /^(main|master|trunk|staging|stage|stg|develop|development|dev|next|preview|beta|alpha|production|prod|live|v\d+(?:\.\d+)*|version[-_/]?\d+)$/i;
+  const VERSIONS = 6, START = 4, PR_FIRST = 3, PR_MAX = 9, OPEN_LANES = 8;
+
+  // The version branches to start with: the default branch, then the others whose names say version.
+  function versionStart(list, def) {
+    const named = list.filter(b => b.name !== def && VERSION.test(b.name)).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    return [...list.filter(b => b.name === def), ...named].slice(0, START).map(b => b.name);
+  }
+
+  // What the versions of a repository can show from the reads in live, and the reads they still want.
+  // picked: the chosen branch names (null: the starting ones); showOf(name): how many commits that version
+  // shows; prPages: how many pages of the repository's pull requests (newest first) are read.
+  function atlasVersions(live, repo, def, picked, showOf, prPages, sharedOf) {
+    const wanted = [];
+    const br = live(K().refs(repo, "branches"));
+    if (!br) return { state: "loading", wanted: [{ kind: "refs", list: "branches" }] };
+    if (br.state === "loading") return { state: "loading", wanted };
+    if (!br.data) return { state: br.state, error: br.error || null, wanted, retry: true };
+    const list = br.data.refs;
+    if (!list.length) return { state: "empty", wanted };
+    const byName = new Map(list.map(b => [b.name, b]));
+    const start = versionStart(list, def);
+    const names = (picked || start).filter(n => byName.has(n)).slice(0, VERSIONS);
+    // The repository's pull requests, newest first, page by page: one list serves every version.
+    const pulls = [], pages = Math.max(1, Math.min(PR_MAX, prPages || PR_FIRST));
+    let prState = "current", prError = null, prEnd = false, prRead = 0;
+    for (let p = 1; p <= pages; p++) {
+      const res = live(SB.workKey.list("pulls", repo, "all", p));
+      if (!res) { wanted.push({ kind: "pulls", state: "all", page: p }); prState = "loading"; break; }
+      if (res.state === "loading") { prState = "loading"; break; }
+      if (!res.data) { prState = res.state; prError = res.error || null; break; }
+      pulls.push(...res.data.pulls); prRead = p;
+      if (res.data.end) { prEnd = true; break; }
+    }
+    const prs = { state: prState, error: prError, failed: !["current", "loading"].includes(prState), end: prEnd, pages: prRead, more: !prEnd && prRead >= pages && pages < PR_MAX };
+    let failed = null;
+    const defBranch = byName.get(def);
+    const versions = names.map(name => {
+      const b = byName.get(name), show = showOf(name) || FIRST;
+      // A version other than the default branch shows only its own commits: those the default branch's
+      // history, read page for page as deep, does not have. sharedOf(name) shows the shared ones too.
+      const apart = name !== def && !!defBranch && !(sharedOf && sharedOf(name));
+      const seen = [], onDef = new Set();
+      let reading = false, end = false, broke = null, defEnd = !apart;
+      const own = () => apart ? seen.filter(c => !onDef.has(c.sha)) : seen;
+      for (let p = 1; own().length < show; p++) {
+        // The default branch's page and this branch's page are read side by side.
+        let wait = false;
+        if (!defEnd) {
+          const res = live(K().lane(repo, defBranch.sha, p));
+          if (!res) { wanted.push({ kind: "lane", head: defBranch.sha, page: p }); wait = true; }
+          else if (res.state === "loading") wait = true;
+          else if (!res.data) { broke = { branch: def, state: res.state, error: res.error || null }; break; }
+          else { for (const c of res.data.commits) onDef.add(c.sha); if (res.data.end) defEnd = true; }
+        }
+        const res = live(K().lane(repo, b.sha, p));
+        if (!res) { wanted.push({ kind: "lane", head: b.sha, page: p }); reading = true; break; }
+        if (res.state === "loading") { reading = true; break; }
+        if (!res.data) { broke = { branch: name, state: res.state, error: res.error || null }; break; }
+        if (wait) { reading = true; break; }
+        seen.push(...res.data.commits);
+        if (res.data.end) { end = true; break; }
+      }
+      failed = failed || broke;
+      const mineAll = own();
+      const win = mineAll.slice(0, show).map(c => ({ sha: c.sha, parents: c.parents, date: c.at, msg: c.title, author: c.author || "" }));
+      const inWin = new Map(win.map(c => [c.sha, c]));
+      const mine = pulls.filter(p => p.baseRef === name);
+      // Merged pull requests whose last commit is in the window are lanes of their own; one merged by
+      // squash or rebase left no commit of its own here, so its mark sits on the commit it became.
+      const heads = [{ name, sha: b.sha }], marks = [];
+      for (const p of mine) {
+        if (!p.merged) continue;
+        if (inWin.has(p.head)) heads.push({ name: p.headRef || "PR #" + p.number, sha: p.head, pr: p.number });
+        else if (p.mergeCommit && inWin.has(p.mergeCommit)) marks.push({ name: "PR #" + p.number, sha: p.mergeCommit });
+      }
+      // Open pull requests from this repository's own branches: their newest commits, down to where they
+      // leave this version, drawn as lanes too (at most OPEN_LANES of them).
+      const open = mine.filter(p => p.state === "open" && (!p.headRepo || p.headRepo === repo)).slice(0, OPEN_LANES);
+      const oldest = win.length ? Date.parse(win[win.length - 1].date) || 0 : 0;
+      let openReading = false;
+      for (const p of open) {
+        const res = live(K().lane(repo, p.head, 1));
+        if (!res) { wanted.push({ kind: "lane", head: p.head, page: 1 }); openReading = true; continue; }
+        if (res.state === "loading") { openReading = true; continue; }
+        if (!res.data) continue;
+        const by = new Map(res.data.commits.map(c => [c.sha, c]));
+        const extra = [];
+        for (let c = by.get(p.head); c && !inWin.has(c.sha); c = by.get(c.parents[0])) {
+          if ((Date.parse(c.at) || 0) < oldest) break;
+          extra.push({ sha: c.sha, parents: c.parents, date: c.at, msg: c.title, author: c.author || "" });
+        }
+        if (!extra.length) continue;
+        for (const c of extra) if (!inWin.has(c.sha)) { inWin.set(c.sha, c); win.push(c); }
+        heads.push({ name: p.headRef || "PR #" + p.number, sha: p.head, pr: p.number, open: true });
+      }
+      const count = { open: 0, draft: 0, merged: 0, closed: 0 };
+      for (const p of mine) count[p.merged ? "merged" : p.state === "open" ? (p.draft ? "draft" : "open") : "closed"]++;
+      return { name, sha: b.sha, isDefault: name === def, apart, canApart: name !== def && !!defBranch, show, win, heads, marks, pulls: mine, count,
+               more: (!end || mineAll.length > show) && !broke, reading: reading || openReading, failed: broke, shown: Math.min(mineAll.length, show) };
+    });
+    const tags = live(K().refs(repo, "tags"));
+    if (!tags) wanted.push({ kind: "refs", list: "tags" });
+    const tagList = tags && tags.data ? tags.data.refs.map(t => ({ name: t.name, sha: t.sha })) : [];
+    // One read is wanted once, however many versions want it.
+    const once = [...new Map(wanted.map(w => [JSON.stringify(w), w])).values()];
+    return { state: "current", wanted: once, def, branches: list.map(b => b.name), start, picked: names, max: VERSIONS,
+             partialBranches: br.state === "partial", versions, prs, tags: tagList, failed, retry: !!failed || prs.failed };
+  }
+
+  Object.assign(SB, { ATLAS: { FLOW, OTHER, RANK, FIRST, MORE, BRANCHES, VERSIONS, PR_FIRST, PR_MAX, flowOf, rankOf, older, versionStart }, atlasGraph, atlasLayout, atlasVersions });
 })(typeof window !== "undefined" ? window : globalThis);

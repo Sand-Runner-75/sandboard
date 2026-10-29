@@ -294,6 +294,14 @@ class BrowserTest(unittest.TestCase):
         self.assertIn("8 commits (whole history)", g["summary"])
         self.assertIn(g["links"], [[], ["_blank noopener noreferrer"]], "a dot links to its commit only in a new tab without the opener")
         self.assertFalse(g["html"], "the picture is drawn with picture elements only")
+        v = a["versions"]
+        self.assertEqual(v["start"]["picked"], ["main"], "the default branch is the first version")
+        self.assertEqual([x[0] for x in v["start"]["cards"]], ["main"])
+        self.assertGreater(v["start"]["cards"][0][1], 0, "the version has its own graph")
+        self.assertEqual(v["added"]["picked"], ["main", "list-data"])
+        self.assertEqual([x[0] for x in v["added"]["cards"]], ["main", "list-data"], "a branch picked adds its own version")
+        self.assertEqual(v["added"]["boxes"], ["av-0-box", "av-1-box"], "each version's graph has its own name")
+        self.assertEqual(v["focus"], "list-data", "the focus stays on the branch just picked")
         z = a["zoom"]
         self.assertGreater(z["in"], z["start"])
         self.assertEqual(z["reset"], z["start"])
