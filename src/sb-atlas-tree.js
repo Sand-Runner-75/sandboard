@@ -272,7 +272,9 @@
 
   // ---- Drawing. cam is { x, y, s }: the world point at the centre and the zoom. Returns what was
   // drawn where, for the hover bubble.
-  const day = t => { const d = new Date(t); return isNaN(d) ? "" : d.toLocaleString("en", { weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" }); };
+  // The commit's time at the top, in the viewer's own zone and saying which: "Thursday, 2026-10-29 01:30 UTC+3".
+  const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const day = t => { const d = SB.localDay(t), when = SB.localWhen(t); return d && when ? WEEKDAYS[new Date(Date.parse(d)).getUTCDay()] + ", " + when : ""; };
   function treeDraw(ctx, W, H, sim, cam, opt) {
     opt = opt || {};
     const t = sim.t, X = x => W / 2 + (x - cam.x) * cam.s, Y = y => H / 2 + (y - cam.y) * cam.s, hits = [];

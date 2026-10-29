@@ -800,6 +800,11 @@ class BrowserTest(unittest.TestCase):
         self.assertIn("3 check runs: 1 passing, 1 not passing, 1 running or queued", w["evidence"]["checks"])
         self.assertEqual(w["evidence"]["focus"], "2", "focus stays on the button that opened the evidence")
         self.assertEqual([r[2] for r in w["closed"]["pulls"]], ["Merged2025-12-10 10:00 UTC", "Closed without merging"])
+        z = w["zone"]
+        self.assertEqual([r[2] for r in z["pulls"]], ["Merged2025-12-10 13:00 UTC+3", "Closed without merging"],
+                         "a viewer in UTC+3 sees the merge time in their own zone")
+        self.assertIn("Updated (your time)", z["heads"])
+        self.assertTrue(z["updated"] and all(t.endswith(" UTC+3") and t.startswith(x) for x, t in z["updated"]), z["updated"])
         self.assertIn("evidence, not the owner's approval", w["pulls"]["text"])
         for word in ("Merge", "Approve", "Comment", "Close", "Review"):
             self.assertNotIn(word, w["evidence"]["controls"], "no control changes anything")

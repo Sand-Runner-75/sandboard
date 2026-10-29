@@ -422,7 +422,7 @@
       ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
       ctx.fillStyle = ink; ctx.font = "600 18px " + FONT; ctx.fillText(clip(ctx, r.repo, W - 200), PAD, 30);
       ctx.fillStyle = muted; ctx.font = "13px " + MONO;
-      ctx.fillText(clip(ctx, String(shown[k].date || "").slice(0, 10) + " · " + shown[k].msg, W - PAD * 2), PAD, 52);
+      ctx.fillText(clip(ctx, (SB.localDay(shown[k].date) || "") + " · " + shown[k].msg, W - PAD * 2), PAD, 52);
       ctx.textAlign = "right"; ctx.fillText((k + 1) + "/" + n, W - PAD, 30);
       if (img) ctx.drawImage(img, PAD, HEAD, W0 * scale, H0 * scale);
       ctx.textAlign = "left"; ctx.font = "12px " + MONO;
@@ -560,7 +560,7 @@
       const all = el("details", { id: "ct-all", ontoggle: e => { if (e.currentTarget.open) e.currentTarget.append(el("ol", { class: "ct-paths mono" }, [...s.files.keys()].sort().map(p => el("li", {}, p)))); else { const ol = e.currentTarget.querySelector("ol"); if (ol) ol.remove(); } } },
         el("summary", {}, "Every file in the tree now (" + s.files.size.toLocaleString("en") + (s.over.size ? ", and " + s.over.size.toLocaleString("en") + " not drawn" : "") + ")"));
       filesBody.replaceChildren(
-        el("p", {}, c ? "Commit " + s.k + " of " + n + ": " + (SB.localDay ? SB.localDay(c.date) || "" : String(c.date || "").slice(0, 10)) + ", " + c.msg + " by " + c.author + (c.inferred ? " (named from the pull request's branch)" : "") : "Before the first commit played: the files the playback starts with."),
+        el("p", {}, c ? "Commit " + s.k + " of " + n + ": " + (SB.localDay(c.date) || "no time given") + ", " + c.msg + " by " + c.author + (c.inferred ? " (named from the pull request's branch)" : "") : "Before the first commit played: the files the playback starts with."),
         c ? (c.files.length ? el("ul", { class: "ct-paths mono", id: "ct-changed", "aria-label": "Files this commit changed" }, c.files.map(f => el("li", {}, (STATUS[f.s] || f.s) + ": " + f.p + (f.prev ? " (was " + f.prev + ")" : ""))))
           : el("p", { class: "muted" }, "No files listed for this commit.")) : null,
         all);
@@ -573,7 +573,7 @@
       cap.hidden = !s.over.size;
       cap.textContent = s.over.size ? s.over.size.toLocaleString("en") + " files not drawn (the tree shows at most " + T.MAX_FILES.toLocaleString("en") + ")" : "";
       if (filesBox.open && listed !== s.k && !listing) listing = setTimeout(list, 250);
-      cv.setAttribute("aria-label", "Code tree at commit " + s.k + " of " + n + (s.k && c ? ": " + String(c.date || "").slice(0, 10) + ", " + c.msg + " by " + c.author : "") +
+      cv.setAttribute("aria-label", "Code tree at commit " + s.k + " of " + n + (s.k && c ? ": " + (SB.localDay(c.date) || "no time given") + ", " + c.msg + " by " + c.author : "") +
         ". " + s.files.size.toLocaleString("en") + " files. " + TREE_HINT);
     }
     function seek(k) {

@@ -14,15 +14,15 @@
   Object.assign(V.TIPS, {
     "History": "The commits behind the commit this project reads, newest first, with the branches compared against it and the tags that point into it. Only what was read is drawn.",
     "Ahead and behind": "GitHub's count of commits a branch has that the read commit does not (ahead), and the other way round (behind).",
-    "Commits per week": "Commits read here, counted by the week they were committed (weeks start on Monday, UTC). It is activity, not progress.",
-    "Commits by day": "Commits read here, counted by the day they were committed (UTC). This is not GitHub's contribution calendar, which is account-wide.",
+    "Commits per week": "Commits read here, counted by the week they were committed (weeks start on Monday, in your time zone). It is activity, not progress.",
+    "Commits by day": "Commits read here, counted by the day they were committed, in your time zone. This is not GitHub's contribution calendar, which is account-wide.",
     "Contributors": "GitHub accounts that made the commits read here, by login only. Commits not linked to an account are counted, not named.",
   });
 
   const tip = (node, key) => { node.setAttribute("data-tip", V.TIPS[key] || key); return node; };
   const lab = (text, key) => tip(el("p", { class: "label" }, text), key || text);
   const short = sha => sha.slice(0, 7);
-  const day = t => typeof t === "string" ? t.slice(0, 10) : null;
+  const day = t => typeof t === "string" ? SB.localDay(t) || t.slice(0, 10) : null;
   const plural = (n, one, many) => n.toLocaleString("en") + " " + (n === 1 ? one : many || one + "s");
   const stateName = res => (STATE[res.state] || STATE.failed)[2];
   const ZOOMS = [1, 1.5, 2];

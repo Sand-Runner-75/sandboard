@@ -30,6 +30,10 @@ The first usable workspace, built on the read-only data layer in [DATA-LAYER.md]
 
 Words and symbols that are not self-explanatory (statuses, figure labels, stages, phases, dots, evidence, repository roles, the commit line, tab sources) show a short explanation in a bubble when the pointer rests on them for a little over a second, or at once when the keyboard moves to them. In the left tree they show only for the keyboard, never on hover. The bubble can be hovered, goes when the pointer or focus leaves, and Esc hides it. The help dialog lists every explanation under "Words used here".
 
+## Times
+
+Every time is shown in the viewer's own time zone, as their device reports it, with the zone named ("2026-10-29 05:20 UTC+3"); table columns say "your time". Commits per week and by day are counted on the viewer's local calendar days, with weeks starting on Monday. No location is looked up and nothing about the zone leaves the browser. Dates written in plan files (a task's start or approval date) are shown as written.
+
 ## States
 
 Every surface shows one of the data layer's states with a glyph, a title and a sentence, never a blank or a zero standing in for "unknown": loading, empty, no match, missing, denied, rate limited, invalid, stale, unavailable, partial, failed and none. A phase with no rows says "No active work", never 0% or 100%. Phase dots show one dot per row up to 40 rows, then one dot per status with its exact count. Stale progress is never shown as figures. Invalid table rows are listed with their line and raw text.

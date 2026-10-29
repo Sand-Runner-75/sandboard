@@ -5,6 +5,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { loadSB, sha } = require("./helpers");
 
+process.env.TZ = "UTC";  // dates in tips read as a viewer in UTC would see them; other zones are in localtime.test.js
 const SB = loadSB();
 const REPO = "acme/garden";
 const K = SB.historyKey;

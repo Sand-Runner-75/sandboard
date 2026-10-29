@@ -21,8 +21,8 @@
 
   const tip = (node, key) => { node.setAttribute("data-tip", V.TIPS[key] || key); return node; };
   const short = sha => typeof sha === "string" ? sha.slice(0, 7) : "";
-  const when = t => typeof t === "string" ? t.slice(0, 16).replace("T", " ") + " UTC" : "";
-  const at = t => el("span", { title: t }, t.slice(0, 16).replace("T", " "));
+  const when = t => typeof t === "string" ? SB.localWhen(t) || t : "";
+  const at = t => el("span", { title: SB.localWhen(t) || t }, SB.localStamp(t) || t);
   const plural = (n, one, many) => n.toLocaleString("en") + " " + (n === 1 ? one : many || one + "s");
   const stateName = res => (STATE[res.state] || STATE.failed)[2];
   const muted = text => el("span", { class: "muted" }, text);
@@ -128,7 +128,7 @@
       if (open) body.append(el("tr", { class: "detail", "data-detail": String(pr.number) }, el("td", { colspan: 8 }, evidence(A, name, pr))));
     }
     return el("div", { class: "table-wrap" }, el("table", { class: "grid-table" },
-      el("thead", {}, el("tr", {}, ["Pull request", "Title", "State", "Author", "Branch", "Head", "Updated (UTC)", "Evidence"].map(t => el("th", { scope: "col" }, t)))), body));
+      el("thead", {}, el("tr", {}, ["Pull request", "Title", "State", "Author", "Branch", "Head", "Updated (your time)", "Evidence"].map(t => el("th", { scope: "col" }, t)))), body));
   }
 
   // A pull request's reviews, each at its own commit, and the check runs at its current head.
@@ -160,7 +160,7 @@
     const stateText = i => i.state === "open" ? "Open" : i.reason === "not_planned" ? "Closed: not planned" : i.reason === "completed" ? "Closed: completed"
       : i.reason === "duplicate" ? "Closed: duplicate" : "Closed";
     return el("div", { class: "table-wrap" }, el("table", { class: "grid-table" },
-      el("thead", {}, el("tr", {}, ["Issue", "Title and labels", "State", "Author", "Assignees", "Comments", "Opened (UTC)"].map(t => el("th", { scope: "col" }, t)))),
+      el("thead", {}, el("tr", {}, ["Issue", "Title and labels", "State", "Author", "Assignees", "Comments", "Opened (your time)"].map(t => el("th", { scope: "col" }, t)))),
       el("tbody", {}, issues.map(i => el("tr", { "data-issue": String(i.number) },
         el("th", { scope: "row" }, link(web && web + "/issues/" + i.number, "#" + i.number)),
         el("td", { class: "wide" }, el("span", { class: "ev-title" }, i.title),
@@ -175,7 +175,7 @@
 
   function runTable(web, runs) {
     return el("div", { class: "table-wrap" }, el("table", { class: "grid-table" },
-      el("thead", {}, el("tr", {}, ["Run", "Title and event", "Branch and head", "Result", "Duration", "Started (UTC)"].map(t => el("th", { scope: "col" }, t)))),
+      el("thead", {}, el("tr", {}, ["Run", "Title and event", "Branch and head", "Result", "Duration", "Started (your time)"].map(t => el("th", { scope: "col" }, t)))),
       el("tbody", {}, runs.map(r => {
         const o = SB.runOutcome(r);
         const [text, cls] = o.done ? RESULT[o.outcome] || RESULT.other : ["Not finished: no result yet", "st-review hollow"];

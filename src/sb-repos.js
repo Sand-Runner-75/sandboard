@@ -29,8 +29,8 @@
   Object.assign(V.TIPS, TIPS);
   const tip = (node, key) => { node.setAttribute("data-tip", V.TIPS[key] || key); return node; };
   const lab = (text, key) => tip(el("p", { class: "label" }, text), key || text);
-  const day = t => typeof t === "string" ? t.slice(0, 10) : null;
-  const when = t => typeof t === "string" ? t.slice(0, 16).replace("T", " ") + " UTC" : "";
+  const day = t => typeof t === "string" ? SB.localDay(t) || t.slice(0, 10) : null;
+  const when = t => typeof t === "string" ? SB.localWhen(t) || t : "";
   const notGiven = () => el("span", { class: "muted" }, "Not given by GitHub");
   const shown = (v, fmt) => v === null || v === undefined ? notGiven() : fmt ? fmt(v) : String(v);
   const plural = (n, one, many) => n + " " + (n === 1 ? one : many || one + "s");
@@ -255,7 +255,7 @@
     const x0 = Math.min(...xs), x1 = Math.max(...xs, x0 + 864e5), y1 = Math.max(...ys, 1);
     const plot = el("div", { class: "plot", role: "img", "aria-label": "Stars against last push for " + plural(points.length, "repository", "repositories") + "; the same values are in the table below." },
       el("span", { class: "tick y1" }, String(y1)), el("span", { class: "tick y0" }, "0"),
-      el("span", { class: "tick x0" }, day(new Date(x0).toISOString())), el("span", { class: "tick x1" }, day(new Date(x1).toISOString())));
+      el("span", { class: "tick x0" }, SB.localDay(x0)), el("span", { class: "tick x1" }, SB.localDay(x1)));
     const area = el("div", { class: "plot-area" });
     points.forEach((p, i) => {
       const dot = el("span", { class: "pt", "data-tip": p.repo + ": " + plural(p.stars, "star") + ", last push " + day(p.pushed) });

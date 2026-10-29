@@ -54,7 +54,8 @@ function privateRepos() {
   const out = { errors: [], requests: [], dialogs: 0 };
 
   async function open(opts = {}) {
-    const context = await browser.newContext(Object.assign({ viewport: { width: 1280, height: 900 } }, opts));
+    // A viewer in UTC unless a check names another zone; times are shown in the viewer's own zone.
+    const context = await browser.newContext(Object.assign({ viewport: { width: 1280, height: 900 }, timezoneId: "UTC" }, opts));
     const page = await context.newPage();
     page.on("pageerror", e => out.errors.push(e.message));
     // A refused reply from the mock API is logged by the browser itself; anything else is a page error.
@@ -910,6 +911,18 @@ function privateRepos() {
   await tree(p, "r:demo:example-org/demo-plan"); await p.waitForTimeout(400);
   await p.click("#rs-runs"); await p.waitForTimeout(800);
   wo.planRuns = await workNow();
+  // The same closed pull requests for a viewer in UTC+3: each time moves to their zone and names it.
+  const utcPage = p;
+  p = await open({ timezoneId: "Asia/Riyadh" });
+  await demo(p);
+  await tree(p, "repos:demo"); await p.waitForTimeout(150);
+  await tree(p, "r:demo:example-org/demo-app"); await p.waitForTimeout(400);
+  await p.focus("#rs-history"); await p.keyboard.press("ArrowRight"); await p.waitForTimeout(800);
+  await p.click("#wf-closed"); await p.waitForTimeout(800);
+  wo.zone = Object.assign(await workNow(), { heads: await p.$$eval("#rs-panel th[scope=col]", n => n.map(x => x.textContent)),
+    updated: await p.$$eval("tr[data-pull] td.num span[title]", n => n.map(x => [x.textContent, x.title])) });
+  await p.context().close();
+  p = utcPage;
   await tree(p, "a:inbox"); await p.waitForTimeout(1500);
   const inboxNow = () => p.evaluate(() => ({ head: document.getElementById("view-h").textContent,
     mine: [...document.querySelectorAll("[data-part=inbox-mine] li")].map(n => n.dataset.pull),

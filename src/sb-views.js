@@ -783,7 +783,7 @@
   // ---- A task's review cycle (F008): evidence read live from GitHub, each kind shown apart.
   // Nothing here sends, approves or merges; a review, a passing check or a merge is never owner approval.
 
-  const when = t => typeof t === "string" ? t.slice(0, 16).replace("T", " ") + " UTC" : "";
+  const when = t => typeof t === "string" ? SB.localWhen(t) || t : "";
 
   function cycleView(S, A, entry, task, tab, approved, fact) {
     const box = el("div", { class: "stack tight cycle", "data-part": "cycle" });

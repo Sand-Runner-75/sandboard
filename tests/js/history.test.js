@@ -251,6 +251,7 @@ test("only the first branches are compared until the owner asks for another", ()
 });
 
 test("weeks start on Monday and count only inside the commits read; logins are counted, the rest only counted", () => {
+  const zone = process.env.TZ; process.env.TZ = "UTC";  // a viewer in UTC; other zones are in localtime.test.js
   const t = SB.commitTimes([row("a", [], "2026-01-07T10:00:00Z"), row("b", [], "2026-01-05T00:30:00Z"), row("c", [], "2025-12-28T23:00:00Z"),
                             Object.assign(row("d", []), { at: null })]);
   assert.deepEqual(t.weeks, [{ week: "2025-12-22", n: 1 }, { week: "2025-12-29", n: 0 }, { week: "2026-01-05", n: 2 }]);
@@ -259,6 +260,7 @@ test("weeks start on Monday and count only inside the commits read; logins are c
   assert.deepEqual([t.from, t.to], ["2025-12-28", "2026-01-07"]);
   assert.deepEqual([t.weekSpan, t.daySpan], [3, 11]);
   assert.deepEqual(SB.commitTimes([]).weeks, []);
+  if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone;
   const c = SB.contributors([row("a", [], null, "agent-b"), row("b", [], null, "agent-a"), row("c", [], null, "agent-b"), row("d", [])]);
   assert.deepEqual(c.logins, [{ login: "agent-b", n: 2 }, { login: "agent-a", n: 1 }]);
   assert.equal(c.unlinked, 1);
