@@ -1859,8 +1859,17 @@ function privateRepos() {
   await p.click("#layout-calendar"); await p.waitForTimeout(500);
   tv.month = await text(p, "#cal-h");
   tv.chips = await p.$$eval(".cal-chip", n => n.length);
+  // A day with more events than shown opens all of them from the keyboard, repeated tasks included.
+  tv.more = await p.$$eval(".cal-more", n => n.map(b => [b.id, b.textContent, b.getAttribute("aria-expanded")]));
+  await p.focus("#cal-more-2026-01-09"); await p.keyboard.press("Enter"); await p.waitForTimeout(200);
+  tv.opened = [await p.$$eval("td[aria-label^='9 Jan'] .cal-chip", n => n.map(x => x.textContent)), await p.evaluate(() => [document.activeElement.id, document.activeElement.getAttribute("aria-expanded")])];
+  await p.keyboard.press("Tab"); await p.waitForTimeout(50);
+  tv.afterMore = await p.evaluate(() => document.activeElement.className);
   await p.click("#cal-next"); await p.waitForTimeout(300);
   tv.next = [await text(p, "#cal-h"), await p.$$eval(".cal-chip", n => n.length), await p.evaluate(() => document.activeElement.id)];
+  // Latest activity leaves the page, so the focus goes to the month's heading, which can hold it.
+  await p.focus("#cal-latest"); await p.keyboard.press("Enter"); await p.waitForTimeout(300);
+  tv.latest = [await text(p, "#cal-h"), await p.evaluate(() => [document.activeElement.id, document.activeElement.tabIndex])];
   await p.setViewportSize({ width: 390, height: 900 }); await p.waitForTimeout(200);
   tv.phone = await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   await p.close();

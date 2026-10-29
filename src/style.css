@@ -608,6 +608,8 @@ rect.ac-l4 { fill: var(--accent); } i.ac-l4 { background: var(--accent); }
 .cal td.out { background: var(--sunken); color: var(--muted); }
 .cal td.today .cal-day { color: var(--accent); font-weight: 700; }
 .cal-day { font-size: 0.8rem; }
+.cal-more { font-size: 0.72rem; }
+.cal-title:focus { outline-offset: 2px; }
 .cal-items { list-style: none; margin: 2px 0 0; padding: 0; display: grid; gap: 2px; }
 .cal-chip { display: block; width: 100%; border: 0; border-radius: 4px; padding: 1px 5px; font: inherit; font-size: 0.72rem; text-align: left; cursor: pointer;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: color-mix(in srgb, currentColor 9%, var(--surface)); }

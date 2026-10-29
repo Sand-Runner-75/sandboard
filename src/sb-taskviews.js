@@ -13,6 +13,8 @@
   const LAYOUTS = [["list", "List"], ["board", "Board"], ["table", "Table"], ["timeline", "Timeline"], ["calendar", "Calendar"]];
   const BOARD = ["Not Started", "In Progress", "Blocked", "Ready for Review", "Done", "Removed"];
   const TIMELINE_COLS = { weeks: 26, months: 18 };
+  // Events shown on a calendar day before "+N more", which shows the rest of that day.
+  const CAL_SHOWN = 2;
   const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const SHORT = MONTHS.map(m => m.slice(0, 3));
   const EVENT = { commit: "Commit", opened: "Opened", merged: "Merged", closed: "Closed", handoff: "Handoff" };
@@ -156,7 +158,7 @@
     const title = MONTHS[+month.slice(5) - 1] + " " + month.slice(0, 4);
     box.append(el("div", { class: "cal-bar" },
       el("button", { type: "button", class: "btn ghost", id: "cal-prev", "aria-label": "Previous month", onclick: () => A.calMonth(SB.shiftMonth(month, -1), "cal-prev") }, "‹"),
-      el("h3", { id: "cal-h", class: "cal-title", "aria-live": "polite" }, title),
+      el("h3", { id: "cal-h", class: "cal-title", tabindex: "-1", "aria-live": "polite" }, title),
       el("button", { type: "button", class: "btn ghost", id: "cal-next", "aria-label": "Next month", onclick: () => A.calMonth(SB.shiftMonth(month, 1), "cal-next") }, "›"),
       newest && newest.slice(0, 7) !== month ? el("button", { type: "button", class: "btn ghost", id: "cal-latest", onclick: () => A.calMonth(newest.slice(0, 7), "cal-latest") }, "Latest activity") : null));
     const today = SB.localDay(Date.now());
@@ -169,10 +171,11 @@
         inMonth += items.length;
         return el("td", { class: (day.slice(0, 7) !== month ? "out" : "") + (day === today ? " today" : ""), "aria-label": dayName(day) + (items.length ? ", " + plural(items.length, "event") : "") },
           el("div", { class: "cal-day" }, String(+day.slice(8))),
-          items.length ? el("ul", { class: "cal-items" }, items.slice(0, 4).map(({ t, ev }) => el("li", {},
+          items.length ? el("ul", { class: "cal-items" }, (S.calDay === day ? items : items.slice(0, CAL_SHOWN)).map(({ t, ev }) => el("li", {},
             el("button", { type: "button", class: "cal-chip st-" + (STATUS_CLASS[t.status] || "invalid"), "data-task": t.id,
               title: EVENT[ev.kind] + " " + ev.id + ": " + ev.title, onclick: () => A.select(t.id) }, EVENT[ev.kind] + " " + t.id))),
-            items.length > 4 ? el("li", { class: "qual muted" }, "+" + (items.length - 4) + " more") : null) : null);
+            items.length > CAL_SHOWN ? el("li", {}, el("button", { type: "button", class: "linkbtn cal-more", id: "cal-more-" + day, "aria-expanded": String(S.calDay === day),
+              onclick: () => A.calDay(S.calDay === day ? null : day, "cal-more-" + day) }, S.calDay === day ? "Show fewer" : "+" + (items.length - CAL_SHOWN) + " more")) : null) : null);
       })))))));
     if (!inMonth) box.append(el("p", { class: "muted plain" }, act.loading && !act.events.length ? "Reading the project's activity." : "No activity read names these tasks in " + title + "."));
     box.append(...coverage(act, dates.size, rows));

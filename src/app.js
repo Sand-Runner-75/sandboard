@@ -78,7 +78,7 @@
       // it shows, how many commits each repository's branch graph shows, each drawn graph kept with what it
       // was drawn from, and whether the account's public profile and activity were asked for.
       // Tasks: the layout they are shown in, the timeline's scale and the calendar's month (null: the newest activity's).
-      taskLayout: "list", tlZoom: "weeks", calMonth: null,
+      taskLayout: "list", tlZoom: "weeks", calMonth: null, calDay: null,
       homeWork: "Ready for Review", major: "dashboard", atlas: { part: "repo", repo: null, show: new Map(), boxes: new Map(), trees: new Map(), account: false, extras: false, starQ: "", vs: null, vsAsk: "", vsSaid: null, badge: false, badgeTheme: "dark" },
     };
   }
@@ -776,8 +776,15 @@
     },
     calMonth(month, focus) {
       S.calMonth = month;
+      S.calDay = null;
       render();
       const n = $(focus) || $("cal-h"); if (n) n.focus();
+    },
+    // One calendar day shown with all of its events, or none; the focus stays on its button.
+    calDay(day, focus) {
+      S.calDay = day;
+      render();
+      const n = $(focus); if (n) n.focus();
     },
     homeWork(status, focus) {
       S.homeWork = status;
@@ -962,7 +969,7 @@
     // A bubble showing for a node gets the node's new text.
     retip(node) { if (tipFor === node && !tipBox.hidden) tipBox.textContent = node.getAttribute("data-tip"); },
     go(project, view, opts) {
-      if (project !== S.current) { S.filters = noFilters(); S.selected = null; S.calMonth = null; }
+      if (project !== S.current) { S.filters = noFilters(); S.selected = null; S.calMonth = null; S.calDay = null; }
       S.current = project;
       S.view = view;
       S.activeTab = null;

@@ -1213,8 +1213,13 @@ class BrowserTest(unittest.TestCase):
         self.assertTrue(tv["barStyle"], "positions are set from script as plain percentages")
         self.assertEqual(tv["months"], ["Jan 2026"])
         self.assertEqual(tv["picked"], 1, "a bar opens the task's details")
-        self.assertEqual((tv["month"], tv["chips"]), ("January 2026", 19))
+        self.assertEqual((tv["month"], tv["chips"]), ("January 2026", 15), "19 events, at most 2 shown a day")
+        self.assertEqual([m[1:] for m in tv["more"]], [["+1 more", "false"]] * 4)
+        self.assertEqual(tv["opened"], [["Handoff DT101", "Commit DT101", "Handoff DT101"], ["cal-more-2026-01-09", "true"]],
+                         "the day's button shows every event, a task named again included, and keeps the focus")
+        self.assertTrue(tv["afterMore"].startswith("cal-chip"), "the next Tab reaches the next event")
         self.assertEqual(tv["next"], ["February 2026", 0, "cal-next"])
+        self.assertEqual(tv["latest"], ["January 2026", ["cal-h", -1]], "the focus lands on the month's heading when Latest activity goes")
         self.assertTrue(tv["phone"], "no sideways page scroll on a phone")
 
     def test_text_grows_a_little_with_the_screen(self):
