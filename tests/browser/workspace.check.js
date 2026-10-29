@@ -906,6 +906,30 @@ function privateRepos() {
   wo.issuesAll = await workNow();
   await p.click("#rs-runs"); await p.waitForTimeout(800);
   wo.runs = await workNow();
+  // Actions filters: GitHub filters by workflow, result, trigger, branch, who started it and created days;
+  // the search keeps runs read; Clear filters brings the whole list back.
+  const runIds = () => p.$$eval("tr[data-run]", n => n.map(x => x.dataset.run));
+  const pick = async (id, value) => { await p.selectOption("#" + id, value); await p.waitForTimeout(500); };
+  const typeIn = async (id, value) => { await p.fill("#" + id, value); await p.press("#" + id, "Enter"); await p.waitForTimeout(500); };
+  const rf = wo.runFilters = {};
+  rf.workflows = await p.$$eval("#af-workflow option", n => n.map(x => x.textContent));
+  rf.clearOff = await p.$eval("#af-clear", b => b.disabled);
+  await pick("af-status", "failure"); rf.failure = await runIds(); rf.focus = await p.evaluate(() => document.activeElement.id);
+  rf.label = await p.$eval("[data-part=work-coverage]", n => n.textContent).catch(() => "");
+  await pick("af-status", ""); await pick("af-workflow", { label: "Tests" }); rf.tests = await runIds();
+  await pick("af-workflow", ""); await pick("af-event", "schedule"); rf.schedule = await runIds();
+  await pick("af-event", ""); await typeIn("af-branch", "feature/search"); rf.branch = await runIds();
+  await typeIn("af-branch", ""); await typeIn("af-from", "2026-01-15"); rf.from = await runIds();
+  await typeIn("af-to", "2026-01-14"); rf.backwards = { ids: await runIds(), note: await p.$eval("[data-part=run-filter-note]", n => n.textContent).catch(() => "") };
+  await p.click("#af-clear"); await p.waitForTimeout(500);
+  rf.cleared = { ids: await runIds(), off: await p.$eval("#af-clear", b => b.disabled), focus: await p.evaluate(() => document.activeElement.id) };
+  await typeIn("af-actor", "not a login"); rf.badActor = { ids: await runIds(), note: await p.$eval("[data-part=run-filter-note]", n => n.textContent).catch(() => "") };
+  await typeIn("af-actor", "demo-claude"); rf.actor = await runIds();
+  await p.click("#af-clear"); await p.waitForTimeout(400);
+  await p.type("#af-q", "night"); await p.waitForTimeout(400);
+  rf.search = { ids: await runIds(), note: await p.$eval("[data-part=run-search]", n => n.textContent).catch(() => ""), focus: await p.evaluate(() => document.activeElement.id),
+                value: await p.$eval("#af-q", n => n.value) };
+  await p.click("#af-clear"); await p.waitForTimeout(400);
   await p.click("#rs-releases"); await p.waitForTimeout(800);
   wo.releases = Object.assign(await workNow(), { assets: await p.$$eval("[data-part=releases] details li", n => n.map(x => x.textContent)) });
   await tree(p, "r:demo:example-org/demo-plan"); await p.waitForTimeout(400);
