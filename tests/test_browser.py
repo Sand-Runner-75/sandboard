@@ -401,12 +401,12 @@ class BrowserTest(unittest.TestCase):
     def test_layouts_and_themes(self):
         lay = self.r["layout"]
         for width in (320, 390, 860, 1280):
-            for theme, bg in (("light", "rgb(243, 245, 248)"), ("dark", "rgb(15, 20, 26)")):
+            for theme, bg in (("light", "rgb(248, 247, 244)"), ("dark", "rgb(25, 24, 22)")):
                 r = lay[f"{width}{theme}"]
                 self.assertEqual((r["overview"], r["tasks"]), (0, 0), f"{width} {theme}: no sideways scroll")
                 self.assertEqual(r["bg"], bg)
                 self.assertEqual(r["menuShown"], width <= 860)
-        self.assertEqual(lay["switched"], ["light", "rgb(243, 245, 248)"])
+        self.assertEqual(lay["switched"], ["light", "rgb(248, 247, 244)"])
 
     def test_targets_focus_and_roles(self):
         for width, a in self.r["a11y"].items():
@@ -976,6 +976,11 @@ class BrowserTest(unittest.TestCase):
                          "only the project IDs are stored, under one key")
         self.assertEqual(o["reloaded"], o["keyed"], "the order survives a reload in the same browser")
 
+    def test_hollow_status_marks_keep_their_colour_in_both_themes(self):
+        m = self.r["work"]["marks"]
+        self.assertEqual(m["count"], 3, "closed issues are shown with hollow marks")
+        self.assertEqual((m["light"], m["dark"], m["releases"]), ([], [], []), "every mark's ring is its pill's colour")
+
     def test_work_evidence_tabs_list_pull_requests_with_reviews_at_their_own_commit(self):
         w = self.r["work"]
         self.assertEqual(w["pulls"]["tabs"], ["Overview", "History", "Pull requests", "Issues", "Actions", "Releases", "Files"])
@@ -1215,11 +1220,23 @@ class BrowserTest(unittest.TestCase):
     def test_framed_page_refuses_to_show(self):
         self.assertEqual(self.r["framed"], {"state": "This page cannot be shown inside another site.", "shell": "hidden"})
 
+    def test_settings_keep_density_and_accent_in_this_browser_only(self):
+        look = self.r["look"]
+        self.assertEqual(look["before"], ["", "", 0], "nothing stored before a choice")
+        self.assertTrue(look["open"])
+        self.assertEqual((look["focused"], look["checked"]), ("violet", ["violet"]))
+        self.assertEqual(look["after"], ["compact", "violet", "#5f42a3"])
+        self.assertEqual(look["stored"], [["sandboard.look", '{"density":"compact","accent":"violet"}']])
+        self.assertEqual(look["reloaded"], ["compact", "violet"])
+        self.assertEqual(look["junk"], ["", ""])
+        self.assertGreaterEqual(len(look["marks"]), 5)
+        self.assertEqual([m for m in look["marks"] if not m[1]], [], "every status mark's ring is drawn in its status colour")
+
     def test_text_grows_a_little_with_the_screen(self):
         size = {w: [float(v[:-2]) for v in vals] for w, vals in self.r["textSize"].items()}
         self.assertEqual(size["390"], [16, 14], "phones keep the browser's own size")
         self.assertGreater(size["1280"][1], 14)
-        self.assertEqual(size["1920"], [18, 15.75], "never more than an eighth above it")
+        self.assertEqual(size["1920"], [16.96, 14.84], "never more than 6% above it")
 
 
 @unittest.skipUnless(PLAYWRIGHT, "Node.js and Playwright are needed for the browser checks")

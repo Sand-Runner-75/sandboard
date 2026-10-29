@@ -42,6 +42,14 @@
     write(ids) { try { window.localStorage.setItem(ORDER_KEY, JSON.stringify(ids)); } catch (e) { /* kept for this visit */ } },
   };
 
+  // The look chosen in Settings (density and accent colour) is the one other thing kept in this browser,
+  // by the owner's choice: two plain words under one key, never anything read from GitHub.
+  const LOOK_KEY = "sandboard.look";
+  const lookStore = {
+    read() { try { return SB.savedLook(window.localStorage.getItem(LOOK_KEY)); } catch (e) { return SB.savedLook(null); } },
+    write(look) { try { window.localStorage.setItem(LOOK_KEY, JSON.stringify(look)); } catch (e) { /* kept for this visit */ } },
+  };
+
   // Everything shown comes from here, and everything here is dropped on sign-out.
   function freshState() {
     return {
@@ -1261,6 +1269,21 @@
     for (const b of document.querySelectorAll("[data-theme-choice]")) b.setAttribute("aria-pressed", String(b.dataset.themeChoice === choice));
   }
 
+  // ---- Look: density and accent colour, from Settings
+  let look = lookStore.read();
+  function applyLook(next, keep) {
+    look = SB.savedLook(JSON.stringify(next));
+    if (look.density === "comfortable") root.removeAttribute("data-density"); else root.setAttribute("data-density", look.density);
+    if (look.accent === "blue") root.removeAttribute("data-accent"); else root.setAttribute("data-accent", look.accent);
+    for (const b of document.querySelectorAll("[data-density-choice]")) b.setAttribute("aria-pressed", String(b.dataset.densityChoice === look.density));
+    for (const b of document.querySelectorAll("[data-accent-choice]")) {
+      const on = b.dataset.accentChoice === look.accent;
+      b.setAttribute("aria-checked", String(on));
+      b.tabIndex = on ? 0 : -1;
+    }
+    if (keep) lookStore.write(look);
+  }
+
   function setMenu(open) {
     $("shell").classList.toggle("menu-open", open);
     $("menu").setAttribute("aria-expanded", String(open));
@@ -1340,6 +1363,22 @@
   $("refresh").addEventListener("click", refresh);
   $("goto-open").addEventListener("click", openGoto);
   $("help-open").addEventListener("click", () => helpBox.showModal());
+  $("settings-open").addEventListener("click", () => $("settings").showModal());
+  $("settings-close").addEventListener("click", () => $("settings").close());
+  for (const b of document.querySelectorAll("[data-density-choice]")) b.addEventListener("click", () => applyLook({ ...look, density: b.dataset.densityChoice }, true));
+  const swatches = [...document.querySelectorAll("[data-accent-choice]")];
+  for (const b of swatches) {
+    b.addEventListener("click", () => applyLook({ ...look, accent: b.dataset.accentChoice }, true));
+    b.addEventListener("keydown", e => {
+      const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+      if (!step) return;
+      e.preventDefault();
+      const next = swatches[(swatches.indexOf(b) + step + swatches.length) % swatches.length];
+      applyLook({ ...look, accent: next.dataset.accentChoice }, true);
+      next.focus();
+    });
+  }
+  applyLook(look, false);
   $("help-close").addEventListener("click", () => helpBox.close());
   $("menu").addEventListener("click", () => {
     const open = !$("shell").classList.contains("menu-open");
@@ -1359,7 +1398,7 @@
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
       if (gotoBox.open) gotoBox.close(); else openGoto();
-    } else if (gotoBox.open || helpBox.open) {
+    } else if (gotoBox.open || helpBox.open || $("settings").open) {
       return;
     } else if (e.key === "/" && !typing && S.signedIn) {
       const entry = entryOf(S.current);

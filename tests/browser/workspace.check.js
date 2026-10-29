@@ -904,6 +904,12 @@ function privateRepos() {
   wo.issues = await workNow();
   await p.click("#wf-all"); await p.waitForTimeout(800);
   wo.issuesAll = await workNow();
+  // Every status mark on the page, hollow ones of closed issues included, keeps its pill's colour, in both themes.
+  const badMarks = () => p.$$eval(".pill", n => n.filter(x => getComputedStyle(x, "::before").borderTopColor !== getComputedStyle(x).color).map(x => x.className + ": " + x.textContent));
+  wo.marks = { count: await p.$$eval(".pill.hollow", n => n.length), light: await badMarks() };
+  await p.click('[data-theme-choice="dark"]'); await p.waitForTimeout(100);
+  wo.marks.dark = await badMarks();
+  await p.click('[data-theme-choice="device"]'); await p.waitForTimeout(100);
   await p.click("#rs-runs"); await p.waitForTimeout(800);
   wo.runs = await workNow();
   // Actions filters: GitHub filters by workflow, result, trigger, branch, who started it and created days;
@@ -938,6 +944,7 @@ function privateRepos() {
   await p.click("#af-clear"); await p.waitForTimeout(400);
   await p.click("#rs-releases"); await p.waitForTimeout(800);
   wo.releases = Object.assign(await workNow(), { assets: await p.$$eval("[data-part=releases] details li", n => n.map(x => x.textContent)) });
+  wo.marks.releases = await badMarks();
   await tree(p, "r:demo:example-org/demo-plan"); await p.waitForTimeout(400);
   await p.click("#rs-runs"); await p.waitForTimeout(800);
   wo.planRuns = await workNow();
@@ -1825,6 +1832,39 @@ function privateRepos() {
   const frame = p.frames()[1];
   out.framed = { state: await frame.textContent("#state"),
                  shell: await frame.evaluate(() => getComputedStyle(document.getElementById("shell")).visibility) };
+  await p.close();
+
+  // 14. Settings: density and accent change the page, are kept under one key as plain words, and come back
+  // after a reload; the swatches move with the arrow keys; junk under the key counts as the default.
+  p = await open();
+  await demo(p);
+  const look = out.look = {};
+  look.before = await p.evaluate(() => [document.documentElement.dataset.density || "", document.documentElement.dataset.accent || "", localStorage.length]);
+  await p.click("#settings-open"); await p.waitForTimeout(100);
+  look.open = await p.evaluate(() => document.getElementById("settings").open);
+  await p.click('[data-density-choice="compact"]');
+  await p.focus('[data-accent-choice="blue"]'); await p.keyboard.press("ArrowRight"); await p.keyboard.press("ArrowRight");
+  look.focused = await p.evaluate(() => document.activeElement.dataset.accentChoice);
+  look.checked = await p.$$eval("[data-accent-choice]", n => n.filter(b => b.getAttribute("aria-checked") === "true").map(b => b.dataset.accentChoice));
+  await p.keyboard.press("Escape");
+  look.after = await p.evaluate(() => [document.documentElement.dataset.density || "", document.documentElement.dataset.accent || "",
+    getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()]);
+  look.stored = await p.evaluate(() => Object.keys(localStorage).map(k => [k, localStorage.getItem(k)]));
+  await p.reload(); await p.waitForTimeout(200);
+  look.reloaded = await p.evaluate(() => [document.documentElement.dataset.density || "", document.documentElement.dataset.accent || ""]);
+  await p.evaluate(() => localStorage.setItem("sandboard.look", '{"density":"huge","accent":"red"}'));
+  await p.reload(); await p.waitForTimeout(200);
+  look.junk = await p.evaluate(() => [document.documentElement.dataset.density || "", document.documentElement.dataset.accent || ""]);
+  await p.close();
+  // Each pill's mark keeps its status colour: its ring is the pill's own colour, never the surface.
+  p = await open();
+  await demo(p);
+  await p.click("#tree [data-id='p:demo'] > .ti"); await p.waitForTimeout(800);
+  await p.keyboard.press("Control+k"); await p.keyboard.type("tasks"); await p.keyboard.press("Enter"); await p.waitForTimeout(1200);
+  look.marks = await p.$$eval("#task-list .pill", n => [...new Set(n.map(x => x.className))].map(c => {
+    const x = n.find(y => y.className === c);
+    return [c, getComputedStyle(x, "::before").borderTopColor === getComputedStyle(x).color];
+  }));
   await p.close();
 
   // Text grows a little with the screen, from the browser's own size to an eighth more.

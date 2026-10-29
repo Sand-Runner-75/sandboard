@@ -46,8 +46,11 @@
     const [kind, glyph, name, text] = STATE[state] || STATE.failed;
     return el("div", { class: "notice " + kind, role: kind === "info" ? "status" : "alert", "data-state": state },
       el("span", { class: "glyph", "aria-hidden": "true" }, glyph),
-      el("div", {}, el("b", {}, title || name), el("div", {}, detail || text)));
+      el("div", {}, el("b", {}, title || name), el("div", {}, detail || text), state === "loading" ? bars() : null));
   }
+  // Grey placeholder rows while something is read; the word is there for screen readers.
+  const bars = () => el("div", { class: "skel", "aria-hidden": "true" }, el("i"), el("i"), el("i"));
+  const loadingRows = () => el("div", { class: "loading-rows", role: "status" }, el("span", { class: "sr" }, "Loading"), bars());
 
   // Short explanations shown in a bubble on hover or keyboard focus (app.js shows them), and
   // listed in the help dialog for anyone who cannot hover.
@@ -772,7 +775,7 @@
     const commit = entry.plan.data.commit;
     const res = S.docs.get(A.docKey(entry.w.id, entry.w.plan.repo, commit, kind, files[kind], task.id));
     wrap.append(head(name + " · " + entry.w.plan.repo + " @ " + short(commit)));
-    if (!res || res.state === "loading") { wrap.append(el("p", { class: "muted plain" }, "Loading")); return wrap; }
+    if (!res || res.state === "loading") { wrap.append(loadingRows()); return wrap; }
     if (res.state !== "current") {
       wrap.append(res.state === "missing" ? el("p", { class: "muted plain" }, "No " + (kind === "crossref" ? "cross-reference file" : kind) + " for " + task.id + " at this commit.")
         : notice(res.state, res.error));
@@ -795,7 +798,7 @@
     if (!template) { box.append(el("p", { class: "muted plain" }, "This project has no cross-reference files.")); return box; }
     const commit = entry.plan.data.commit;
     const res = S.docs.get(A.docKey(entry.w.id, entry.w.plan.repo, commit, "crossref", template, task.id));
-    if (!res || res.state === "loading") { box.append(el("p", { class: "muted plain" }, "Loading")); return box; }
+    if (!res || res.state === "loading") { box.append(loadingRows()); return box; }
     if (res.state !== "current") {
       box.append(res.state === "missing" ? el("p", { class: "muted plain" }, "No cross-reference file for this task.") : notice(res.state, res.error));
       return box;
@@ -826,7 +829,7 @@
     // Pull requests, with their reviews, checks and merges.
     const prs = el("div", { class: "stack tight", "data-part": "cycle-pulls" }, lab("Pull requests and reviews"));
     const res = S.docs.get(A.cycleKey(entry, task.id));
-    if (!res || res.state === "loading") prs.append(el("p", { class: "muted plain" }, "Loading"));
+    if (!res || res.state === "loading") prs.append(loadingRows());
     else if (res.state === "no-match") {
       prs.append(el("p", { class: "muted plain" }, "No pull request in " + entry.w.plan.repo + " names " + task.id + " in its title (" +
         res.data.searched + " read" + (res.data.listState === "partial" ? "; the list was cut off" : "") + ")."));

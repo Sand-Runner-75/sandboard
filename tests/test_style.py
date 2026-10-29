@@ -49,6 +49,30 @@ class StyleTest(unittest.TestCase):
                 for g in grounds:
                     self.assertGreaterEqual(ratio(t[fg], t[g]), 3, f"{theme} {fg} on {g}")
 
+    def test_status_pills_keep_contrast_on_their_tint(self):
+        # A pill is its status colour on a 9% tint of that colour over the surface.
+        def mix(fg, bg, share):
+            f, g = ([int(h[i:i + 2], 16) for i in (1, 3, 5)] for h in (fg, bg))
+            return "#" + "".join("%02x" % round(a * share + b * (1 - share)) for a, b in zip(f, g))
+        self.assertIn("color-mix(in srgb, currentColor 9%, var(--surface))", self.css)
+        for theme, t in palettes(self.css).items():
+            for fg in ("s-done", "s-review", "s-progress", "s-blocked", "s-not", "s-removed", "bad-fg"):
+                self.assertGreaterEqual(ratio(t[fg], mix(t[fg], t["surface"], 0.09)), 4.5, f"{theme} {fg} pill")
+
+    def test_every_accent_keeps_contrast(self):
+        light = dict(re.findall(r':root\[data-accent="(\w+)"\] \{ --accent: (#[0-9a-f]{6}); \}', self.css))
+        dark = dict(re.findall(r':root\[data-theme="dark"\]\[data-accent="(\w+)"\] \{ --accent: (#[0-9a-f]{6}); \}', self.css))
+        media = dict(re.findall(r':root\[data-accent="(\w+)"\]:not\(\[data-theme="light"\]\) \{ --accent: (#[0-9a-f]{6}); \}', self.css))
+        self.assertEqual(set(light), {"teal", "violet", "rose", "amber", "graphite"})
+        self.assertEqual(dark, media)
+        pal = palettes(self.css)
+        for theme, accents in (("light", light), ("dark", dark)):
+            t = pal[theme]
+            for name, acc in accents.items():
+                for g in ("bg", "surface", "sunken", "info-bg"):
+                    self.assertGreaterEqual(ratio(acc, t[g]), 4.5, f"{theme} {name} on {g}")
+                self.assertGreaterEqual(ratio(t["accent-fg"], acc), 4.5, f"{theme} text on {name}")
+
     def test_focus_ring_is_three_pixels(self):
         self.assertIn(":focus-visible { outline: 3px solid var(--focus);", self.css)
 
