@@ -574,6 +574,8 @@
     if (session) session.forget();
     session = null;
     client = null;
+    // The Atlas's code trees and graph replays stop and let go of what they hold before the state goes.
+    V.atlasDispose(S.atlas);
     S = freshState();
     $("token").value = "";
     if (gotoBox.open) gotoBox.close();
@@ -956,9 +958,9 @@
     S.histDepth = new Map();
     S.histScroll = new Map();
     S.workDepth = new Map();
+    V.atlasDispose(S.atlas);
     S.atlas.show = new Map();
     S.atlas.boxes = new Map();
-    for (const t of S.atlas.trees.values()) if (t.view) t.view.stop();
     S.atlas.trees = new Map();
     S.search = freshState().search;  // a new run searches nothing read before it
     const ctx = session.start();  // same token, new run: replies to the old run are dropped
@@ -980,7 +982,11 @@
     for (const key of [...S.live.keys()]) if (repos.includes(SB.liveKeyRepo(key))) S.live.delete(key);
     for (const m of [S.histDepth, S.histScroll]) for (const key of [...m.keys()]) if (repos.includes(key.split("@")[0])) m.delete(key);
     for (const key of [...S.workDepth.keys()]) if (repos.includes(key.split("|")[1])) S.workDepth.delete(key);
-    for (const repo of repos) { const t = S.atlas.trees.get(repo); if (t && t.view) t.view.stop(); }
+    for (const repo of repos) {
+      const t = S.atlas.trees.get(repo), h = S.atlas.boxes.get(repo);
+      if (t && t.view) t.view.dispose();
+      if (h && h.box.replay) { clearInterval(h.box.replay.timer); h.box.replay = null; }
+    }
     for (const m of [S.atlas.show, S.atlas.boxes, S.atlas.trees]) for (const repo of repos) m.delete(repo);
     for (const [key, res] of [...S.docs]) {
       if (key.startsWith(id + "|") && (!["current", "empty", "missing", "invalid"].includes(res.state) || key.includes("|live|"))) S.docs.delete(key);
