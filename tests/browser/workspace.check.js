@@ -1176,6 +1176,18 @@ function privateRepos() {
     await p.click("#refresh"); await finished(); await p.waitForTimeout(300);
     found.unread[status] = await p.$eval("#workspace .notice", n => [n.dataset.state, n.textContent]).catch(() => null);
   }
+  // A found repository moved to the top keeps its place for this visit only: only the listed projects' IDs
+  // are stored, and signing in again puts it back in its listed place.
+  nrepos["acme/garden-plan"].files[F.PLAN_COMMIT]["sandboard.workspaces.json"] = JSON.stringify(F.workspacesDoc({ found: { files: F.FILES } }));
+  tokenRepos = () => json(["acme/found-plan", "acme/found-code"].map(full_name => ({ full_name })));
+  await p.click("#refresh"); await finished(); await p.waitForTimeout(400);
+  for (let i = 0; i < 2; i++) { await p.focus('#tree [data-id="p:~found-acme/found-code"]'); await p.keyboard.press("Alt+ArrowUp"); await p.waitForTimeout(150); }
+  found.moved = (await projectsNow()).map(x => x[0]);
+  found.stored = await p.evaluate(() => Object.keys(localStorage).map(k => [k, localStorage.getItem(k)]));
+  await p.click("#forget"); await p.waitForTimeout(200);
+  await p.fill("#plan-repo", "acme/garden-plan"); await p.fill("#token", "synthetic-token"); await p.click("#connect button[type=submit]");
+  await finished(); await p.waitForTimeout(400);
+  found.again = (await projectsNow()).map(x => x[0]);
   found.urls = nurls;
   await p.close();
 
