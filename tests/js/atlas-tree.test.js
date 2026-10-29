@@ -184,7 +184,17 @@ test("what the tree misses is kept apart: cut file lists, pull requests not read
   live.set(SB.treeKey.pullCommits(REPO, 3), { state: "current", data: { shas: [sha("c4")] } });
   const back = SB.atlasTree(liveOf(live), REPO, "main");
   assert.deepEqual([back.retry, back.data.names.failedPulls, back.data.commits[3].author], [false, 0, "ChatGPT"]);
-  assert.equal(SB.treeNote(back.data, null), "1 commit with only GitHub's first 300 files");
+  assert.equal(SB.treeNote(back.data, null), "1 commit with only GitHub's first 300 files · agents named from part of GitHub's list",
+               "a partial list or partial agent commits still say so in a saved picture");
+  // Only an agent pull request's commits partial: the note still says it.
+  live.set(SB.workKey.list("pulls", REPO, "all", 1), { state: "current", data: { pulls: [
+    { number: 3, merged: at(4), headRef: "gpt/a", mergeCommit: null }, { number: 4, merged: at(5), headRef: "claude/b", mergeCommit: null }] } });
+  const cutOnly = SB.atlasTree(liveOf(live), REPO, "main");
+  assert.deepEqual([cutOnly.data.names.state, cutOnly.data.names.partialPulls, cutOnly.retry], ["current", 1, false]);
+  assert.equal(SB.treeNote(cutOnly.data, null), "1 commit with only GitHub's first 300 files · agents named from part of GitHub's list");
+  // All read in full: nothing about agents.
+  live.set(SB.treeKey.pullCommits(REPO, 4), { state: "current", data: { shas: [sha("c5")] } });
+  assert.equal(SB.treeNote(SB.atlasTree(liveOf(live), REPO, "main").data, null), "1 commit with only GitHub's first 300 files");
 });
 
 test("the tree draws at most its file limit and says how many it leaves out", () => {
@@ -199,4 +209,8 @@ test("the tree draws at most its file limit and says how many it leaves out", ()
   s.next();
   assert.equal(s.files.has("g/new.js"), false, "still full");
   assert.deepEqual([...s.over], ["g/new.js"], "the file left out was removed; the new one is left out instead");
+  // A drawn file goes, so there is room: the file left out is drawn and no longer counted as left out.
+  s.remove(initial[0], 2);
+  assert.ok(s.add("g/new.js", 2));
+  assert.deepEqual([s.files.has("g/new.js"), s.over.size, SB.treeNote(data, s)], [true, 0, ""]);
 });

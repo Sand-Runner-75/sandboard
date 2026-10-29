@@ -169,6 +169,7 @@
         if (this.files.size >= MAX_FILES) { this.over.add(path); return null; }
         const d = this.dir(path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ""), ext = extOf(path);
         f = { path, d, ext, c: colorOf(ext), born: t, hot: -99, x: d.x, y: d.y };
+        this.over.delete(path);  // a file left out earlier is drawn once there is room
         this.files.set(path, f); d.files.push(f); d.r = 8 + 4.2 * Math.sqrt(d.files.length);
       }
       return f;
@@ -352,7 +353,8 @@
   }
 
   // What a picture of the tree leaves out, in one line: files past the limit, commits whose files could
-  // not be read or were cut by GitHub, a missing or cut starting tree, and agents not fully named.
+  // not be read or were cut by GitHub, a missing or cut starting tree, and agents not fully named
+  // (a read failed) or named from a list GitHub gave only part of.
   function treeNote(data, sim) {
     const n = (k, one, many) => k.toLocaleString("en") + " " + (k === 1 ? one : many);
     const parts = [];
@@ -363,6 +365,7 @@
     else if (data.treePartial) parts.push("starting files only partly listed");
     const nm = data.names || {};
     if (nm.state === "failed" || nm.failedPulls) parts.push("agents not fully named");
+    else if (nm.state === "partial" || nm.partialPulls) parts.push("agents named from part of GitHub's list");
     return parts.join(" · ");
   }
 
