@@ -558,7 +558,7 @@
     }
     const stage = chosenStage(S, entry);
     sec.append(wholeCards(entry), progressBlock(S, A, entry, stage ? stage.id : null));
-    const left = el("div", { class: "stack tight" }, el("h2", { id: "tasks-h", class: "label", tabindex: "-1" }, "Tasks"), filterBar(S, A, entry), taskList(S, A, entry));
+    const left = el("div", { class: "stack tight" }, el("h2", { id: "tasks-h", class: "label", tabindex: "-1" }, "Tasks"), filterBar(S, A, entry), V.layoutSwitch(S, A), taskList(S, A, entry));
     // The list takes the whole width; with a task open, the details get a wide share beside it.
     const task = rowsVisible(entry) && S.selected ? entry.tasks.find(t => t.id === S.selected && !t.invalid) : null;
     const area = el("div", { class: "work" + (task ? " with-details" : "") }, left);
@@ -621,6 +621,7 @@
     const invalid = entry.tasks.filter(t => t.invalid).length;
     if (invalid) out.append(notice("partial", invalid + (invalid === 1 ? " row is" : " rows are") + " not in the expected form; each is marked \"Invalid row\" with its source text.", "Some rows can't be read"));
     if (!rows.length) { out.append(notice("no-match")); return out; }
+    if (S.taskLayout !== "list") { out.append(V.taskLayout(S, A, entry, rows.filter(t => !t.invalid))); return out; }
     const approved = SB.approvals(entry.progress && entry.progress.state === "current" ? entry.progress.data : null);
     const ul = el("ul", { class: "list", role: "listbox", "aria-label": "Tasks", id: "task-list" });
     const focusId = S.selected && rows.some(t => t.id === S.selected && !t.invalid) ? S.selected : null;
@@ -1061,5 +1062,5 @@
     box.replaceChildren(...parts);
   }
 
-  const V = SB.views = { el, notice, pill, checksSummary, tree, treeGroups, focusTree, main, planState, tableState, rowsVisible, progressOf, stageIdOf, STATE, TIPS };
+  const V = SB.views = { el, notice, pill, STATUS_CLASS, checksSummary, tree, treeGroups, focusTree, main, planState, tableState, rowsVisible, progressOf, stageIdOf, STATE, TIPS };
 })(typeof window !== "undefined" ? window : globalThis);

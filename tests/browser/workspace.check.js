@@ -91,7 +91,7 @@ function privateRepos() {
   await p.keyboard.press("/"); k.search = await active(p);
   await p.keyboard.type("trace");
   k.rows = await p.$$eval("#task-list .row", r => r.map(x => x.dataset.id));
-  for (let i = 0; i < 5; i++) await p.keyboard.press("Tab");  // stage, phase, status and doer filters, then the list
+  for (let i = 0; i < 10; i++) await p.keyboard.press("Tab");  // stage, phase, status and doer filters, the five layouts, then the list
   k.onRow = await active(p);
   await p.keyboard.press("Enter"); await p.waitForTimeout(200);
   k.panel = await text(p, "#inspector");
@@ -1888,6 +1888,48 @@ function privateRepos() {
   await p.setViewportSize({ width: 1280, height: 900 });
   await p.click("[data-home-project='demo']"); await p.waitForTimeout(500);
   home.opened = await text(p, "#view-h");
+  await p.close();
+
+  // 16. Task views: the same filtered rows as a board, a table, a timeline and a calendar; nothing drags;
+  // a task's dates come only from the activity read that names it; picking one opens its details.
+  p = await open();
+  await demo(p);
+  await p.click("#tree [data-id='p:demo'] > .ti"); await p.waitForTimeout(800);
+  await p.keyboard.press("Control+k"); await p.keyboard.type("tasks"); await p.keyboard.press("Enter"); await p.waitForTimeout(1200);
+  const tv = out.taskViews = {};
+  tv.layouts = await p.$$eval(".layouts button", n => n.map(b => [b.textContent, b.getAttribute("aria-pressed")]));
+  await p.click("#layout-board"); await p.waitForTimeout(300);
+  tv.focus = await p.evaluate(() => document.activeElement.id);
+  tv.board = await p.$$eval(".bcol", n => n.map(c => [c.querySelector(".bhead").textContent, c.querySelectorAll(".bcard").length]));
+  tv.draggable = await p.$$eval("[data-part=task-board] [draggable=true]", n => n.length);
+  await p.selectOption("#f-doer", "Agent A"); await p.waitForTimeout(300);
+  tv.filtered = await p.$$eval(".bcard [data-task]", n => n.map(x => x.dataset.task));
+  await p.selectOption("#f-doer", ""); await p.waitForTimeout(300);
+  await p.click("#layout-table"); await p.waitForTimeout(300);
+  tv.table = await p.$$eval("[data-part=task-table] tbody tr", n => n.length);
+  await p.click("#layout-timeline"); await p.waitForTimeout(1500);
+  tv.bars = await p.$$eval(".tl-bar", n => n.map(b => b.dataset.task));
+  tv.barStyle = await p.$$eval("[data-part=task-timeline] [style]", n => n.every(x => /^(left|width): [0-9.]+%; ?(width: [0-9.]+%;)?$/.test(x.getAttribute("style"))));
+  await p.click("#tl-months"); await p.waitForTimeout(300);
+  tv.months = await p.$$eval(".tl-scale span", n => n.map(x => x.textContent));
+  await p.click(".tl-bar[data-task='DT103']"); await p.waitForTimeout(500);
+  tv.picked = await p.$$eval("#inspector", n => n.length);
+  await p.click("#layout-calendar"); await p.waitForTimeout(500);
+  tv.month = await text(p, "#cal-h");
+  tv.chips = await p.$$eval(".cal-chip", n => n.length);
+  // A day with more events than shown opens all of them from the keyboard, repeated tasks included.
+  tv.more = await p.$$eval(".cal-more", n => n.map(b => [b.id, b.textContent, b.getAttribute("aria-expanded")]));
+  await p.focus("#cal-more-2026-01-09"); await p.keyboard.press("Enter"); await p.waitForTimeout(200);
+  tv.opened = [await p.$$eval("td[aria-label^='9 Jan'] .cal-chip", n => n.map(x => x.textContent)), await p.evaluate(() => [document.activeElement.id, document.activeElement.getAttribute("aria-expanded")])];
+  await p.keyboard.press("Tab"); await p.waitForTimeout(50);
+  tv.afterMore = await p.evaluate(() => [document.activeElement.className, document.activeElement.dataset.task, document.activeElement.textContent, document.activeElement.closest("td").getAttribute("aria-label")]);
+  await p.click("#cal-next"); await p.waitForTimeout(300);
+  tv.next = [await text(p, "#cal-h"), await p.$$eval(".cal-chip", n => n.length), await p.evaluate(() => document.activeElement.id)];
+  // Latest activity leaves the page, so the focus goes to the month's heading, which can hold it.
+  await p.focus("#cal-latest"); await p.keyboard.press("Enter"); await p.waitForTimeout(300);
+  tv.latest = [await text(p, "#cal-h"), await p.evaluate(() => [document.activeElement.id, document.activeElement.tabIndex])];
+  await p.setViewportSize({ width: 390, height: 900 }); await p.waitForTimeout(200);
+  tv.phone = await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   await p.close();
 
   // Text grows a little with the screen, from the browser's own size to an eighth more.

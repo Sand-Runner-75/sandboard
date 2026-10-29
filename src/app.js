@@ -79,6 +79,8 @@
       // The two main tabs, and the Atlas: its part (a repository's pictures or the account), the repository
       // it shows, how many commits each repository's branch graph shows, each drawn graph kept with what it
       // was drawn from, and whether the account's public profile and activity were asked for.
+      // Tasks: the layout they are shown in, the timeline's scale and the calendar's month (null: the newest activity's).
+      taskLayout: "list", tlZoom: "weeks", calMonth: null, calDay: null,
       homeWork: "Ready for Review", major: "dashboard", atlas: { part: "repo", repo: null, show: new Map(), boxes: new Map(), trees: new Map(), account: false, extras: false, starQ: "", vs: null, vsAsk: "", vsSaid: null, badge: false, badgeTheme: "dark",
         // Versions: the branches picked per repository (none yet: the starting ones), how many commits each
         // version shows (by repository and branch), how many pages of pull requests are read per repository,
@@ -296,7 +298,7 @@
       if (V.WORK_SUBS.includes(S.view.sub)) return workReads(r.repo, S.view.sub);
       if (S.view.sub === "files") return codeReads(r.repo, r.pinned.data.commit);
       loadLive("lang|" + r.repo, ctx => SB.readLanguages(ctx, client, r.repo)); feed(r);
-    } else if (S.view.kind === "overview") {
+    } else if (S.view.kind === "overview" || (S.view.kind === "tasks" && ["timeline", "calendar"].includes(S.taskLayout))) {
       for (const r of mine) feed(r);
     }
   }
@@ -794,6 +796,30 @@
       if (n) n.focus();
     },
     // Home's open work: which status it lists.
+    // Task layouts change only how the filtered rows are laid out; the focus stays on the control pressed.
+    taskLayout(kind) {
+      if (!V.TASK_LAYOUTS.includes(kind)) return;
+      S.taskLayout = kind;
+      render();
+      const n = $("layout-" + kind); if (n) n.focus();
+    },
+    timelineZoom(zoom) {
+      S.tlZoom = zoom === "months" ? "months" : "weeks";
+      render();
+      const n = $("tl-" + S.tlZoom); if (n) n.focus();
+    },
+    calMonth(month, focus) {
+      S.calMonth = month;
+      S.calDay = null;
+      render();
+      const n = $(focus) || $("cal-h"); if (n) n.focus();
+    },
+    // One calendar day shown with all of its events, or none; the focus stays on its button.
+    calDay(day, focus) {
+      S.calDay = day;
+      render();
+      const n = $(focus); if (n) n.focus();
+    },
     homeWork(status, focus) {
       S.homeWork = status;
       render();
@@ -1007,7 +1033,7 @@
     // A bubble showing for a node gets the node's new text.
     retip(node) { if (tipFor === node && !tipBox.hidden) tipBox.textContent = node.getAttribute("data-tip"); },
     go(project, view, opts) {
-      if (project !== S.current) { S.filters = noFilters(); S.selected = null; }
+      if (project !== S.current) { S.filters = noFilters(); S.selected = null; S.calMonth = null; S.calDay = null; }
       S.current = project;
       S.view = view;
       S.activeTab = null;
