@@ -240,3 +240,75 @@ test("a pull request list the token cannot read says which permission it needs",
   assert.equal(r.state, "unavailable");
   assert.match(r.error, /Pull requests: read/);
 });
+
+test("Actions filters ask GitHub in one fixed form, and anything not in it is never sent", () => {
+  const all = { workflow: "77", status: "failure", event: "push", branch: "feature/x", actor: "helper[bot]", from: "2026-10-01", to: "2026-10-29", q: "deploy" };
+  const r = SB.runQuery(all);
+  assert.equal(r.workflow, "77");
+  const created = "created=" + encodeURIComponent(new Date(2026, 9, 1).toISOString().slice(0, 19) + "Z") + ".." +
+    encodeURIComponent(new Date(new Date(2026, 9, 30).getTime() - 1000).toISOString().slice(0, 19) + "Z");
+  assert.equal(r.query, "status=failure&event=push&branch=feature%2Fx&actor=helper%5Bbot%5D&" + created, "days are the viewer's local days");
+  assert.equal(SB.runState(all), "w77;" + r.query);
+  assert.equal(SB.runState(SB.noRunFilter()), null, "no filter asks GitHub for the plain list");
+  assert.equal(SB.runState({ q: "x" }), null, "the search is not GitHub's");
+  assert.equal(SB.runFiltered({ q: "x" }), true);
+  assert.match(SB.runQuery({ from: "2026-10-01" }).query, /^created=2026-[0-9T%A-]+Z[.][.][*]$/);
+  assert.match(SB.runQuery({ to: "2026-10-29" }).query, /^created=[*][.][.]2026-/);
+  for (const bad of [{ status: "passed" }, { event: "push&x=1" }, { branch: "a..b" }, { branch: "a b" }, { branch: "a~1" }, { actor: "-x" },
+                     { actor: "a b" }, { from: "2026-02-30" }, { to: "29/10/2026" }, { workflow: "0" }, { workflow: "1/../2" }]) {
+    assert.deepEqual(SB.runQuery(bad), { workflow: null, query: "" }, JSON.stringify(bad));
+  }
+  for (const f of [all, { status: "in_progress" }, { from: "2026-01-31", to: "2026-01-31" }, { workflow: "5", branch: "release/v1.2" }]) {
+    const q = SB.runQuery(f);
+    const path = "/repos/a/b/actions/" + (q.workflow ? "workflows/" + q.workflow + "/" : "") + "runs?" + (q.query ? q.query + "&" : "") + "per_page=100&page=2";
+    assert.equal(SB.allowed(path), true, path);
+  }
+  for (const bad of ["/repos/a/b/actions/runs?event=push&status=failure&per_page=100&page=1", "/repos/a/b/actions/runs?status=failure&per_page=100&page=1&x=1",
+                     "/repos/a/b/actions/runs?created=2026-01-01..2026-02-01&per_page=100&page=1", "/repos/a/b/actions/runs?actor=a/b&per_page=100&page=1",
+                     "/repos/a/b/actions/workflows/5/dispatches", "/repos/a/b/actions/workflows/5/enable", "/repos/a/b/actions/workflows?per_page=100&page=2",
+                     "/repos/a/b/actions/runs?branch=..&per_page=100&page=1"]) {
+    assert.equal(SB.allowed(bad), false, bad);
+  }
+});
+
+test("a filtered run page reads GitHub's filtered list; the search keeps runs read by their words", async () => {
+  const f = { workflow: "5", status: "failure", event: "", branch: "main", actor: "", from: "", to: "", q: "" };
+  const s = setup({ work: { "/actions/workflows/5/runs?status=failure&branch=main&per_page=100&page=1": { total_count: 1, workflow_runs: [run(9, "completed", "failure")] } } });
+  const r = await SB.readRunPage(s.ctx, s.client, REPO, 1, f);
+  assert.deepEqual([r.state, r.data.total, r.data.runs.map(x => x.id)], ["current", 1, [9]]);
+  const runs = [{ title: "Deploy site", name: "Pages", branch: "main", event: "push", actor: "agent-a" },
+                { title: "Fix list", name: "Tests", branch: "feature/list", event: "pull_request", actor: "agent-b" }];
+  assert.deepEqual(SB.runSearch(runs, "").length, 2);
+  assert.deepEqual(SB.runSearch(runs, "  PAGES deploy ").map(x => x.title), ["Deploy site"], "every word, any case");
+  assert.deepEqual(SB.runSearch(runs, "agent-b list").map(x => x.title), ["Fix list"]);
+  assert.deepEqual(SB.runSearch(runs, "nothing"), []);
+});
+
+test("the workflows to filter by come from GitHub's list, and a token without Actions access says so", async () => {
+  let s = setup({ work: { "/actions/workflows?per_page=100&page=1": { total_count: 2, workflows: [
+    { id: 5, name: "Checks", path: ".github/workflows/checks.yml", state: "active" }, { id: 6, name: "", path: ".github/workflows/pages.yml", state: "disabled_manually" }] } } });
+  let r = await SB.readWorkflows(s.ctx, s.client, REPO);
+  assert.equal(r.state, "current");
+  assert.deepEqual(r.data.workflows.map(w => [w.id, w.name]), [[5, "Checks"], [6, ".github/workflows/pages.yml"]], "a workflow with no name is named by its file");
+  s = setup({ work: { "/actions/workflows?per_page=100&page=1": { total_count: 150, workflows: [{ id: 1, name: "A", path: "a.yml" }] } } });
+  assert.equal((await SB.readWorkflows(s.ctx, s.client, REPO)).state, "partial");
+  s = setup({ work: { "/actions/workflows?per_page=100&page=1": 403 } });
+  r = await SB.readWorkflows(s.ctx, s.client, REPO);
+  assert.equal(r.state, "unavailable");
+  assert.match(r.error, /Actions: read/);
+  s = setup({ work: { "/actions/workflows?per_page=100&page=1": { total_count: 1, workflows: [{ id: "x", name: "A", path: "a.yml" }] } } });
+  assert.equal((await SB.readWorkflows(s.ctx, s.client, REPO)).state, "invalid");
+});
+
+test("a local day keeps all of its hours on the days clocks change", () => {
+  const zone = process.env.TZ;
+  process.env.TZ = "America/Los_Angeles";
+  try {
+    const range = day => decodeURIComponent(SB.runQuery({ from: day, to: day }).query);
+    assert.equal(range("2026-03-08"), "created=2026-03-08T08:00:00Z..2026-03-09T06:59:59Z", "a 23-hour day ends an hour sooner");
+    assert.equal(range("2026-11-01"), "created=2026-11-01T07:00:00Z..2026-11-02T07:59:59Z", "a 25-hour day keeps its last hour");
+    assert.equal(range("2026-01-10"), "created=2026-01-10T08:00:00Z..2026-01-11T07:59:59Z");
+  } finally {
+    if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone;
+  }
+});

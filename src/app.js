@@ -69,6 +69,8 @@
       // Work evidence: each list's state filter (open, closed or all) and how many pages it goes back,
       // and the pull requests whose reviews and checks are shown.
       workState: new Map(), workDepth: new Map(), workOpen: new Set(),
+      // Actions filters, by repository, for this visit: what GitHub is asked for, and the search over titles.
+      runFilters: new Map(),
       // Files: per repository, files or changes, the open file and folders, the path search, and the
       // branch, tag or commit its changes are compared with.
       code: new Map(),
@@ -361,18 +363,21 @@
   // A repository's work evidence reads the pages its list still wants, and for each pull request whose
   // evidence is shown, its reviews and the check runs at its current head.
   const workSlot = (repo, kind, state) => kind + "|" + repo + "|" + (state || "-");
-  const workStateOf = (repo, kind) => kind === "pulls" || kind === "issues" ? S.workState.get(repo + "|" + kind) || "open" : null;
+  const runFilterOf = repo => S.runFilters.get(repo) || SB.noRunFilter();
+  const workStateOf = (repo, kind) => kind === "pulls" || kind === "issues" ? S.workState.get(repo + "|" + kind) || "open"
+    : kind === "runs" ? SB.runState(runFilterOf(repo)) : null;
   function workRead(repo, kind, state, page) {
     const key = SB.workKey.list(kind, repo, state, page);
     if (kind === "pulls") loadLive(key, ctx => SB.readPullPage(ctx, client, repo, state, page));
     else if (kind === "issues") loadLive(key, ctx => SB.readIssuePage(ctx, client, repo, state, page));
-    else if (kind === "runs") loadLive(key, ctx => SB.readRunPage(ctx, client, repo, page));
+    else if (kind === "runs") { const f = runFilterOf(repo); loadLive(key, ctx => SB.readRunPage(ctx, client, repo, page, f)); }
     else loadLive(key, ctx => SB.readReleasePage(ctx, client, repo, page));
   }
   function workReads(repo, kind) {
     const state = workStateOf(repo, kind);
     const w = SB.workList(key => S.live.get(key), kind, repo, state, S.workDepth.get(workSlot(repo, kind, state)) || 1);
     for (const page of w.wanted) workRead(repo, kind, state, page);
+    if (kind === "runs") loadLive(SB.workKey.workflows(repo), ctx => SB.readWorkflows(ctx, client, repo));
     if (kind !== "pulls") return;
     for (const pr of w.items) {
       if (!S.workOpen.has(repo + "#" + pr.number)) continue;
@@ -694,6 +699,22 @@
       S.workState.set(repo + "|" + kind, state);
       render();
       const n = $("wf-" + state);
+      if (n) n.focus();
+    },
+    runFilter: runFilterOf,
+    // One Actions filter changed: GitHub is asked again for the runs it now matches, from the first page.
+    setRunFilter(repo, key, value, focusId) {
+      const f = Object.assign(runFilterOf(repo), { [key]: String(value || "").trim() === "" ? "" : key === "q" ? String(value) : String(value).trim() });
+      const caret = key === "q" && $("af-q") ? $("af-q").selectionStart : null;
+      S.runFilters.set(repo, f);
+      render();
+      const n = $(focusId);
+      if (n) { n.focus(); if (caret !== null) n.setSelectionRange(caret, caret); }
+    },
+    clearRunFilter(repo) {
+      S.runFilters.delete(repo);
+      render();
+      const n = $("af-workflow");
       if (n) n.focus();
     },
     olderWork(repo, kind, state) {

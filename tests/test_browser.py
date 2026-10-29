@@ -1027,6 +1027,35 @@ class BrowserTest(unittest.TestCase):
         self.assertFalse(any("/acme/recipes/pulls" in u or "/acme/recipes/issues" in u for u in self.r["work"]["private"]["urls"]),
                          "an unreadable repository's lists are never read")
 
+    def test_actions_filters_ask_github_and_the_search_keeps_runs_read(self):
+        f = self.r["work"]["runFilters"]
+        self.assertEqual(f["workflows"], ["Any", "Audit", "Build", "Deploy preview", "Nightly", "Tests"], "the workflows come from GitHub's list")
+        self.assertTrue(f["clearOff"], "nothing to clear before a filter is set")
+        self.assertEqual(f["failure"], ["9004"])
+        self.assertEqual(f["focus"], "af-status", "the focus stays on the filter changed")
+        self.assertIn("matching the filters", f["label"])
+        self.assertEqual(f["tests"], ["9006", "9003"])
+        self.assertEqual(f["schedule"], ["9002"])
+        self.assertEqual(f["branch"], ["9001"])
+        self.assertEqual(f["from"], ["9006", "9005", "9004"], "a day is the viewer's local day")
+        self.assertEqual(f["backwards"]["ids"], [])
+        self.assertIn("start day is after the end day", f["backwards"]["note"])
+        self.assertEqual(f["cleared"], {"ids": ["9006", "9005", "9004", "9003", "9002", "9001"], "off": True, "focus": "af-workflow"})
+        self.assertEqual(len(f["badActor"]["ids"]), 6, "a value that is not a login is not sent")
+        self.assertIn("not a GitHub login", f["badActor"]["note"])
+        self.assertEqual(len(f["actor"]), 6)
+        self.assertEqual(f["search"]["ids"], ["9002"])
+        self.assertEqual(f["search"]["note"], "Search keeps 1 run of the 6 runs read.")
+        self.assertEqual([f["search"]["focus"], f["search"]["value"]], ["af-q", "night"], "typing keeps its place")
+        self.assertFalse(f["invalidOnly"], "a value that is not sent can still be cleared")
+        self.assertEqual(f["miss"]["ids"], [])
+        self.assertEqual(f["miss"]["note"], "No run in the list matches the search.")
+        self.assertFalse(f["miss"]["empty"], "a search miss never says GitHub lists no runs")
+        self.assertIn("Showing all 6 runs", f["miss"]["coverage"])
+        pr = self.r["work"]["private"]
+        self.assertEqual(pr["runs"]["flowNote"], "Only the first 1 workflow of the 150 GitHub counts can be picked here; runs of the others still show with Any.")
+        self.assertIn("The workflow list could not be read (not readable with this token (Actions: read))", pr["countedRuns"]["flowNote"])
+
     def test_work_evidence_on_a_private_run_links_out_says_what_it_could_not_read_and_only_reads(self):
         pr = self.r["work"]["private"]
         first = pr["first"]

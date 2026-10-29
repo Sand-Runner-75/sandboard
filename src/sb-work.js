@@ -14,6 +14,7 @@
     "Pull requests": "This repository's pull requests as GitHub lists them now, newest first. A review or passing checks are GitHub evidence, never the owner's approval.",
     "Issues": "This repository's issues as GitHub lists them now, newest first. GitHub's issue list also holds pull requests; they are left to Pull requests.",
     "Actions": "This repository's workflow runs as GitHub lists them now, newest first. A run not finished has no result yet.",
+    "Filter runs": "GitHub filters the runs by workflow, result, trigger, branch, who started them and the days they were created (your local days), so these reach every run, not only the pages read. Search looks only in the runs read so far.",
     "Releases": "This repository's releases as GitHub lists them now. An asset links to GitHub's own download address only; nothing is fetched or opened here.",
     "Inbox": "Your open pull requests, reviews asked of you and issues assigned to you, in the repositories mapped to your projects only.",
     "Reviews": "Each review stays on the commit it was given at. A review at an older commit is not a review of the current head.",
@@ -71,24 +72,30 @@
 
   function work(S, A, entry, name, pinned, kind) {
     const web = pinned.data.web;
-    const state = kind === "pulls" || kind === "issues" ? A.workState(name, kind) : null;
+    const state = kind === "releases" ? null : A.workState(name, kind);
     const w = SB.workList(A.live, kind, name, state, A.workDepth(name, kind, state));
     const parts = [intro(kind)];
     const card = el("section", { class: "card stack tight", "aria-labelledby": "work-h", "data-part": "work-" + kind },
       tip(el("h2", { id: "work-h", class: "label" }, KINDS[kind][0]), KINDS[kind][0]));
-    if (state) card.append(el("div", { class: "chips", role: "group", "aria-label": "Show " + KINDS[kind][0].toLowerCase() }, STATES.map(([k, l]) =>
+    const f = kind === "runs" ? A.runFilter(name) : null;
+    if (f) card.append(runFilterBar(A, name, f));
+    if (state && kind !== "runs") card.append(el("div", { class: "chips", role: "group", "aria-label": "Show " + KINDS[kind][0].toLowerCase() }, STATES.map(([k, l]) =>
       el("button", { type: "button", id: "wf-" + k, "aria-pressed": String(state === k), onclick: () => A.setWorkState(name, kind, k) }, l))));
-    const label = state ? STATES.find(x => x[0] === state)[1].toLowerCase() : "";
-    const none = (label && state !== "all" ? label + " " : "") + KINDS[kind][1] + "s";
+    const label = state && kind !== "runs" ? STATES.find(x => x[0] === state)[1].toLowerCase() : kind === "runs" && state ? "matching the filters" : "";
+    const none = kind === "runs" ? "runs" + (label ? " " + label : "") : (label && state !== "all" ? label + " " : "") + KINDS[kind][1] + "s";
     if (w.state === "loading") card.append(notice("loading"));
     else if (!w.pages) card.append(notice(w.error.state, w.error.error));
     else {
       // Pages were read: what they held, and always what was and was not read, even when they held
       // nothing to show here (an issue page of pull requests only, or runs GitHub counts but did not list).
-      if (w.items.length) card.append(kind === "pulls" ? pullTable(S, A, entry, name, web, w.items) : kind === "issues" ? issueTable(web, w.items)
-        : kind === "runs" ? runTable(web, w.items) : releaseList(web, w.items));
-      else if (w.end) card.append(el("p", { class: "muted plain", "data-part": "work-empty" }, "GitHub lists no " + none + " here."));
-      else card.append(el("p", { class: "muted plain", "data-part": "work-none-read" }, "No " + none + " in the " + plural(w.pages, "page") +
+      const found = kind === "runs" ? SB.runSearch(w.items, f.q) : w.items;
+      if (kind === "runs" && w.items.length && found.length < w.items.length) card.append(el("p", { class: "qual muted plain", "data-part": "run-search" },
+        found.length ? "Search keeps " + plural(found.length, "run") + " of the " + plural(w.items.length, "run") + " read."
+          : w.end ? "No run in the list matches the search." : "No run read matches the search. Older runs may, if loaded."));
+      if (found.length) card.append(kind === "pulls" ? pullTable(S, A, entry, name, web, w.items) : kind === "issues" ? issueTable(web, w.items)
+        : kind === "runs" ? runTable(web, found) : releaseList(web, w.items));
+      else if (!w.items.length && w.end) card.append(el("p", { class: "muted plain", "data-part": "work-empty" }, "GitHub lists no " + none + " here."));
+      else if (!w.items.length) card.append(el("p", { class: "muted plain", "data-part": "work-none-read" }, "No " + none + " in the " + plural(w.pages, "page") +
         " read. That is not the whole list: " + (w.more ? "older ones may be on the next page." : "the rest is not shown.")));
       if (w.items.length || !w.end) card.append(coverage(kind, w, label));
       if (w.more) card.append(el("div", { class: "actions" }, el("button", { type: "button", class: "btn ghost", id: "w-older",
@@ -106,6 +113,59 @@
       : "No issue is edited, assigned, commented on or closed from here."));
     parts.push(card);
     return parts;
+  }
+
+  // The Actions filters. Each change asks GitHub again from the first page; the search does not.
+  const RESULT_PICK = [["success", "Success"], ["failure", "Failure"], ["cancelled", "Cancelled"], ["skipped", "Skipped"], ["timed_out", "Timed out"],
+    ["action_required", "Action required"], ["neutral", "Neutral"], ["stale", "Stale"], ["startup_failure", "Startup failure"],
+    ["completed", "Any finished"], ["in_progress", "In progress"], ["queued", "Queued"], ["waiting", "Waiting"], ["requested", "Requested"], ["pending", "Pending"]];
+  const EVENT_PICK = [["push", "Push"], ["pull_request", "Pull request"], ["pull_request_target", "Pull request (target)"], ["schedule", "Schedule"],
+    ["workflow_dispatch", "Started by hand"], ["workflow_run", "After another workflow"], ["workflow_call", "Called by a workflow"], ["release", "Release"],
+    ["merge_group", "Merge queue"], ["repository_dispatch", "Repository dispatch"], ["issue_comment", "Issue comment"], ["issues", "Issue"],
+    ["deployment", "Deployment"], ["dynamic", "Dynamic (GitHub's own)"]];
+
+  function runFilterBar(A, name, f) {
+    const set = (key, id) => e => A.setRunFilter(name, key, e.target.value, id);
+    const select = (id, key, options, any) => {
+      const s = el("select", { id, onchange: set(key, id) }, el("option", { value: "" }, any), options.map(([v, t]) => el("option", { value: v }, t)));
+      s.value = options.some(o => o[0] === f[key]) ? f[key] : "";
+      return s;
+    };
+    const text = (id, key, placeholder, type = "text") => {
+      const i = el("input", { id, type, placeholder, autocomplete: "off", spellcheck: "false", onchange: set(key, id) });
+      i.value = f[key];
+      return i;
+    };
+    const wf = A.live(SB.workKey.workflows(name));
+    const flows = wf && wf.data ? wf.data.workflows.map(w => [String(w.id), w.name]) : [];
+    if (f.workflow && !flows.some(o => o[0] === f.workflow)) flows.unshift([f.workflow, "Workflow " + f.workflow]);
+    const flowPick = select("af-workflow", "workflow", flows, !wf || wf.state === "loading" ? "Any (reading workflows)" : wf.data ? "Any" : "Any (workflows not readable)");
+    const q = el("input", { id: "af-q", type: "search", placeholder: "Title, workflow, branch or person", autocomplete: "off", spellcheck: "false",
+      oninput: set("q", "af-q") });
+    q.value = f.q;
+    const badBranch = f.branch && !SB.runQuery({ branch: f.branch }).query, badActor = f.actor && !SB.runQuery({ actor: f.actor }).query;
+    const backwards = f.from && f.to && f.from > f.to;
+    // Clear is offered for anything typed or picked, even a value not sent because it is not in GitHub's form.
+    const any = Object.keys(SB.noRunFilter()).some(k => String(f[k] || "").trim() !== "");
+    const flowNote = wf && wf.state === "partial" ? "Only the first " + plural(wf.data.workflows.length, "workflow") + " of the " + wf.data.total.toLocaleString("en") +
+        " GitHub counts can be picked here; runs of the others still show with Any."
+      : wf && !wf.data && wf.state !== "loading" ? "The workflow list could not be read (" + (wf.error || stateName(wf)) + "), so only Any can be picked." : null;
+    return el("div", { class: "stack tight", "data-part": "run-filters" },
+      el("div", { class: "filters", role: "search", "aria-label": "Filter runs" },
+        el("label", {}, "Workflow", flowPick),
+        el("label", {}, "Result", select("af-status", "status", RESULT_PICK, "Any")),
+        el("label", {}, "Trigger", select("af-event", "event", EVENT_PICK, "Any")),
+        el("label", {}, "Branch", text("af-branch", "branch", "main")),
+        el("label", {}, "Started by", text("af-actor", "actor", "GitHub login")),
+        el("label", {}, "Created from", text("af-from", "from", "", "date")),
+        el("label", {}, "to", text("af-to", "to", "", "date")),
+        el("label", {}, "Search runs read", q),
+        el("button", { type: "button", class: "btn ghost", id: "af-clear", disabled: !any, onclick: () => A.clearRunFilter(name) }, "Clear filters")),
+      flowNote ? el("p", { class: "qual muted plain", "data-part": "run-workflow-note" }, flowNote) : null,
+      badBranch || badActor || backwards ? el("p", { class: "qual plain", role: "status", "data-part": "run-filter-note" },
+        [badBranch && "That branch name has characters a branch cannot have, so it is not sent.", badActor && "That is not a GitHub login, so it is not sent.",
+         backwards && "The start day is after the end day, so no run can match."].filter(Boolean).join(" ")) : null,
+      tip(el("p", { class: "qual muted plain" }, "GitHub does the filtering, over every run. Days are your local days. Search looks only in the runs read so far."), "Filter runs"));
   }
 
   function pullTable(S, A, entry, name, web, pulls) {
