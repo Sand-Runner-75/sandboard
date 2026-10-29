@@ -860,6 +860,23 @@ class BrowserTest(unittest.TestCase):
                          "the colouring changes by keyboard and keeps focus")
         self.assertEqual(a["badgeFile"], {"name": "github-stats-light.svg", "start": "<svg", "script": False, "hasName": True, "svgNs": True},
                          "the download is a standalone SVG with no script or link")
+        bp = a["badgePartial"]
+        self.assertEqual([bp["texts"][4], bp["texts"][6], bp["texts"][8]], ["100+", "100+", "1d+"], "each lower bound marked on the picture, the streak too")
+        self.assertEqual(bp["texts"][2], "100+", "stars from a cut list are a lower bound")
+        self.assertEqual(bp["note"], "+ means at least: not all of GitHub's lists were read; languages from the repositories read")
+        self.assertIn("+ means at least", bp["label"])
+        self.assertTrue(a["badgePartialFile"], "the downloaded picture carries the note too")
+        self.assertIn("Your public repositories (100 read): A later page could not be read (HTTP 500), so some are missing.", bp["gaps"])
+        self.assertIn("Your public events (100 read): A later page could not be read (HTTP 500), so some are missing.", bp["gaps"])
+        self.assertNotIn("most recently pushed", bp["gaps"], "a failure is not called the deliberate cap")
+        self.assertTrue(bp["retry"])
+        bw = a["badgeWhole"]
+        self.assertEqual([bw["texts"][2], bw["texts"][4], bw["texts"][6], bw["note"], bw["gaps"], bw["retry"]], ["100", "100", "100", None, None, False],
+                         "after Read again the numbers are exact and nothing is qualified")
+        ev, rp = "GET /users/synthetic-user/events/public?per_page=100&page=", "GET /users/synthetic-user/repos?sort=pushed&per_page=100&page="
+        self.assertEqual(sorted(a["badgeUrls"]), sorted(["GET /users/synthetic-user", ev + "1", ev + "2", rp + "1", rp + "2", ev + "1", ev + "2", rp + "1", rp + "2"]),
+                         "Read again reads only the two failed lists again; the profile once")
+        self.assertEqual(a["badgeMethods"], ["GET"])
         self.assertRegex(a["badgeCopy"], r"^(Copied\. Nothing was sent anywhere\.|Copy didn't work here)")
         self.assertEqual(a["phone"], 0, "no sideways page scroll on a phone")
         self.assertEqual(a["goto"][0], "Your account (Atlas)Atlas")

@@ -1695,6 +1695,44 @@ function privateRepos() {
   acc.methods = [...new Set(accUrls.map(u => u.split(" ")[0]))];
   await p.close();
 
+  // The README badge on a mocked private run: a later page of the repositories and of the events fails, so the
+  // picture marks those numbers + and says so itself, the page names each failure's error and count read, and
+  // Read again makes them exact.
+  const bUrls = [];
+  let bPage2 = () => json({ message: "boom" }, 500);
+  const bRepo = i => ({ full_name: "synthetic-user/r" + i, fork: false, stargazers_count: 1, language: i % 2 ? "Go" : "C", pushed_at: "2025-01-01T00:00:00Z" });
+  const bEvent = i => ({ type: "PushEvent", created_at: new Date(Date.now() - 3600e3 - i * 60e3).toISOString(), repo: { name: "synthetic-user/r1" }, payload: { size: 1 } });
+  const bgh = mockGitHub(F.planRepos(), [
+    [/^[/]users[/]synthetic-user$/, () => json({ login: "synthetic-user", type: "User", followers: 1, created_at: "2020-01-01T00:00:00Z" })],
+    [/^[/]users[/]synthetic-user[/]events[/]public[?]/, path => /&page=1$/.test(path) ? json(Array.from({ length: 100 }, (_, i) => bEvent(i))) : bPage2(path)],
+    [/^[/]users[/]synthetic-user[/]repos[?]/, path => /&page=1$/.test(path) ? json(Array.from({ length: 100 }, (_, i) => bRepo(i))) : bPage2(path)]]);
+  p = await open();
+  await p.route("https://api.github.com/**", async route => {
+    const req = route.request();
+    bUrls.push(req.method() + " " + req.url());
+    const res = await bgh.fetch(req.url(), { method: req.method() });
+    await route.fulfill({ status: res.status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }, body: await res.text() });
+  });
+  await p.fill("#plan-repo", "acme/garden-plan"); await p.fill("#token", "synthetic-token"); await p.click("#connect button[type=submit]");
+  await finished(); await p.waitForTimeout(400);
+  await p.click("#major-atlas"); await p.waitForTimeout(400);
+  await p.click("#atlas-part-account"); await p.waitForTimeout(300);
+  await p.click("#ac-start"); await p.waitForSelector("#ac-feed", { timeout: 8000 }).catch(() => {});
+  await p.click("#ac-badge-start"); await p.waitForSelector("#ac-badge-svg", { timeout: 8000 }).catch(() => {});
+  const badgeRead = () => p.evaluate(() => { const s = document.getElementById("ac-badge-svg");
+    return { label: s && s.getAttribute("aria-label"), texts: s ? [...s.querySelectorAll("text")].map(t => t.textContent) : [],
+      note: (document.getElementById("ac-badge-note") || {}).textContent || null, gaps: (document.getElementById("ac-badge-gaps") || {}).textContent || null,
+      retry: !!document.getElementById("ac-retry") }; });
+  acc.badgePartial = await badgeRead();
+  const [bFile] = await Promise.all([p.waitForEvent("download", { timeout: 8000 }).catch(() => null), p.click("#ac-badge-dl")]);
+  acc.badgePartialFile = bFile ? require("fs").readFileSync(await bFile.path(), "utf8").includes("+ means at least") : null;
+  bPage2 = () => json([]);
+  await p.click("#ac-retry"); await p.waitForFunction(() => !document.getElementById("ac-retry"), null, { timeout: 8000 }).catch(() => {}); await p.waitForTimeout(300);
+  acc.badgeWhole = await badgeRead();
+  acc.badgeUrls = bUrls.filter(u => /[/]users[/]/.test(u)).map(u => u.replace("https://api.github.com", ""));
+  acc.badgeMethods = [...new Set(bUrls.map(u => u.split(" ")[0]))];
+  await p.close();
+
   // 13. Project order: a project dragged or moved with Alt and an arrow, the move announced, the order kept
   // in this browser only (as project IDs under one key) across a reload, and only projects can be dragged.
   const po = out.order = {};

@@ -264,3 +264,11 @@ test("the README badge's numbers are short, lower bounds get a plus, and every l
   assert.equal(SB.langColor("constructor"), SB.langColor("constructor"));
   assert.match(SB.langColor("constructor"), /^hsl/, "a name that is also an object key is not taken for a colour");
 });
+
+test("the badge picture says of itself when a number is a lower bound or the languages are a sample", () => {
+  const none = { stars: false, repos: false, actions: false, streak: false, langCount: false };
+  assert.equal(SB.badgeNote({ low: none, langs: [{ name: "Go", share: 1 }] }), "");
+  assert.equal(SB.badgeNote({ low: Object.assign({}, none, { streak: true }), langs: [] }), "+ means at least: not all of GitHub's lists were read");
+  assert.equal(SB.badgeNote({ low: Object.assign({}, none, { repos: true, langCount: true }), langs: [{ name: "Go", share: 1 }] }),
+               "+ means at least: not all of GitHub's lists were read; languages from the repositories read");
+});

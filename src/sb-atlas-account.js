@@ -170,6 +170,14 @@
             ["Actions (90d)", shortNumber(s.actions) + plus("actions")], ["Best streak", s.streak + "d" + plus("streak")]];
   }
 
+  // What the badge picture says of its own completeness, or "" when every number on it is exact.
+  function badgeNote(s) {
+    const said = [];
+    if (["stars", "repos", "actions", "streak"].some(k => s.low[k])) said.push("+ means at least: not all of GitHub's lists were read");
+    if (s.low.langCount && s.langs.length) said.push("languages from the repositories read");
+    return said.join("; ");
+  }
+
   SB.ACCOUNT = { DAYS, FEED, MIX };
-  Object.assign(SB, { accountKey, starMatch, bestStreak, accountStats, duelRows, langColor, shortNumber, badgeNumbers, eventLine, eventKind: kindName, eventMark: kindMark, activityDays, heatLevels, busiest, eventMix });
+  Object.assign(SB, { accountKey, starMatch, bestStreak, accountStats, duelRows, langColor, shortNumber, badgeNumbers, badgeNote, eventLine, eventKind: kindName, eventMark: kindMark, activityDays, heatLevels, busiest, eventMix });
 })(typeof window !== "undefined" ? window : globalThis);

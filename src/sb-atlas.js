@@ -200,7 +200,10 @@
   };
   function badgeSvg(s, days, theme) {
     const t = BADGE[theme] || BADGE.dark, W = 495, H = 195;
-    const label = s.name + ": " + SB.badgeNumbers(s).map(([k, v]) => v + " " + k.toLowerCase()).join(", ");
+    // The picture carries its own completeness: a + on a lower bound, and a note when one is shown or the
+    // languages come from only the repositories read.
+    const note = SB.badgeNote(s);
+    const label = s.name + ": " + SB.badgeNumbers(s).map(([k, v]) => v + " " + k.toLowerCase()).join(", ") + (note ? ". " + note : "");
     const out = svg("svg", { width: W, height: H, viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": label, id: "ac-badge-svg", class: "ac-badge" },
       svg("title", {}, label));
     const g = svg("g", { "font-family": "'Segoe UI', -apple-system, Ubuntu, sans-serif" });
@@ -224,7 +227,9 @@
         svg("text", { x: 12, y: 0, fill: t.muted, "font-size": 11 }, text)));
       lx += 22 + text.length * 6.2;
     }
-    g.append(svg("text", { x: W - 25, y: H - 14, fill: t.muted, "font-size": 10, "text-anchor": "end" }, "Public GitHub numbers"));
+    // The note takes the whole bottom line, so it never runs into the footer.
+    g.append(note ? svg("text", { x: 25, y: H - 14, fill: t.muted, "font-size": 10, id: "ac-badge-note", textLength: W - 50, lengthAdjust: "spacingAndGlyphs" }, note)
+      : svg("text", { x: W - 25, y: H - 14, fill: t.muted, "font-size": 10, "text-anchor": "end" }, "Public GitHub numbers"));
     return out;
   }
   function badgeBlock(S, A, prof, evs, repos) {
@@ -253,10 +258,13 @@
         line, " ", el("button", { type: "button", class: "linkbtn", id: "ac-badge-copy", onclick: () => A.copy(line, status) }, "Copy the line"), " ", status),
       el("p", { class: "muted" }, "A picture of today's public numbers: it does not update by itself. It shows your name, login and public numbers to anyone who sees it. " +
         "The file is saved by your browser; nothing is posted or sent from here."));
+    // Why, in words beside the picture: how many were read, a later page that failed with its error (and Read
+    // again), the deliberate 300 cap, entries left out, a star count not given.
     const gaps = [gapsText(repos, "repository", "repositories", "the 300 most recently pushed"), gapsText(evs, "event", "events", "the 300 newest")];
-    if (["stars", "repos", "actions", "streak"].some(k => s.low[k])) {
+    if (gaps[0] || gaps[1] || s.low.stars) {
       box.append(el("div", { class: "qual", id: "ac-badge-gaps" }, el("p", {}, "A number with + is a lower bound (\"at least\"):"),
-        el("ul", {}, [gaps[0] ? "Your public repositories: " + gaps[0] : null, gaps[1] ? "Your public events: " + gaps[1] : null,
+        el("ul", {}, [gaps[0] ? "Your public repositories (" + repos.data.repos.length.toLocaleString("en") + " read): " + gaps[0] : null,
+          gaps[1] ? "Your public events (" + evs.data.events.length.toLocaleString("en") + " read): " + gaps[1] : null,
           s.low.stars && !s.low.repos ? "A repository's star count was not given." : null].filter(Boolean).map(t => el("li", {}, t)))));
     }
     return box;
