@@ -15,6 +15,7 @@ test("a cell names nobody when it is empty or a placeholder, and several people 
   assert.deepEqual(SB.namesIn("TBE"), []);
   assert.deepEqual(SB.namesIn(" Agent A , Agent B,,-"), ["Agent A", "Agent B"]);
   assert.deepEqual(SB.namesIn("x".repeat(61)), [], "an over-long cell is not a name");
+  assert.deepEqual(SB.namesIn("Agent A, Agent A ,Agent B"), ["Agent A", "Agent B"], "a name written twice in one cell counts once");
 });
 
 test("members count open and done work they do, open work they review, and their projects in order", () => {
@@ -45,4 +46,10 @@ test("across projects, the same task ID in two projects keeps its own repository
   assert.deepEqual(got.items.map(x => [x.e.w.id, x.t.id, x.t.status, x.d.first, x.d.last, x.d.events.map(ev => ev.id)]),
     [["alpha", "XT1", "In Progress", "2026-01-05", "2026-01-05", ["a1"]], ["beta", "XT1", "Ready for Review", "2026-02-10", "2026-02-10", ["#2"]]]);
   assert.deepEqual([got.found, got.total], [2, 2]);
+});
+
+test("a name repeated in one cell counts the task once; the same person as doer and reviewer keeps both roles", () => {
+  const ms = SB.members([read("p1", [task("A1", "In Progress", "Ann, Ann", "Ann"), task("A2", "Done", "Ann,Bo,Ann", "Bo, Bo")])]);
+  assert.deepEqual(ms.map(m => [m.name, m.open, m.done, m.reviewing, m.work.map(w => w.t.id + ":" + w.role)]),
+    [["Ann", 1, 1, 1, ["A1:doer", "A1:reviewer", "A2:doer"]], ["Bo", 0, 1, 0, ["A2:doer", "A2:reviewer"]]]);
 });
