@@ -41,13 +41,24 @@ const H = {
   ],
 };
 
+// GitHub's comparison of two heads in a synthetic history: the merge base and how many commits head has that base has not.
+function compare(all, baseSeed, headSeed) {
+  const anc = seed => new Set(behind(all, seed).map(x => x.sha));
+  const a = anc(baseSeed), h = anc(headSeed), common = [...h].filter(x => a.has(x));
+  const by = new Map(all.map(x => [x.sha, x]));
+  const reaches = (from, to) => behind(all, SEEDS.get(from)).some(x => x.sha === to);
+  const best = common.find(x => !common.some(y => y !== x && reaches(y, x)));
+  return { state: "current", data: { status: "diverged", ahead: [...h].filter(x => !a.has(x)).length, behind: 0, base: best || null } };
+}
+
 function settle(picked, show = () => 100, shared) {
   const live = new Map();
   for (let i = 0; i < 50; i++) {
     const v = SB.atlasVersions(key => live.get(key), REPO, "main", picked, show, 3, shared);
     if (!v.wanted.length) return { v, live };
     for (const w of v.wanted) {
-      if (w.kind === "refs") live.set(K.refs(REPO, w.list), w.list === "branches" ? refs(H.branches) : refs([["v1.0", "m1"]]));
+      if (w.kind === "compare") live.set(K.compare(REPO, w.base, w.head), compare(H.commits, seedOf(w.base), seedOf(w.head)));
+      else if (w.kind === "refs") live.set(K.refs(REPO, w.list), w.list === "branches" ? refs(H.branches) : refs([["v1.0", "m1"]]));
       else if (w.kind === "lane") {
         const list = seedOf(w.head) ? behind(H.commits, seedOf(w.head)) : [];
         live.set(K.lane(REPO, w.head, w.page), { state: list.length ? "current" : "empty", data: { commits: w.page === 1 ? list : [], end: true } });
@@ -71,7 +82,8 @@ test("the versions ask for the branches first, then each version's commits and o
   const live = new Map([[K.refs(REPO, "branches"), refs(H.branches)]]);
   const v = SB.atlasVersions(key => live.get(key), REPO, "main", null, () => 100, 3);
   assert.deepEqual(v.picked, ["main", "staging"]);
-  assert.deepEqual(v.wanted, [{ kind: "pulls", state: "all", page: 1 }, { kind: "lane", head: sha("q1"), page: 1 }, { kind: "lane", head: sha("s1"), page: 1 }, { kind: "refs", list: "tags" }]);
+  assert.deepEqual(v.wanted, [{ kind: "pulls", state: "all", page: 1 }, { kind: "lane", head: sha("q1"), page: 1 },
+    { kind: "compare", base: sha("q1"), head: sha("s1") }, { kind: "refs", list: "tags" }], "a version beside the default branch is compared with it before its commits are read");
 });
 
 test("each version lists only the pull requests into its branch, and draws merged and open ones as lanes", () => {
@@ -142,24 +154,66 @@ test("pull request pages are read until the list ends, and a failed one says so"
   assert.deepEqual([v.prs.end, v.prs.pages, v.prs.more], [false, 3, true]);
 });
 
-test("a commit older than the default branch's history read so far is never called this version's own", () => {
-  // main: page 1 holds only newer main commits; the shared commit C is on its unread page 2.
-  const mainNew = Array.from({ length: 100 }, (_, i) => c("mn" + i, [i ? "mn" + (i - 1) : "cc"], 200 - i));
+test("a shared commit is never called a version's own, whatever the commit dates say", () => {
+  // C is dated after its own descendants on main, and is on main's second page; only ancestry decides.
+  const all = [c("r0", [], 0), c("cc", ["r0"], 300, "Shared, dated late"), c("m1", ["cc"], 10, "Main 1"), c("m2", ["m1"], 11, "Main 2"),
+    c("su", ["cc"], 50, "Staging only")];
+  const seeds = new Map([[sha("r0"), "r0"], [sha("cc"), "cc"], [sha("m1"), "m1"], [sha("m2"), "m2"], [sha("su"), "su"]]);
+  for (const [k, v] of seeds) SEEDS.set(k, v);
   const live = new Map([
-    [K.refs(REPO, "branches"), refs([["main", "mn0"], ["staging", "su"]])], [K.refs(REPO, "tags"), refs([])],
+    [K.refs(REPO, "branches"), refs([["main", "m2"], ["staging", "su"]])], [K.refs(REPO, "tags"), refs([])],
     [SB.workKey.list("pulls", REPO, "all", 1), { state: "empty", data: { pulls: [], end: true } }],
-    [K.lane(REPO, sha("mn0"), 1), { state: "partial", data: { commits: mainNew, end: false } }],
-    [K.lane(REPO, sha("su"), 1), { state: "current", data: { commits: [c("su", ["cc"], 50, "Staging only"), c("cc", ["r0"], 5, "Shared"), c("r0", [], 0)], end: true } }],
+    [K.lane(REPO, sha("m2"), 1), { state: "current", data: { commits: behind(all, "m2"), end: true } }],
+    [K.lane(REPO, sha("su"), 1), { state: "partial", data: { commits: behind(all, "su").slice(0, 2), end: false } }],
+  ]);
+  let v = SB.atlasVersions(key => live.get(key), REPO, "main", ["main", "staging"], () => 100, 3);
+  assert.deepEqual(v.versions[1].win, [], "nothing is drawn as its own before the comparison is read");
+  assert.ok(v.wanted.some(w => w.kind === "compare" && w.base === sha("m2") && w.head === sha("su")));
+  live.set(K.compare(REPO, sha("m2"), sha("su")), compare(all, "m2", "su"));
+  v = SB.atlasVersions(key => live.get(key), REPO, "main", ["main", "staging"], () => 100, 3);
+  const st = v.versions[1];
+  assert.deepEqual([st.win.map(x => x.msg), st.unknown, st.ahead], [["Staging only"], 0, 1]);
+  assert.ok(!v.wanted.some(w => w.kind === "lane" && w.head === sha("su") && w.page === 2), "once every own commit is proved, no more pages are read");
+});
+
+test("a commit whose side is not proved yet is counted as unknown, and a failed comparison draws nothing as own", () => {
+  // The merge base's history is not read and fewer own commits are proved than GitHub counts.
+  const all = [c("r0", [], 0), c("x1", ["r0"], 1, "Old staging work"), c("mb", ["r0"], 2, "Main"), c("sm", ["x1", "mb"], 3, "Merge main"), c("sn", ["sm"], 4, "New")];
+  for (const x of all) SEEDS.set(x.sha, x.title);
+  const live = new Map([
+    [K.refs(REPO, "branches"), refs([["main", "mb"], ["staging", "sn"]])], [K.refs(REPO, "tags"), refs([])],
+    [SB.workKey.list("pulls", REPO, "all", 1), { state: "empty", data: { pulls: [], end: true } }],
+    [K.lane(REPO, sha("mb"), 1), { state: "current", data: { commits: behind(all, "mb"), end: true } }],
+    [K.lane(REPO, sha("sn"), 1), { state: "partial", data: { commits: behind(all, "sn").slice(0, 4), end: false } }],
+    [K.lane(REPO, sha("sn"), 2), { state: "failed", data: null, error: "HTTP 500" }],
+    [K.compare(REPO, sha("mb"), sha("sn")), { state: "current", data: { status: "diverged", ahead: 3, behind: 0, base: sha("mb") } }],
   ]);
   let v = SB.atlasVersions(key => live.get(key), REPO, "main", ["main", "staging"], () => 100, 3);
   let st = v.versions[1];
-  assert.deepEqual(st.win.map(x => seedOf(x.sha) || x.msg), [], "nothing is shown as staging's own before main is read back far enough");
-  assert.equal(st.unknown, 3);
-  assert.ok(v.wanted.some(w => w.kind === "lane" && w.head === sha("mn0") && w.page === 2));
-  live.set(K.lane(REPO, sha("mn0"), 2), { state: "current", data: { commits: [c("cc", ["r0"], 5, "Shared"), c("r0", [], 0)], end: true } });
+  assert.deepEqual(st.win.map(x => x.msg).sort(), ["Merge main", "New"]);
+  assert.equal(st.unknown, 1, "the old staging commit is neither proved own nor shared");
+  live.set(K.compare(REPO, sha("mb"), sha("sn")), { state: "failed", data: null, error: "HTTP 502" });
   v = SB.atlasVersions(key => live.get(key), REPO, "main", ["main", "staging"], () => 100, 3);
   st = v.versions[1];
-  assert.deepEqual([st.win.map(x => x.msg), st.unknown], [["Staging only"], 0], "the shared commit on main's second page is not staging's own");
+  assert.deepEqual([st.win, st.failed.error, v.retry], [[], "HTTP 502", true]);
+});
+
+test("an open pull request line longer than what is read is drawn and said to be cut", () => {
+  const long = [c("r0", [], 0), c("t0", ["r0"], 1)];
+  for (let i = 1; i < 350; i++) long.push(c("t" + i, ["t" + (i - 1)], 1 + i / 1000));
+  const base = [c("r0", [], 0), c("bh", ["r0"], 0.5, "Base head")];
+  const live = new Map([
+    [K.refs(REPO, "branches"), refs([["main", "bh"], ["topic", "t349"]])], [K.refs(REPO, "tags"), refs([])],
+    [SB.workKey.list("pulls", REPO, "all", 1), { state: "current", data: { pulls: [pr(9, "topic", "t349", "main", { state: "open" })], end: true } }],
+    [K.lane(REPO, sha("bh"), 1), { state: "current", data: { commits: behind(base, "bh"), end: true } }],
+  ]);
+  const newest = long.slice().reverse();
+  for (let pg = 1; pg <= 3; pg++) live.set(K.lane(REPO, sha("t349"), pg), { state: "partial", data: { commits: newest.slice((pg - 1) * 100, pg * 100), end: false } });
+  const v = SB.atlasVersions(key => live.get(key), REPO, "main", ["main"], () => 100, 3);
+  const m = v.versions[0];
+  assert.deepEqual(m.lanes.cut, [9]);
+  assert.ok(m.heads.some(h => h.pr === 9 && h.open));
+  assert.ok(!v.wanted.some(w => w.kind === "lane" && w.head === sha("t349") && w.page === 4), "at most three pages of an open line are read");
 });
 
 test("an open pull request whose commits cannot be read, past the limit or from a fork is said, not dropped", () => {

@@ -487,7 +487,9 @@
     }
     // What the graph leaves out, said in words.
     const L = ver.lanes, gaps = [
-      ver.unknown ? plural(ver.unknown, "older commit is", "older commits are") + " not drawn yet: " + v.def + " has not been read back that far, so it is not known whether " + (ver.unknown === 1 ? "it is" : "they are") + " on " + v.def : null,
+      ver.unknown ? plural(ver.unknown, "commit read is", "commits read are") + " not drawn: from what was read it is not yet proved whether " + (ver.unknown === 1 ? "it is" : "they are") + " on " + v.def + (ver.more ? " (Load older commits reads further)" : "") : null,
+      ver.apart && ver.ahead !== null && ver.ahead > ver.shown && !ver.more ? "GitHub counts " + ver.ahead.toLocaleString("en") + " commits on " + ver.name + " that " + v.def + " does not have; " + ver.shown.toLocaleString("en") + " are drawn" : null,
+      L.cut.length ? "The line" + (L.cut.length === 1 ? " of " : "s of ") + L.cut.map(n => "#" + n).join(", ") + " did not reach " + ver.name + " within its newest " + (SB.ATLAS.OPEN_PAGES * 100) + " commits, so " + (L.cut.length === 1 ? "it is" : "they are") + " drawn cut off" : null,
       L.capped ? plural(L.capped, "more open pull request is", "more open pull requests are") + " listed but not drawn (at most " + SB.ATLAS.OPEN_LANES + " are)" : null,
       L.forks ? plural(L.forks, "open pull request comes", "open pull requests come") + " from another repository, so " + (L.forks === 1 ? "it is" : "they are") + " listed but not drawn" : null,
       L.failed.length ? "The commits of " + L.failed.map(f => "#" + f.number + " (" + (f.error || f.state) + ")").join(", ") + " could not be read, so " + (L.failed.length === 1 ? "it is" : "they are") + " not drawn" : null,

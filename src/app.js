@@ -307,7 +307,8 @@
     // and the repository's pull requests page by page.
     const v = SB.atlasVersions(key => S.live.get(key), repo, r.meta.branch, A.atlasVersionPick(repo), name => A.atlasVersionShow(repo, name), A.atlasVersionPrPages(repo), name => A.atlasVersionShared(repo, name));
     for (const w of v.wanted) {
-      if (w.kind === "refs") loadLive(K.refs(repo, w.list), ctx => SB.readRefs(ctx, client, repo, w.list));
+      if (w.kind === "compare") loadLive(K.compare(repo, w.base, w.head), ctx => SB.readCompare(ctx, client, repo, w.base, w.head));
+      else if (w.kind === "refs") loadLive(K.refs(repo, w.list), ctx => SB.readRefs(ctx, client, repo, w.list));
       else if (w.kind === "lane") loadLive(K.lane(repo, w.head, w.page), ctx => SB.readHistoryPage(ctx, client, repo, w.head, w.page));
       else if (w.kind === "pulls") workRead(repo, "pulls", w.state, w.page);
     }
