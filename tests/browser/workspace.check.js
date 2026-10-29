@@ -904,10 +904,47 @@ function privateRepos() {
   wo.issues = await workNow();
   await p.click("#wf-all"); await p.waitForTimeout(800);
   wo.issuesAll = await workNow();
+  // Every status mark on the page, hollow ones of closed issues included, keeps its pill's colour, in both themes.
+  const badMarks = () => p.$$eval(".pill", n => n.filter(x => getComputedStyle(x, "::before").borderTopColor !== getComputedStyle(x).color).map(x => x.className + ": " + x.textContent));
+  wo.marks = { count: await p.$$eval(".pill.hollow", n => n.length), light: await badMarks() };
+  await p.click('[data-theme-choice="dark"]'); await p.waitForTimeout(100);
+  wo.marks.dark = await badMarks();
+  await p.click('[data-theme-choice="device"]'); await p.waitForTimeout(100);
   await p.click("#rs-runs"); await p.waitForTimeout(800);
   wo.runs = await workNow();
+  // Actions filters: GitHub filters by workflow, result, trigger, branch, who started it and created days;
+  // the search keeps runs read; Clear filters brings the whole list back.
+  const runIds = () => p.$$eval("tr[data-run]", n => n.map(x => x.dataset.run));
+  const pick = async (id, value) => { await p.selectOption("#" + id, value); await p.waitForTimeout(500); };
+  const typeIn = async (id, value) => { await p.fill("#" + id, value); await p.press("#" + id, "Enter"); await p.waitForTimeout(500); };
+  const rf = wo.runFilters = {};
+  rf.workflows = await p.$$eval("#af-workflow option", n => n.map(x => x.textContent));
+  rf.clearOff = await p.$eval("#af-clear", b => b.disabled);
+  await pick("af-status", "failure"); rf.failure = await runIds(); rf.focus = await p.evaluate(() => document.activeElement.id);
+  rf.label = await p.$eval("[data-part=work-coverage]", n => n.textContent).catch(() => "");
+  await pick("af-status", ""); await pick("af-workflow", { label: "Tests" }); rf.tests = await runIds();
+  await pick("af-workflow", ""); await pick("af-event", "schedule"); rf.schedule = await runIds();
+  await pick("af-event", ""); await typeIn("af-branch", "feature/search"); rf.branch = await runIds();
+  await typeIn("af-branch", ""); await typeIn("af-from", "2026-01-15"); rf.from = await runIds();
+  await typeIn("af-to", "2026-01-14"); rf.backwards = { ids: await runIds(), note: await p.$eval("[data-part=run-filter-note]", n => n.textContent).catch(() => "") };
+  await p.click("#af-clear"); await p.waitForTimeout(500);
+  rf.cleared = { ids: await runIds(), off: await p.$eval("#af-clear", b => b.disabled), focus: await p.evaluate(() => document.activeElement.id) };
+  await typeIn("af-actor", "not a login"); rf.badActor = { ids: await runIds(), note: await p.$eval("[data-part=run-filter-note]", n => n.textContent).catch(() => "") };
+  await typeIn("af-actor", "demo-claude"); rf.actor = await runIds();
+  await p.click("#af-clear"); await p.waitForTimeout(400);
+  await typeIn("af-actor", "not a login"); rf.invalidOnly = await p.$eval("#af-clear", b => b.disabled);
+  await p.click("#af-clear"); await p.waitForTimeout(400);
+  await p.type("#af-q", "zzz"); await p.waitForTimeout(400);
+  rf.miss = { ids: await runIds(), note: await p.$eval("[data-part=run-search]", n => n.textContent).catch(() => ""),
+              empty: await p.$("[data-part=work-empty]") !== null, coverage: await p.$eval("[data-part=work-coverage]", n => n.textContent).catch(() => "") };
+  await p.click("#af-clear"); await p.waitForTimeout(400);
+  await p.type("#af-q", "night"); await p.waitForTimeout(400);
+  rf.search = { ids: await runIds(), note: await p.$eval("[data-part=run-search]", n => n.textContent).catch(() => ""), focus: await p.evaluate(() => document.activeElement.id),
+                value: await p.$eval("#af-q", n => n.value) };
+  await p.click("#af-clear"); await p.waitForTimeout(400);
   await p.click("#rs-releases"); await p.waitForTimeout(800);
   wo.releases = Object.assign(await workNow(), { assets: await p.$$eval("[data-part=releases] details li", n => n.map(x => x.textContent)) });
+  wo.marks.releases = await badMarks();
   await tree(p, "r:demo:example-org/demo-plan"); await p.waitForTimeout(400);
   await p.click("#rs-runs"); await p.waitForTimeout(800);
   wo.planRuns = await workNow();
@@ -962,7 +999,8 @@ function privateRepos() {
   wrepos["acme/garden"].work["/issues?state=all&per_page=100&page=2"] = [{ number: 12, title: "On page two", state: "closed", state_reason: "completed",
     user: { login: "agent-1" }, labels: [], assignees: [], comments: 1, created_at: "2025-12-01T00:00:00Z", closed_at: "2025-12-02T00:00:00Z" }];
   // GitHub counts runs it does not list; and a mapped repository that cannot be read at all.
-  wrepos["acme/garden-plan"].work = { "/pulls?state=open&per_page=100&page=1": 403, "/actions/runs?per_page=100&page=1": { total_count: 5, workflow_runs: [] } };
+  wrepos["acme/garden"].work["/actions/workflows?per_page=100&page=1"] = { total_count: 150, workflows: [{ id: 1, name: "Checks", path: ".github/workflows/checks.yml" }] };
+  wrepos["acme/garden-plan"].work = { "/pulls?state=open&per_page=100&page=1": 403, "/actions/workflows?per_page=100&page=1": 403, "/actions/runs?per_page=100&page=1": { total_count: 5, workflow_runs: [] } };
   delete wrepos["acme/recipes"];
   const wgh = mockGitHub(wrepos);
   const wurls = [];
@@ -985,7 +1023,7 @@ function privateRepos() {
   await p.click("#w-older"); await p.waitForTimeout(1000);
   wo.private.second = await workNow();
   await p.click("#rs-runs"); await p.waitForTimeout(800);
-  wo.private.runs = await workNow();
+  wo.private.runs = Object.assign(await workNow(), { flowNote: await text(p, "[data-part=run-workflow-note]") });
   await p.click("#rs-releases"); await p.waitForTimeout(800);
   wo.private.releases = await workNow();
   await p.click("#rs-issues"); await p.waitForTimeout(600);
@@ -995,7 +1033,7 @@ function privateRepos() {
   wo.private.prOnlyNext = await workNow();
   await tree(p, "r:garden:acme/garden-plan"); await p.waitForTimeout(400);
   await p.click("#rs-runs"); await p.waitForTimeout(800);
-  wo.private.countedRuns = Object.assign(await workNow(), { noneRead: await text(p, "[data-part=work-none-read]"), empty: await text(p, "[data-part=work-empty]") });
+  wo.private.countedRuns = Object.assign(await workNow(), { flowNote: await text(p, "[data-part=run-workflow-note]"), noneRead: await text(p, "[data-part=work-none-read]"), empty: await text(p, "[data-part=work-empty]") });
   await tree(p, "a:inbox"); await p.waitForTimeout(1500);
   wo.private.inbox = await inboxNow();
   wo.private.urls = wurls;

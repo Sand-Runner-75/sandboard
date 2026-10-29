@@ -622,6 +622,7 @@
     list: (kind, repo, state, page) => "work|" + kind + "|" + repo + "|" + (state || "-") + "|" + page,
     reviews: (repo, number) => "reviews|" + repo + "#" + number,
     checks: (repo, sha) => "checks|" + repo + "@" + sha,
+    workflows: repo => "workflows|" + repo,
   };
 
   // The pages read so far of one list, in order, stopping at the first one not read, failed or last.
@@ -645,6 +646,52 @@
     return { state: status, error, end, pages, items, wanted, pulls, total, short,
              changed: total !== null && lastTotal !== total ? lastTotal : null,
              more: !end && !error && !short && pages === depth && depth < SB.MAX_WORK_PAGES };
+  }
+
+  // ---- Actions filters. GitHub filters the runs itself (a workflow, a result, a trigger, a branch, who
+  // started it, and the days it was created), so a filter reaches every run, not only the pages read.
+  // The search over titles is the one filter applied here, to the runs read so far.
+  const RUN_RESULTS = ["success", "failure", "cancelled", "skipped", "timed_out", "action_required", "neutral", "stale",
+                       "startup_failure", "completed", "in_progress", "queued", "waiting", "requested", "pending"];
+  const RUN_EVENTS = ["push", "pull_request", "pull_request_target", "schedule", "workflow_dispatch", "workflow_run", "workflow_call",
+                      "release", "merge_group", "repository_dispatch", "issue_comment", "issues", "deployment", "dynamic"];
+  const noRunFilter = () => ({ workflow: "", status: "", event: "", branch: "", actor: "", from: "", to: "", q: "" });
+  const isWorkflowId = v => /^[1-9][0-9]{0,11}$/.test(String(v));
+  const isRunBranch = v => typeof v === "string" && /^[^\u0000-\u0020~^:?*[]{1,250}$/.test(v) && !v.includes("..") && !v.includes(BACKSLASH);
+  const isRunActor = v => typeof v === "string" && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?$/.test(v);
+  const isDayText = v => typeof v === "string" && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(v) && localDayStart(v) !== null;
+  // The first instant of a local calendar day, as a time; null for a day the calendar does not have.
+  function localDayStart(day) {
+    const [y, m, d] = String(day).split("-").map(Number);
+    const t = new Date(y, m - 1, d);
+    return t.getFullYear() === y && t.getMonth() === m - 1 && t.getDate() === d ? t.getTime() : null;
+  }
+  // A local day's first or last second as GitHub's UTC time text.
+  // The last second is one before the next local day starts, so a day of 23 or 25 hours keeps all of it.
+  const nextDay = day => { const [y, m, d] = String(day).split("-").map(Number); return new Date(y, m - 1, d + 1).getTime(); };
+  const dayEdge = (day, last) => new Date(last ? nextDay(day) - 1000 : localDayStart(day)).toISOString().slice(0, 19) + "Z";
+  // What a filter asks GitHub for: the workflow's own runs, and the query in a fixed order. Anything not
+  // in the expected form is left out, never sent. Days are the viewer's local days.
+  function runQuery(f) {
+    f = f || {};
+    const q = [];
+    if (RUN_RESULTS.includes(f.status)) q.push("status=" + f.status);
+    if (RUN_EVENTS.includes(f.event)) q.push("event=" + f.event);
+    if (isRunBranch(f.branch)) q.push("branch=" + encodeURIComponent(f.branch));
+    if (isRunActor(f.actor)) q.push("actor=" + encodeURIComponent(f.actor));
+    const from = isDayText(f.from) ? dayEdge(f.from, false) : null, to = isDayText(f.to) ? dayEdge(f.to, true) : null;
+    if (from || to) q.push("created=" + (from ? encodeURIComponent(from) : "*") + ".." + (to ? encodeURIComponent(to) : "*"));
+    return { workflow: isWorkflowId(f.workflow) ? String(f.workflow) : null, query: q.join("&") };
+  }
+  // The filter as the list's state in its read keys: null when nothing is asked of GitHub.
+  const runState = f => { const r = runQuery(f); return r.workflow || r.query ? (r.workflow ? "w" + r.workflow + ";" : "") + r.query : null; };
+  // Whether any filter is set, the search included, and the runs read that the search keeps.
+  const runFiltered = f => !!f && (runState(f) !== null || !!String(f.q || "").trim());
+  function runSearch(runs, q) {
+    const words = String(q || "").toLowerCase().split(/[\s]+/).filter(Boolean);
+    if (!words.length) return runs;
+    return runs.filter(r => { const text = [r.title, r.name, r.branch, r.event, r.actor].filter(Boolean).join(" ").toLowerCase();
+      return words.every(w => text.includes(w)); });
   }
 
   // A pull request as one word: draft, open, merged or closed without merging.
@@ -999,7 +1046,7 @@
 
   Object.assign(SB, { SORTS, portfolio, filterPortfolio, sortPortfolio, portfolioOptions, tally, analytics, languageBytes, repoHref, feedEvents, feedKey, typeOf,
                       historyOrder, historyGraph, commitTimes, WEEKS_SHOWN, DAYS_SHOWN, contributors,
-                      workKey, workList, pullState, reviewEvidence, runOutcome, inboxScope, inbox, historyKey, COMPARE_FIRST, comparedBranches, historyView,
+                      workKey, workList, RUN_RESULTS, RUN_EVENTS, noRunFilter, runQuery, runState, runFiltered, runSearch, pullState, reviewEvidence, runOutcome, inboxScope, inbox, historyKey, COMPARE_FIRST, comparedBranches, historyView,
                       ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
                       approvals, resultHref, tabKey, stageOfPhase, short, localDay, localStamp, localWhen, zoneOf, savedOrder, keptOrder, orderedIds, moveId, LOOK_CHOICES, savedLook, homeFigures, openWork, dayGroup, greeting, feedGaps, taskActivity, timelineScale, monthWeeks, shiftMonth, weekStart,
                       HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs,
