@@ -1231,11 +1231,11 @@ function privateRepos() {
   await dForget();
   // None found; then the owner's plan appears, and a refresh searches again and uses it.
   await dSignIn("nobody");
-  discover.none = await dNotice();
+  discover.none = { notice: await dNotice(), projects: await dProjects(), state: await p.textContent("#state") };
   drepos["nobody/plan"] = { default_branch: "main", branches: { main: NOBODY }, files: { [NOBODY]: { "sandboard.workspaces.json": JSON.stringify(F.workspacesDoc()) } } };
   dTokenList = () => json(dUsual.concat("nobody/plan").map(full_name => ({ full_name })));
   await dRefresh();
-  discover.noneThenRefresh = { projects: await dProjects(), notice: await dNotice() };
+  discover.noneThenRefresh = { projects: await dProjects(), notice: await dNotice(), state: await p.textContent("#state") };
   await dForget();
   // One found, but another repository could not be checked: nothing is chosen, and the found one is named.
   dTokenList = () => json(["acme/garden-plan", "acme/locked"].map(full_name => ({ full_name })));

@@ -45,7 +45,7 @@
   // Everything shown comes from here, and everything here is dropped on sign-out.
   function freshState() {
     return {
-      signedIn: false, demo: false, planRepo: "", findOwner: null, run: null,
+      signedIn: false, demo: false, planRepo: "", findOwner: null, noList: false, run: null,
       list: { state: "loading" }, entries: [], current: null,
       view: { kind: "overview" }, filters: noFilters(), selected: null,
       tabs: [], activeTab: null, docs: new Map(), mapped: new Map(),
@@ -148,8 +148,9 @@
     S.entries = [];
     render();
     try {
-      const target = SB.parseRepoRef(S.planRepo);
-      const list = await SB.readWorkspaces(ctx, client, target.repo, target.ref);
+      // No repository the token reads has the workspace list: an empty list, filled by what the token finds.
+      const target = S.noList ? null : SB.parseRepoRef(S.planRepo);
+      const list = S.noList ? SB.result("empty", { workspaces: [], found: null }, null) : await SB.readWorkspaces(ctx, client, target.repo, target.ref);
       session.alive(ctx);
       S.list = list;
       const none = () => { S.tabs = []; S.activeTab = null; S.selected = null; S.docs = new Map(); S.mapped = new Map(); render(); };
@@ -527,6 +528,8 @@
     S.demo = demo;
   }
 
+  const SIGNED_IN = "Signed in. The token is in this page's memory only.";
+
   async function connect(event) {
     event.preventDefault();
     const typed = $("token").value.trim();
@@ -541,7 +544,7 @@
     start(false);
     S.planRepo = owner === null ? planRepo : "";
     S.findOwner = owner;
-    $("state").textContent = "Signed in. The token is in this page's memory only.";
+    $("state").textContent = SIGNED_IN;
     const ctx = session.start(typed);
     $("main").focus();
     await read(ctx);
@@ -554,9 +557,12 @@
   }
 
   // The plan repository is used only when it is the one repository the token reads (of that owner)
-  // with the workspace list, and every one of them was checked; otherwise nothing is loaded, and
-  // the page says why, with what to type instead.
+  // with the workspace list, and every one of them was checked. When none has it, every repository the
+  // token reads is shown as found, and the page says so. Otherwise nothing is loaded, and the page says
+  // why, with what to type instead.
   async function findPlan(ctx, owner) {
+    if (S.noList) $("state").textContent = SIGNED_IN;
+    S.noList = false;
     S.list = { state: "loading" };
     render();
     try {
@@ -570,6 +576,12 @@
       const gaps = d ? [!d.listedAll && "the token's list of repositories is longer than can be read",
                         !d.underLimit && "only the first " + SB.FIND_LIMIT + " were checked",
                         d.unchecked.length && "these could not be checked: " + d.unchecked.join(", ")].filter(Boolean) : [];
+      if (d && !d.repos.length) {
+        S.noList = true;
+        $("state").textContent = "No repository" + of + " that the token reads has the workspace list (" + SB.WORKSPACES_FILE + ")" +
+          (gaps.length ? " among those checked (" + gaps.join("; ") + ")" : "") + ", so every repository the token reads is shown, marked found.";
+        return true;
+      }
       S.list = !d ? SB.result(found.state, null, null, { error: "the token's list of repositories could not be read (" + (found.error || found.state) + "). " + again + "the plan repository as owner/repo." })
         : d.repos.length > 1 ? SB.result("invalid", null, null, { error: "more than one repository" + of + " has it (" + d.repos.join(", ") + "). " + again + "the one to use as owner/repo." })
         : d.repos.length === 1 ? SB.result("partial", null, null, { error: d.repos[0] + " has it, but the search is not complete (" + gaps.join("; ") + "). " + again + d.repos[0] + " to use it." })
