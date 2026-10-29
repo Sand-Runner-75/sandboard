@@ -686,6 +686,12 @@ class BrowserTest(unittest.TestCase):
             self.assertEqual(got[0], state, status)
             self.assertIn("could not be read (HTTP " + status + ")", got[1])
             self.assertNotIn("finds no other repository", got[1])
+        self.assertEqual(f["moved"], ["p:~found-acme/found-code", "p:garden", "p:recipes", "p:~found-acme/found-plan"],
+                         "a found repository can be moved for this visit")
+        self.assertEqual(f["stored"], [["sandboard.projectOrder", '["garden","recipes"]']],
+                         "no found repository's name is stored, only the listed projects' IDs")
+        self.assertEqual(f["again"], ["p:garden", "p:recipes", "p:~found-acme/found-code", "p:~found-acme/found-plan"],
+                         "signing in again puts the found repository back in its listed place")
         self.assertTrue(all(u.startswith("GET ") for u in f["urls"]))
         self.assertFalse(any("/users/" in u or "/events" in u or "/notifications" in u for u in f["urls"]))
 
