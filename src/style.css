@@ -569,3 +569,45 @@ rect.ac-l4 { fill: var(--accent); } i.ac-l4 { background: var(--accent); }
 .pd-blocked { background: var(--s-blocked); } .pd-review { background: var(--s-review); }
 .badge { margin-left: auto; font-size: 0.72rem; font-weight: 600; min-width: 1.5em; text-align: center; padding: 0 6px; border-radius: 999px; background: var(--sunken); color: var(--muted); letter-spacing: 0; text-transform: none; }
 .ti .sub ~ .badge, .ti .pdot ~ .badge { margin-left: 6px; }
+
+/* Task views: board, table, timeline and calendar of the filtered rows; nothing moves or drags. */
+.layouts { align-self: flex-start; flex-wrap: wrap; }
+.board { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 10px; align-items: start; }
+.bcol { background: var(--sunken); border-radius: var(--r); padding: 10px; min-width: 0; }
+.bhead { display: flex; align-items: center; gap: 6px; font-size: 0.9rem; margin: 0 0 8px; }
+.bhead .count, .tl-group .count { color: var(--muted); font-weight: 500; }
+.smark { width: 0.8rem; height: 0.8rem; border-radius: 50%; border: 1.5px solid currentColor; flex: none; }
+.smark.st-done { background: currentColor; }
+.smark.st-progress { background: linear-gradient(90deg, currentColor 50%, transparent 50%); }
+.smark.st-blocked { border-radius: 2px; background: currentColor; }
+.smark.st-removed { border-style: dashed; }
+.bcards { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.bcard { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; overflow-wrap: anywhere; }
+.bcard.current, tr.current > * { box-shadow: inset 3px 0 0 var(--accent); }
+.bcard .linkbtn { text-align: left; }
+.tl-wrap { padding-bottom: 4px; }
+.tl { position: relative; min-width: 40rem; }
+.tl-row { display: grid; grid-template-columns: 6rem minmax(0, 1fr); align-items: center; min-height: 2rem; border-bottom: 1px solid var(--line); }
+.tl-head { min-height: 1.6rem; }
+.tl-name { font-family: var(--mono, monospace); font-size: 0.8rem; color: var(--muted); padding-right: 8px; }
+.tl-track { position: relative; height: 1.7rem; }
+.tl-scale span { position: absolute; top: 0.2rem; font-size: 0.75rem; color: var(--muted); white-space: nowrap; border-left: 1px solid var(--line); padding-left: 4px; }
+.tl-group { font-size: 0.82rem; margin: 10px 0 2px; }
+.tl-bar { position: absolute; top: 0.2rem; height: 1.3rem; min-width: 0.6rem; border: 0; border-radius: 6px; padding: 0 6px; overflow: hidden; cursor: pointer;
+  background: color-mix(in srgb, currentColor 16%, var(--surface)); box-shadow: inset 0 0 0 1px currentColor; text-align: left; font: inherit; font-size: 0.78rem; }
+.tl-bar span { color: var(--fg); white-space: nowrap; }
+.tl-bar.current { box-shadow: inset 0 0 0 2px currentColor; }
+.tl-over { position: absolute; top: 0; bottom: 0; left: 6rem; right: 0; pointer-events: none; }
+.tl-today { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid var(--s-blocked); }
+.tl-today span { position: absolute; top: -0.1rem; left: 3px; font-size: 0.7rem; color: var(--s-blocked); font-weight: 600; }
+.cal-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cal-title { margin: 0 6px; font-size: 1rem; min-width: 9rem; text-align: center; }
+.cal { width: 100%; min-width: 36rem; border-collapse: collapse; table-layout: fixed; }
+.cal th { font-size: 0.75rem; color: var(--muted); font-weight: 600; text-align: left; padding: 4px 6px; }
+.cal td { vertical-align: top; height: 5.5rem; border: 1px solid var(--line); padding: 4px; background: var(--surface); }
+.cal td.out { background: var(--sunken); color: var(--muted); }
+.cal td.today .cal-day { color: var(--accent); font-weight: 700; }
+.cal-day { font-size: 0.8rem; }
+.cal-items { list-style: none; margin: 2px 0 0; padding: 0; display: grid; gap: 2px; }
+.cal-chip { display: block; width: 100%; border: 0; border-radius: 4px; padding: 1px 5px; font: inherit; font-size: 0.72rem; text-align: left; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: color-mix(in srgb, currentColor 9%, var(--surface)); }

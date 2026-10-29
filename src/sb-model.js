@@ -366,6 +366,49 @@
   // The greeting for a local hour.
   const greeting = hour => hour >= 5 && hour < 12 ? "Good morning" : hour >= 12 && hour < 18 ? "Good afternoon" : "Good evening";
 
+  // ---- Task views: the dates a task has are only those of the activity read that names it. A commit, a
+  // pull request opened, merged or closed counts when its title names the task's ID; a handoff counts when
+  // the pull request it was posted on names it. Nothing is a due date, and a task named by no event has none.
+  function taskActivity(tasks, events) {
+    const titles = new Map(events.filter(ev => ev.kind === "opened").map(ev => [ev.repo + ev.id, ev.title]));
+    const out = new Map();
+    for (const t of tasks) {
+      if (t.invalid || !t.id) continue;
+      const evs = events.filter(ev => namesTask(ev.kind === "handoff" ? titles.get(ev.repo + ev.id) : ev.title, t.id));
+      if (!evs.length) continue;
+      const days = evs.map(ev => localDay(ev.at)).filter(Boolean).sort();
+      out.set(t.id, { first: days[0], last: days[days.length - 1], events: evs });
+    }
+    return out;
+  }
+  const addDays = (day, n) => isoDay(Date.parse(day) + n * 864e5);
+  // The columns of a timeline from its first to its last day: Mondays by week, or first days by month,
+  // at most limit of them (the newest kept), with the share of the width each day takes.
+  function timelineScale(first, last, zoom, limit) {
+    const cols = [];
+    if (zoom === "months") {
+      let y = +first.slice(0, 4), m = +first.slice(5, 7);
+      for (;;) { const d = y + "-" + String(m).padStart(2, "0") + "-01"; if (d > last) break; cols.push(d); m += 1; if (m > 12) { m = 1; y += 1; } }
+    } else for (let d = SB.weekStart(first); d <= last; d = addDays(d, 7)) cols.push(d);
+    const shown = cols.slice(-limit), start = shown[0];
+    const end = zoom === "months" ? (() => { const [y, m] = shown[shown.length - 1].split("-").map(Number); return (m === 12 ? y + 1 + "-01" : y + "-" + String(m + 1).padStart(2, "0")) + "-01"; })()
+      : addDays(shown[shown.length - 1], 7);
+    const span = (Date.parse(end) - Date.parse(start)) / 864e5;
+    const at = day => Math.max(0, Math.min(1, (Date.parse(day) - Date.parse(start)) / 864e5 / span));
+    return { cols: shown, cut: cols.length - shown.length, start, end, at, dayShare: 1 / span };
+  }
+  // The weeks of a month's calendar, Monday first, each a list of seven ISO days.
+  function monthWeeks(month) {
+    const first = month + "-01", weeks = [];
+    for (let d = SB.weekStart(first); d.slice(0, 7) <= month; d = addDays(d, 7)) weeks.push([0, 1, 2, 3, 4, 5, 6].map(i => addDays(d, i)));
+    return weeks;
+  }
+  // The month before or after one, "2026-10" to "2026-11".
+  const shiftMonth = (month, n) => { const [y, m] = month.split("-").map(Number), k = y * 12 + m - 1 + n;
+    return Math.floor(k / 12) + "-" + String(k % 12 + 1).padStart(2, "0"); };
+  // The Monday of the week an ISO day is in.
+  const weekStart = day => addDays(day, -((new Date(Date.parse(day)).getUTCDay() + 6) % 7));
+
   // ---- History: the commits read, laid out in lanes, and what they say per week, per day and per login.
   // Nothing here is guessed: a parent that was not read leaves its lane open at the bottom, and every
   // figure says it covers only the commits read.
@@ -946,7 +989,7 @@
                       historyOrder, historyGraph, commitTimes, WEEKS_SHOWN, DAYS_SHOWN, contributors,
                       workKey, workList, pullState, reviewEvidence, runOutcome, inboxScope, inbox, historyKey, COMPARE_FIRST, comparedBranches, historyView,
                       ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
-                      approvals, resultHref, tabKey, stageOfPhase, short, localDay, localStamp, localWhen, zoneOf, savedOrder, keptOrder, orderedIds, moveId, LOOK_CHOICES, savedLook, homeFigures, openWork, dayGroup, greeting,
+                      approvals, resultHref, tabKey, stageOfPhase, short, localDay, localStamp, localWhen, zoneOf, savedOrder, keptOrder, orderedIds, moveId, LOOK_CHOICES, savedLook, homeFigures, openWork, dayGroup, greeting, taskActivity, timelineScale, monthWeeks, shiftMonth, weekStart,
                       HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs,
                       codeKey, liveKeyRepo, MAX_TEXT_LINES, MAX_SEARCH, searchSources, searchFind, searchCoverage, MAX_DIFF_LINES, MAX_FOUND, MAX_READ_BYTES, codeTree, codeFind, codeOpenable, textLines, textPieces, diffLines });
 })(typeof window !== "undefined" ? window : globalThis);

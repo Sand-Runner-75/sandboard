@@ -375,7 +375,7 @@ class BrowserTest(unittest.TestCase):
     def test_untrusted_text_is_shown_as_text(self):
         p = self.r["progress"]
         self.assertIn('<script>alert("never runs")</script>', p["hostile"])
-        self.assertEqual((p["scripts"], p["imgs"]), (19, 0))
+        self.assertEqual((p["scripts"], p["imgs"]), (20, 0))
         self.assertEqual(p["writeControls"], [])
 
     def test_copy_is_exactly_the_shown_text_and_a_refusal_is_reported(self):
@@ -1197,6 +1197,23 @@ class BrowserTest(unittest.TestCase):
         self.assertIn(home["phone"][0], ["Good morning", "Good afternoon", "Good evening"])
         self.assertTrue(home["phone"][1], "no sideways page scroll on a phone")
         self.assertEqual(home["opened"], "Demo Project")
+
+    def test_task_views_lay_out_the_same_rows_and_date_tasks_only_by_activity(self):
+        tv = self.r["taskViews"]
+        self.assertEqual(tv["layouts"][0], ["List", "true"], "the list stays the default")
+        self.assertEqual([x[0] for x in tv["layouts"]], ["List", "Board", "Table", "Timeline", "Calendar"])
+        self.assertEqual(tv["focus"], "layout-board")
+        self.assertEqual([c[1] for c in tv["board"]], [4, 2, 1, 1, 3, 4])
+        self.assertEqual(tv["draggable"], 0, "nothing on the board can be dragged")
+        self.assertEqual(tv["filtered"], ["DT402", "DT601", "DT201", "DT201.1", "DT103", "DT101", "DT203", "DT302"], "the filters apply")
+        self.assertEqual(tv["table"], 15)
+        self.assertEqual(tv["bars"], ["DT101", "DT103", "DT201", "DT201.1"], "only tasks the activity read names get a bar")
+        self.assertTrue(tv["barStyle"], "positions are set from script as plain percentages")
+        self.assertEqual(tv["months"], ["Jan 2026"])
+        self.assertEqual(tv["picked"], 1, "a bar opens the task's details")
+        self.assertEqual((tv["month"], tv["chips"]), ("January 2026", 19))
+        self.assertEqual(tv["next"], ["February 2026", 0, "cal-next"])
+        self.assertTrue(tv["phone"], "no sideways page scroll on a phone")
 
     def test_text_grows_a_little_with_the_screen(self):
         size = {w: [float(v[:-2]) for v in vals] for w, vals in self.r["textSize"].items()}

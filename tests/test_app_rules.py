@@ -85,7 +85,7 @@ class SourceRulesTest(unittest.TestCase):
             html = f.read()
         loaded = re.findall(r'<script src="([^"]+)" defer></script>', html)
         self.assertEqual(loaded, ["demo-data.js", "sb-core.js", "sb-readers.js", "sb-render.js", "sb-model.js", "sb-demo.js",
-                                  "sb-views.js", "sb-repos.js", "sb-home.js", "sb-history.js", "sb-work.js", "sb-code.js", "sb-search.js",
+                                  "sb-views.js", "sb-repos.js", "sb-home.js", "sb-taskviews.js", "sb-history.js", "sb-work.js", "sb-code.js", "sb-search.js",
                                   "sb-gif.js", "sb-atlas-graph.js", "sb-atlas-tree.js", "sb-atlas-account.js", "sb-atlas.js", "app.js"])
         self.assertEqual(sorted(n for n, _ in sources()), sorted(loaded[1:]))
 
