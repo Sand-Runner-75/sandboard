@@ -1594,11 +1594,14 @@
     const project = p.dataset.project || p.dataset.homeProject || p.dataset.team;
     return entryOf(project) ? { project, task: null, node: p } : null;
   }
+  // Closing always empties the menu and puts back its plain name, even when it was already hidden, so
+  // nothing read from a project stays on the page.
   function closeCtx(back) {
-    if (ctxBox.hidden) return;
+    const was = !ctxBox.hidden;
     ctxBox.hidden = true;
     ctxBox.replaceChildren();
-    if (back && ctxBack && ctxBack.isConnected) ctxBack.focus();
+    ctxBox.setAttribute("aria-label", "Actions");
+    if (was && back && ctxBack && ctxBack.isConnected) ctxBack.focus();
     ctxBack = null;
   }
   function openCtx(target, x, y) {

@@ -1999,16 +1999,21 @@ function privateRepos() {
   await p.keyboard.press("ArrowDown"); await p.keyboard.press("Enter"); await p.waitForTimeout(200);
   mk.starred = [await p.evaluate(() => JSON.parse(localStorage.getItem("sandboard.marks")).favs), await p.$eval("#ctx", n => n.hidden)];
   await p.focus(".bcard .linkbtn"); await p.keyboard.press("Shift+F10"); await p.waitForTimeout(100); await p.keyboard.press("Escape"); await p.waitForTimeout(100);
-  mk.escaped = [await p.$eval("#ctx", n => n.hidden), await p.evaluate(() => document.activeElement.classList.contains("linkbtn"))];
+  mk.escaped = [await p.$eval("#ctx", n => n.hidden), await p.evaluate(() => document.activeElement.classList.contains("linkbtn")), await p.$eval("#ctx", n => n.getAttribute("aria-label"))];
   // Ending the session with the menu and a confirmation still showing (as when access is lost, with no
   // pointer press first) leaves neither, and moving to another place closes an open menu.
   await p.focus(".bcard .linkbtn"); await p.keyboard.press("Shift+F10"); await p.waitForTimeout(100);
   await p.evaluate(() => document.getElementById("refresh").click()); await p.waitForTimeout(100);
   mk.refreshed = await p.$eval("#ctx", n => n.hidden);
   await p.waitForTimeout(800);
+  // Closing a menu that is already hidden still clears any project name left on it.
+  await p.evaluate(() => document.getElementById("ctx").setAttribute("aria-label", "Actions for a stale name"));
+  await p.evaluate(() => document.getElementById("refresh").click()); await p.waitForTimeout(800);
+  mk.hiddenClosed = await p.$eval("#ctx", n => [n.hidden, n.getAttribute("aria-label")]);
   await p.focus(".bcard .linkbtn"); await p.keyboard.press("Shift+F10"); await p.waitForTimeout(100);
+  mk.openName = await p.$eval("#ctx", n => n.getAttribute("aria-label").startsWith("Actions for "));
   await p.evaluate(() => document.getElementById("forget").click()); await p.waitForTimeout(100);
-  mk.ended = await p.evaluate(() => [document.getElementById("ctx").hidden, document.getElementById("ctx").children.length, document.getElementById("toast").hidden, document.getElementById("toast").textContent]);
+  mk.ended = await p.evaluate(() => [document.getElementById("ctx").hidden, document.getElementById("ctx").children.length, document.getElementById("toast").hidden, document.getElementById("toast").textContent, document.getElementById("ctx").getAttribute("aria-label")]);
   // A fresh visit on the same browser: the marks come back; the saved view opens its filters and layout.
   await p.evaluate(() => { document.getElementById("live").textContent = ""; });
   await demo(p);
