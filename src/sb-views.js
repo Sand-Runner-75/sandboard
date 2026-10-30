@@ -55,6 +55,8 @@
   // Short explanations shown in a bubble on hover or keyboard focus (app.js shows them), and
   // listed in the help dialog for anyone who cannot hover.
   const TIPS = {
+    "Across projects": "Views that cover every listed project at once: the task timeline and calendar, members and teams.",
+    "Workspace timeline": "Every project's tasks, placed by the commits, pull requests and handoffs that name them, grouped by project. Not due dates and not progress.",
     "Done": "The plan's table marks this task finished. Only the owner's approval, recorded by the plan's progress script, makes it count.",
     "Ready for Review": "The work is finished and waits for the other AI's review or the owner's decision.",
     "In Progress": "Work on this task has started.",
@@ -352,7 +354,16 @@
     const home = { id: "a:home", label: "Home", tip: TIPS.Home, act: () => A.goAccount("home"), cur: !S.activeTab && S.view.kind === "home",
                    badge: waits ? [String(waits), waits + " waiting on someone"] : null };
     projects.badge = [String(projects.kids.length), projects.kids.length + " projects"];
-    return [home, projects, account];
+    // Views across every project: the task timeline and calendar, members and teams.
+    const at = kinds => !S.activeTab && kinds.includes(S.view.kind);
+    const people = SB.members(S.entries).length;
+    const across = { id: "g:across", label: "Across projects", tip: TIPS["Across projects"], kids: [
+      { id: "a:timeline", label: "Timeline", tip: TIPS["Workspace timeline"], act: () => A.goAccount("timeline"), cur: at(["timeline"]) },
+      { id: "a:calendar", label: "Calendar", tip: TIPS["Workspace timeline"], act: () => A.goAccount("calendar"), cur: at(["calendar"]) },
+      { id: "a:members", label: "Members", tip: TIPS.Members, act: () => A.goAccount("members"), cur: at(["members", "member"]),
+        badge: people ? [String(people), people + " members"] : null },
+      { id: "a:teams", label: "Teams", tip: TIPS.Teams, act: () => A.goAccount("teams"), cur: at(["teams"]) }] };
+    return [home, projects, across, account];
   }
 
   // The IDs of every tree item that has children (for Expand all).
@@ -1034,6 +1045,9 @@
 
   // ---- The whole main area
 
+  // The views that belong to no single project.
+  const ACCOUNT_KINDS = ["home", "portfolio", "activity", "inbox", "search", "timeline", "calendar", "members", "member", "teams"];
+
   function main(S, A) {
     const box = doc.getElementById("workspace");
     if (!S.signedIn) { box.replaceChildren(); return; }
@@ -1046,9 +1060,11 @@
       return;
     }
     if (S.major === "atlas") { box.replaceChildren(V.majorTabs(S, A), V.atlas(S, A)); return; }
-    if (!S.activeTab && ["home", "portfolio", "activity", "inbox", "search"].includes(S.view.kind)) {
-      box.replaceChildren(V.majorTabs(S, A), tabBar(S, A), S.view.kind === "home" ? V.home(S, A) : S.view.kind === "portfolio" ? V.portfolio(S, A) : S.view.kind === "inbox" ? V.inbox(S, A)
-        : S.view.kind === "search" ? V.search(S, A) : V.activity(S, A));
+    if (!S.activeTab && ACCOUNT_KINDS.includes(S.view.kind)) {
+      const k = S.view.kind;
+      box.replaceChildren(V.majorTabs(S, A), tabBar(S, A), k === "home" ? V.home(S, A) : k === "portfolio" ? V.portfolio(S, A) : k === "inbox" ? V.inbox(S, A)
+        : k === "search" ? V.search(S, A) : k === "timeline" || k === "calendar" ? V.workspaceView(S, A) : k === "members" ? V.members(S, A)
+        : k === "member" ? V.member(S, A) : k === "teams" ? V.teams(S, A) : V.activity(S, A));
       return;
     }
     const entry = S.entries.find(e => e.w.id === S.current);

@@ -179,5 +179,5 @@
       el("div", { class: "home-grid" }, el("div", { class: "stack" }, projectTable(S, A), openWorkCard(S, A)), activityCard(S, A)));
   }
 
-  Object.assign(V, { home, homeRepos, HOME_REPOS, feedParts });
+  Object.assign(V, { home, homeRepos, HOME_REPOS, feedParts, orderedEntries: ordered, initials, tile });
 })(typeof window !== "undefined" ? window : globalThis);

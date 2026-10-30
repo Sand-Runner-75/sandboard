@@ -1932,6 +1932,42 @@ function privateRepos() {
   tv.phone = await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   await p.close();
 
+  // 17. Across projects: every project's tasks on one timeline and calendar, grouped by project and matched
+  // only against each project's own repositories; members and teams are the names the tables give.
+  p = await open();
+  await demo(p);
+  const ac = out.across = {};
+  ac.group = await p.$eval("#tree [data-id='g:across']", n => [n.getAttribute("aria-label"), [...n.querySelectorAll("[role=treeitem]")].map(x => x.dataset.id)]);
+  await p.click("#tree [data-id='a:timeline'] > .ti"); await p.waitForTimeout(1500);
+  ac.head = await text(p, "#view-h");
+  ac.groups = await p.$$eval("[data-part=all-timeline] .tl-group", n => n.map(x => [x.dataset.group, x.textContent]));
+  ac.bars = await p.$$eval("[data-part=all-timeline] .tl-bar", n => n.map(b => b.dataset.task));
+  ac.tlUnread = await p.$$eval("[data-part=all-timeline] p.qual", n => n.map(x => x.textContent).filter(t => /task table/.test(t)));
+  ac.inline = await p.$$eval("[data-part=all-timeline] [style]", n => n.every(x => /^(left|width): [0-9.]+%; ?(width: [0-9.]+%;)?$/.test(x.getAttribute("style"))));
+  await p.click(".tl-bar[data-task='demo:DT103']"); await p.waitForTimeout(800);
+  ac.opened = [await text(p, "#view-h"), await p.$$eval("#inspector", n => n.length)];
+  await p.click("#tree [data-id='a:calendar'] > .ti"); await p.waitForTimeout(800);
+  ac.calendar = [await text(p, "#cal-h"), await p.$$eval("[data-part=all-calendar] .cal-chip", n => n.length), await p.$eval("#all-calendar", b => b.getAttribute("aria-pressed"))];
+  ac.chipName = await p.$eval("[data-part=all-calendar] .cal-chip", n => [n.dataset.task, n.getAttribute("aria-label"), n.textContent]);
+  await p.click("#tree [data-id='a:members'] > .ti"); await p.waitForTimeout(500);
+  ac.members = await p.$$eval("[data-part=members] tbody tr", n => n.map(r => [...r.children].map(c => c.textContent)));
+  ac.badge = await p.$eval("#tree [data-id='a:members']", n => n.getAttribute("aria-label"));
+  await p.click("[data-part=members] [data-member='Agent B']"); await p.waitForTimeout(500);
+  ac.member = [await text(p, "#view-h"), await p.$$eval("[data-part=member-counts] .kv", n => n.map(x => x.textContent)),
+    await p.$$eval("[data-part=member-work] li", n => n.length), await p.$eval("#tree [data-id='a:members'] > .ti", n => n.classList.contains("current")),
+    await p.$$eval("[data-part=member] > p.qual", n => n.map(x => x.textContent))];
+  await p.click("#tree [data-id='a:teams'] > .ti"); await p.waitForTimeout(500);
+  ac.teams = await p.$$eval("[data-team]", n => n.map(t => [t.dataset.team, [...t.querySelectorAll("[data-member]")].map(m => m.dataset.member)]));
+  ac.unread = await p.$$eval("[data-part=teams] > p.qual", n => n.map(x => x.textContent));
+  await p.keyboard.press("Control+k"); await p.keyboard.type("Agent A"); await p.keyboard.press("Enter"); await p.waitForTimeout(500);
+  ac.goto = await text(p, "#view-h");
+  await p.setViewportSize({ width: 390, height: 900 });
+  for (const k of ["timeline", "members", "teams"]) {
+    await p.evaluate(k => document.querySelector("#tree [data-id='a:" + k + "'] > .ti").click(), k); await p.waitForTimeout(400);
+    ac["phone_" + k] = await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  }
+  await p.close();
+
   // Text grows a little with the screen, from the browser's own size to an eighth more.
   out.textSize = {};
   for (const width of [390, 1280, 1920]) {
