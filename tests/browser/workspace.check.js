@@ -1771,7 +1771,9 @@ function privateRepos() {
   const bUrls = [];
   let bPage2 = () => json({ message: "boom" }, 500);
   const bRepo = i => ({ full_name: "synthetic-user/r" + i, fork: false, stargazers_count: 1, language: i % 2 ? "Go" : "C", pushed_at: "2025-01-01T00:00:00Z" });
-  const bEvent = i => ({ type: "PushEvent", created_at: new Date(Date.now() - 3600e3 - i * 60e3).toISOString(), repo: { name: "synthetic-user/r1" }, payload: { size: 1 } });
+  // All 100 events fall on one local day (the last local noon and the 99 minutes before it), whatever hour the test runs.
+  const bNoon = new Date(); bNoon.setHours(12, 0, 0, 0); if (bNoon > Date.now()) bNoon.setDate(bNoon.getDate() - 1);
+  const bEvent = i => ({ type: "PushEvent", created_at: new Date(bNoon.getTime() - i * 60e3).toISOString(), repo: { name: "synthetic-user/r1" }, payload: { size: 1 } });
   const bgh = mockGitHub(F.planRepos(), [
     [/^[/]users[/]synthetic-user$/, () => json({ login: "synthetic-user", type: "User", followers: 1, created_at: "2020-01-01T00:00:00Z" })],
     [/^[/]users[/]synthetic-user[/]events[/]public[?]/, path => /&page=1$/.test(path) ? json(Array.from({ length: 100 }, (_, i) => bEvent(i))) : bPage2(path)],
