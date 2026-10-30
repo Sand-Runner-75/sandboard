@@ -1297,6 +1297,38 @@ class BrowserTest(unittest.TestCase):
         for k in ("timeline", "members", "teams"):
             self.assertTrue(ac["phone_" + k], "no sideways page scroll on a phone: " + k)
 
+    def test_favourites_saved_views_and_quick_ways(self):
+        mk = self.r["marks"]
+        self.assertEqual(mk["before"], [None, 0], "nothing stored and no Favourites before a star")
+        self.assertEqual(mk["arrive"], [True, "arrive"], "a new place fades in")
+        self.assertEqual(mk["star"][0], ["true", "Take out of favourites"])
+        self.assertEqual(mk["star"][1], "fav-project", "the focus stays on the star")
+        self.assertEqual(mk["star"][2], "Demo Project added to favourites")
+        self.assertEqual(mk["star"][3], "Demo Project added to favourites", "screen readers hear the confirmation")
+        self.assertEqual(mk["star"][4], ["f:p:demo"])
+        self.assertEqual(mk["command"], ["true", "layout-board"], "a Go to command changes the layout")
+        self.assertEqual(mk["naming"], ["view-name", "Search words and the doer are not kept; the status, stage, phase and layout are."])
+        stored, focus, names, bold = mk["saved"]
+        self.assertEqual(stored, {"favs": ["p:demo"], "views": [{"project": "demo", "name": "Doing <b>now</b>",
+                                  "filters": {"q": "", "stage": "", "phase": "", "status": "In Progress", "doer": ""}, "layout": "board"}]},
+                         "the doer picked is not stored")
+        self.assertEqual((focus, names, bold), ("save-view", ["Doing <b>now</b>"], 0), "a typed name stays text")
+        self.assertEqual(mk["menu"], [["Open DT201", "Add to favourites"], "menuitem"], "no GitHub item without an address GitHub gave")
+        self.assertEqual(mk["starred"], [["p:demo", "t:demo:DT201"], True])
+        self.assertEqual(mk["escaped"], [True, True, "Actions"], "Esc closes the menu, gives the focus back and drops the project name")
+        self.assertTrue(mk["refreshed"], "a refresh closes the menu")
+        self.assertEqual(mk["hiddenClosed"], [True, "Actions"], "closing an already hidden menu still drops a name left on it")
+        self.assertTrue(mk["openName"], "an open menu is named for its project")
+        self.assertEqual(mk["ended"], [True, 0, True, "", "Actions"], "ending the session leaves no menu, confirmation or project name")
+        self.assertEqual(mk["back"], ["f:p:demo", "f:t:demo:DT201"], "the marks come back on the same browser")
+        self.assertEqual(mk["opened"], ["In Progress", "true"], "a saved view opens its filters and layout")
+        self.assertEqual(mk["dropped"], 0)
+        self.assertEqual(mk["typing"], "gm", "letters typed in a field are text, not shortcuts")
+        self.assertEqual(mk["gm"], "Members")
+        self.assertIn(mk["gd"], ["dark", "light"])
+        self.assertEqual(mk["home"], ["5", "12", "4", "1"], "the counts end on their numbers")
+        self.assertEqual(mk["still"], [[False, "none"], ["5", "12", "4", "1"]], "with reduced motion nothing moves")
+
     def test_text_grows_a_little_with_the_screen(self):
         size = {w: [float(v[:-2]) for v in vals] for w, vals in self.r["textSize"].items()}
         self.assertEqual(size["390"], [16, 14], "phones keep the browser's own size")

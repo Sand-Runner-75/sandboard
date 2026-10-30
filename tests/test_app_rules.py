@@ -28,7 +28,10 @@ FORBIDDEN = [
 ORDER_STORE = ('window.localStorage.getItem(ORDER_KEY)', 'window.localStorage.setItem(ORDER_KEY, JSON.stringify(ids))')
 # And the look chosen in Settings (density and accent colour), under one more key, also in app.js only.
 LOOK_STORE = ('window.localStorage.getItem(LOOK_KEY)', 'window.localStorage.setItem(LOOK_KEY, JSON.stringify(look))')
-KEYS = ((ORDER_STORE, 'const ORDER_KEY = "sandboard.projectOrder";'), (LOOK_STORE, 'const LOOK_KEY = "sandboard.look";'))
+# And favourites and saved task views, under one more key, also in app.js only.
+MARKS_STORE = ('window.localStorage.getItem(MARKS_KEY)', 'window.localStorage.setItem(MARKS_KEY, JSON.stringify(marks))')
+KEYS = ((ORDER_STORE, 'const ORDER_KEY = "sandboard.projectOrder";'), (LOOK_STORE, 'const LOOK_KEY = "sandboard.look";'),
+        (MARKS_STORE, 'const MARKS_KEY = "sandboard.marks";'))
 
 
 def violations(name, text):
@@ -79,6 +82,10 @@ class SourceRulesTest(unittest.TestCase):
         self.assertEqual(violations("app.js", order + "\n" + look), [])
         self.assertTrue(violations("sb-views.js", look))
         self.assertTrue(violations("app.js", look.replace("sandboard.look", "sandboard.token")))
+        marks = 'const MARKS_KEY = "sandboard.marks";\n' + "\n".join(MARKS_STORE)
+        self.assertEqual(violations("app.js", order + "\n" + look + "\n" + marks), [])
+        self.assertTrue(violations("sb-views.js", marks))
+        self.assertTrue(violations("app.js", marks.replace("sandboard.marks", "sandboard.token")))
 
     def test_page_loads_every_module_in_order(self):
         with open(os.path.join(SRC, "index.html"), encoding="utf-8") as f:

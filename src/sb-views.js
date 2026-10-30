@@ -56,6 +56,8 @@
   // listed in the help dialog for anyone who cannot hover.
   const TIPS = {
     "Across projects": "Views that cover every listed project at once: the task timeline and calendar, members and teams.",
+    "Favourites": "Projects and tasks you starred. Kept in this browser only, as project and task IDs; nothing is sent anywhere.",
+    "Saved views": "A name for the status, stage and phase filters and the layout shown now, to open them again from here or the tree. Kept in this browser only; search words and the doer are not kept.",
     "Workspace timeline": "Every project's tasks, placed by the commits, pull requests and handoffs that name them, grouped by project. Not due dates and not progress.",
     "Done": "The plan's table marks this task finished. Only the owner's approval, recorded by the plan's progress script, makes it count.",
     "Ready for Review": "The work is finished and waits for the other AI's review or the owner's decision.",
@@ -163,6 +165,37 @@
 
   function header(id, title, entry, ...extra) {
     return el("header", { class: "head" }, el("div", { class: "row1" }, el("h1", { id }, title), extra), entry ? sourceLine(entry) : null);
+  }
+
+  // A star that keeps a project or a task among the favourites, in this browser only. A
+  // repository found or opened by name has none: its name is never stored.
+  function star(S, A, project, task) {
+    if (String(project).charAt(0) === "~") return null;
+    const on = S.marks.favs.includes(SB.favKey(project, task));
+    const id = task ? "fav-task" : "fav-project";
+    const what = (on ? "Take out of favourites" : "Add to favourites") + (task ? ": " + task : "");
+    return el("button", { type: "button", class: "tool round star" + (on ? " on" : ""), id, "aria-pressed": String(on), "aria-label": what, title: what,
+      onclick: () => A.toggleFav(project, task || null, id) }, el("span", { "aria-hidden": "true" }, on ? "\u2605" : "\u2606"));
+  }
+
+  // Saved views of this project's tasks: open one, remove one, or save the filters and layout shown now.
+  function savedViews(S, A, entry) {
+    const mine = S.marks.views.filter(v => v.project === entry.w.id);
+    if (entry.w.id.charAt(0) === "~") return null;
+    const box = el("div", { class: "saved-views", "data-part": "saved-views" }, el("span", { class: "label" }, "Saved views"));
+    for (const v of mine) box.append(el("span", { class: "sv" },
+      el("button", { type: "button", class: "linkbtn", "data-view": v.name, onclick: () => A.openView(entry.w.id, v.name) }, v.name),
+      el("button", { type: "button", class: "sv-x", "aria-label": "Remove the saved view " + v.name, title: "Remove", onclick: () => A.dropView(entry.w.id, v.name) }, "\u00d7")));
+    if (!mine.length) box.append(el("span", { class: "muted qual" }, "None yet"));
+    if (S.saving && (S.filters.q || S.filters.doer)) box.append(el("span", { class: "muted qual", id: "view-note" }, "Search words and the doer are not kept; the status, stage, phase and layout are."));
+    if (S.saving) {
+      const input = el("input", { id: "view-name", type: "text", maxlength: "40", placeholder: "Name this view", autocomplete: "off", spellcheck: "false", "aria-label": "Name of the view",
+        onkeydown: ev => { if (ev.key === "Enter") { ev.preventDefault(); A.saveView(ev.target.value); } else if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); A.savingView(false); } } });
+      box.append(el("span", { class: "sv-form" }, input,
+        el("button", { type: "button", class: "btn", id: "view-save", onclick: () => A.saveView(input.value) }, "Save"),
+        el("button", { type: "button", class: "btn ghost", onclick: () => A.savingView(false) }, "Cancel")));
+    } else box.append(el("button", { type: "button", class: "btn ghost", id: "save-view", onclick: () => A.savingView(true) }, "Save this view"));
+    return tip(box, "Saved views");
   }
 
   // Reads only this project again (its plan and repositories), not the workspace list or other projects.
@@ -333,6 +366,9 @@
       kids.push({ id: "repos:" + w.id, label: "Repositories", kids: repos.map(r => ({
         id: "r:" + w.id + ":" + r.repo, label: r.repo.split("/")[1], sub: r.role, tip: r.repo + ": " + (r.role === "plan" ? TIPS.plan : TIPS.code + " Its role here: " + r.role + "."),
         act: () => A.go(w.id, { kind: "repo", repo: r.repo }), cur: at("repo", () => S.view.repo === r.repo) })) });
+      const views = S.marks.views.filter(v => v.project === w.id);
+      if (views.length) kids.push({ id: "sv:" + w.id, label: "Saved views", tip: TIPS["Saved views"], kids: views.map(v => ({ id: "sv:" + w.id + ":" + v.name, label: v.name, sub: v.layout,
+        act: () => A.openView(w.id, v.name) })) });
       const plan = planState(entry);
       const sub = entry.loading ? "loading" : plan !== "current" && plan !== "none" ? (STATE[plan] || STATE.failed)[2].toLowerCase()
         : w.kind === "kit" ? "kit" : w.kind === "standalone" ? "code only" : "";
@@ -363,7 +399,18 @@
       { id: "a:members", label: "Members", tip: TIPS.Members, act: () => A.goAccount("members"), cur: at(["members", "member"]),
         badge: people ? [String(people), people + " members"] : null },
       { id: "a:teams", label: "Teams", tip: TIPS.Teams, act: () => A.goAccount("teams"), cur: at(["teams"]) }] };
-    return [home, projects, across, account];
+    // Favourites, when there are any: starred projects and tasks still in the workspace list, in the order starred.
+    const favs = [];
+    for (const key of S.marks.favs) {
+      const [kind, pid, tid] = key.split(":");
+      const e = S.entries.find(x => x.w.id === pid);
+      if (!e) continue;
+      if (kind === "p") favs.push({ id: "f:" + key, label: e.w.label, sub: "project", act: () => A.go(e.w.id, e.w.plan ? { kind: "overview" } : { kind: "repo", repo: e.w.code[0].repo }) });
+      else { const t = rowsVisible(e) ? e.tasks.find(x => x.id === tid && !x.invalid) : null;
+        favs.push({ id: "f:" + key, label: tid + (t && t.title ? " " + t.title : ""), sub: e.w.label, act: () => A.go(e.w.id, { kind: "tasks" }, { phase: "", select: tid }) }); }
+    }
+    const fav = favs.length ? [{ id: "g:favs", label: "Favourites", tip: TIPS.Favourites, kids: favs, badge: [String(favs.length), favs.length + " favourites"] }] : [];
+    return [home, ...fav, projects, across, account];
   }
 
   // The IDs of every tree item that has children (for Expand all).
@@ -477,7 +524,7 @@
     const stages = p.state === "current" && Array.isArray(p.data.stages) ? p.data.stages : null;
     const st = stages && S.view.stage ? stages.find(x => x.id === S.view.stage) : null;
     const sec = el("section", { class: "stack", "aria-labelledby": "view-h" },
-      header("view-h", st ? w.label + ": " + st.name : w.label, entry, el("span", { class: "stage-tag" }, "Overview"), refreshOne(A, entry)));
+      header("view-h", st ? w.label + ": " + st.name : w.label, entry, el("span", { class: "stage-tag" }, "Overview"), refreshOne(A, entry), star(S, A, w.id)));
     const plan = planState(entry);
     if (plan !== "current" && plan !== "none" && plan !== "loading") {
       sec.append(notice(plan, plan === "denied" ? "Your token cannot read the plan repository " + w.plan.repo +
@@ -560,7 +607,7 @@
   function tasks(S, A, entry) {
     const w = entry.w;
     const sec = el("section", { class: "stack", "aria-labelledby": "view-h" },
-      header("view-h", w.label + ": tasks", entry, el("span", { class: "stage-tag" }, "Tasks")));
+      header("view-h", w.label + ": tasks", entry, el("span", { class: "stage-tag" }, "Tasks"), star(S, A, w.id)));
     const plan = planState(entry);
     if (plan !== "current" && plan !== "loading") {
       sec.append(plan === "none" ? notice("none") : notice(plan, plan === "denied" ? "Your token cannot read the plan repository " + w.plan.repo +
@@ -569,7 +616,7 @@
     }
     const stage = chosenStage(S, entry);
     sec.append(wholeCards(entry), progressBlock(S, A, entry, stage ? stage.id : null));
-    const left = el("div", { class: "stack tight" }, el("h2", { id: "tasks-h", class: "label", tabindex: "-1" }, "Tasks"), filterBar(S, A, entry), V.layoutSwitch(S, A), taskList(S, A, entry));
+    const left = el("div", { class: "stack tight" }, el("h2", { id: "tasks-h", class: "label", tabindex: "-1" }, "Tasks"), filterBar(S, A, entry), V.layoutSwitch(S, A), savedViews(S, A, entry), taskList(S, A, entry));
     // The list takes the whole width; with a task open, the details get a wide share beside it.
     const task = rowsVisible(entry) && S.selected ? entry.tasks.find(t => t.id === S.selected && !t.invalid) : null;
     const area = el("div", { class: "work" + (task ? " with-details" : "") }, left);
@@ -752,7 +799,7 @@
     const fact = approved ? approved.get(task.id) : null;
     const box = el("aside", { class: "inspector", "aria-label": "Task details", id: "inspector" });
     box.append(el("header", {}, el("div", {}, el("div", { class: "id" }, task.id), el("h3", {}, task.title || "No title")),
-      el("button", { type: "button", class: "btn ghost", "aria-label": "Close details", onclick: () => A.closeDetails() }, "Close")));
+      el("div", { class: "row1" }, star(S, A, entry.w.id, task.id), el("button", { type: "button", class: "btn ghost", "aria-label": "Close details", onclick: () => A.closeDetails() }, "Close"))));
     // Approved result files come first: for a finished task they are what there is to look at.
     if (fact && task.status !== "Removed") box.append(resultLinks(entry, task, approved, false));
     const model = task.model === undefined ? given(undefined) : task.model ? task.model + (task.effort ? ", " + task.effort : "") : el("span", { class: "muted" }, "Not given in the table");
