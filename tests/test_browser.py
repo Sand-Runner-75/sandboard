@@ -79,6 +79,15 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual((on["button"], on["mode"], on["field"], on["dialog"]), (False, "private · Edit mode", "", False))
         self.assertIn("Token expiry: 2026-12-01 00:00:00 UTC", on["result"])
         self.assertEqual(e["afterRefresh"]["bar"], on["bar"], "a refresh that maps the same repositories keeps Edit mode")
+        held = e["whileHeld"]["bar"]
+        self.assertIn("acting as synthetic-user on acme/garden-plan, acme/recipes (paused while the projects are read again)", held,
+                      "a denied repository leaves at once, and nothing may be changed while a later project is read")
+        self.assertEqual(e["afterHeld"]["bar"], "Edit mode acting as synthetic-user on acme/garden-plan, acme/recipes Leave Edit mode")
+        self.assertIn("(paused while the projects are read again)", e["listFailed"]["bar"], "a failed list read leaves nothing writable")
+        self.assertEqual(e["listBack"]["bar"], e["afterHeld"]["bar"])
+        for how in ("cancel", "escape"):
+            self.assertEqual((e[how]["bar"], e[how]["button"], e[how]["mode"]), (None, True, "private · read-only"), how)
+            self.assertEqual(e[how]["result"], "Edit mode is off: cancelled.", how)
         self.assertEqual((e["left"]["bar"], e["left"]["button"], e["left"]["mode"]), (None, True, "private · read-only"))
         self.assertIn("Left Edit mode", e["left"]["result"])
         self.assertEqual((e["forgot"]["bar"], e["forgot"]["button"], e["forgot"]["result"]), (None, False, None))

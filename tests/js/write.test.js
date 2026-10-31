@@ -248,3 +248,35 @@ test("the confirmation lists every detail as plain text", async () => {
   assert.deepEqual(rows.find(r => r[0] === "Text"), ["Text", text]);
   assert.deepEqual(rows.find(r => r[0] === "Acting as"), ["Acting as", "synthetic-user"]);
 });
+
+test("only the action the writer issued is sent, once: a frozen clone or look-alike is refused", async () => {
+  const { gh, w } = await signedIn();
+  const d = w.prepare("edit-pull", "acme/garden", { number: 9, state: "closed" });
+  const clone = Object.freeze(Object.assign({}, d, { hard: false, fields: Object.freeze({ number: 9, state: "closed" }) }));
+  assert.equal((await w.dispatch(clone)).outcome, "not-sent", "a clone that drops the typed number");
+  const changed = Object.freeze(Object.assign({}, d, { fields: Object.freeze({ number: 10, state: "closed" }) }));
+  assert.equal((await w.dispatch(changed, "10")).outcome, "not-sent", "a clone with another number");
+  assert.equal(gh.writes().length, 0);
+  assert.equal((await w.dispatch(d, "9")).outcome, "done");
+  assert.equal((await w.dispatch(d, "9")).outcome, "not-sent", "a confirmation sends at most once");
+  assert.equal(gh.writes().length, 1);
+  const other = await signedIn();
+  const theirs = other.w.prepare("comment", "acme/garden", { number: 1, body: "x" });
+  assert.equal((await w.dispatch(theirs)).outcome, "not-sent", "another writer's action");
+});
+
+test("while the projects are read again nothing may be changed and earlier confirmations are void", async () => {
+  const { gh, ws, w } = await signedIn();
+  const d = w.prepare("comment", "acme/garden", { number: 1, body: "x" });
+  ws.suspend();
+  assert.equal(ws.suspended, true);
+  assert.equal(w.current(d), false);
+  assert.throws(() => w.prepare("comment", "acme/garden", { number: 1, body: "x" }), SB.NotSent);
+  assert.equal((await w.dispatch(d)).outcome, "not-sent");
+  ws.restrict(["acme/garden-plan"]);
+  ws.resume();
+  assert.deepEqual(ws.repos, ["acme/garden-plan"]);
+  assert.equal(w.current(d), false, "a confirmation made before stays void");
+  assert.ok(w.prepare("comment", "acme/garden-plan", { number: 1, body: "x" }));
+  assert.equal(gh.writes().length, 0);
+});

@@ -61,7 +61,7 @@
     <p class="notice write-result" id="write-result" role="status" hidden></p>
     <section id="signed-out" class="signed-out" aria-labelledby="signed-out-h">
       <h1 id="signed-out-h">Sign in to read your projects</h1>
-      <p class="plain">Sandboard shows your projects' tasks and progress exactly as your plan repository records them. It only reads: nothing here can change a plan, a task or a repository. Nothing is loaded until you sign in, and nothing you load is kept after you leave.</p>
+      <p class="plain">Sandboard shows your projects' tasks and progress exactly as your plan repository records them. It only reads, unless you turn on Edit mode with a separate write token; then every change is shown in full and sent only after you confirm it. Nothing is loaded until you sign in, and nothing you load is kept after you leave.</p>
       <form id="connect" autocomplete="off">
         <label>Plan repository <input id="plan-repo" name="plan-repo" placeholder="owner/repo, owner/repo@branch, or only the owner" spellcheck="false"></label>
         <label>Read-only token <input id="token" name="token" type="password" autocomplete="off" required></label>

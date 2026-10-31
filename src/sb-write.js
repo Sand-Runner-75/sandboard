@@ -24,6 +24,7 @@
     let repos = new Set();
     let gen = 0;
     let mapGen = 0;
+    let suspended = false;
     const session = {
       start(newToken, newOwner, mapped) {
         session.end();
@@ -55,10 +56,18 @@
       },
       // A repository the write token cannot reach, or a read that found it denied or missing.
       remove(repo) { session.restrict([...repos].filter(r => r !== String(repo).toLowerCase())); },
-      allows(repo) { return token !== null && repos.has(String(repo).toLowerCase()); },
+      // While the workspace list is being read again, what it maps is not known: nothing may be changed,
+      // and every confirmation made before is void. resume() comes only after restrict() with the new mapping.
+      suspend() {
+        if (token === null || suspended) return;
+        suspended = true;
+        mapGen += 1;
+      },
+      resume() { suspended = false; },
+      allows(repo) { return token !== null && !suspended && repos.has(String(repo).toLowerCase()); },
       end() {
         if (token === null && owner === null) return;
-        token = null; owner = null; login = null; repos = new Set();
+        token = null; owner = null; login = null; repos = new Set(); suspended = false;
         gen += 1;
       },
       get on() { return token !== null; },
@@ -67,6 +76,7 @@
       get repos() { return [...repos].sort(); },
       get gen() { return gen; },
       get mapGen() { return mapGen; },
+      get suspended() { return suspended; },
       toJSON() { return { on: token !== null, owner, login }; },
     };
     WRITE_AUTH.set(session, g => {
@@ -232,6 +242,9 @@
     const authorization = WRITE_AUTH.get(ws);
     if (!authorization) throw new Error("not a session from createWriteSession");
     let busy = false;
+    // Every action this writer issued, with its own private copy of the checked details. Only an issued
+    // action can be sent, only once, and only with that copy: a look-alike or a frozen clone is refused.
+    const issued = new WeakMap();
     // Each repository's web address as GitHub's own reply gave it, for the link under a result.
     const webs = new Map();
 
@@ -291,16 +304,26 @@
     // "not-sent" (refused before sending), "refused" (GitHub's definite no), "done" or "requested"
     // (GitHub accepted it), "unknown" (it may or may not have happened: never resent, never shown as undone).
     // A hard-to-undo change (closing, and later merging or deleting) is sent only with its number typed.
+    function issue(kind, repo, fields) {
+      const d = prepare(ws, kind, repo, fields);
+      issued.set(d, prepare(ws, kind, repo, fields));
+      return d;
+    }
+
     async function dispatch(d, typed) {
-      const k = d && Object.prototype.hasOwnProperty.call(KINDS, d.kind) ? KINDS[d.kind] : null;
       const notSent = why => ({ outcome: "not-sent", message: "Not sent: " + why + ".", link: null, undo: null });
-      if (!k || !Object.isFrozen(d) || !Object.isFrozen(d.fields)) return notSent("not a confirmed action");
+      const mine = d && typeof d === "object" ? issued.get(d) : undefined;
+      if (!mine) return notSent("not a confirmed action");
+      const k = KINDS[mine.kind];
       if (busy) return notSent("another change is still being sent");
-      if (d.hard && String(typed || "").trim() !== String(d.fields.number)) return notSent("the number was not typed to confirm it");
-      if (!current(ws, d)) return notSent("Edit mode, the project or the token changed after it was confirmed");
-      // The descriptor is checked again as if it were new, so a changed field can never pass.
+      // Hard-to-undo is decided from the writer's own copy, never from what the caller holds.
+      if (mine.hard && String(typed || "").trim() !== String(mine.fields.number)) return notSent("the number was not typed to confirm it");
+      issued.delete(d);  // one confirmation sends at most once
+      if (!current(ws, mine)) return notSent("Edit mode, the project or the token changed after it was confirmed");
+      // The details are checked again as if they were new, under the session as it is now.
       let again;
-      try { again = prepare(ws, d.kind, d.repo, d.fields); } catch (e) { return notSent(e.message); }
+      try { again = prepare(ws, mine.kind, mine.repo, mine.fields); } catch (e) { return notSent(e.message); }
+      d = mine;
       const web = webs.get(d.repo.toLowerCase());
       const link = web ? web + k.link(again.fields) : null;
       busy = true;
@@ -330,7 +353,7 @@
       return { outcome: "unknown", message: "Not sure it happened: check on GitHub.", link, undo: null };
     }
 
-    return Object.freeze({ check, prepare: (kind, repo, fields) => prepare(ws, kind, repo, fields),
+    return Object.freeze({ check, prepare: issue,
                            current: d => current(ws, d), dispatch, get busy() { return busy; } });
   }
 

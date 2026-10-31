@@ -31,6 +31,8 @@
   let write = null;
   let writer = null;
   let pendingWrite = null;
+  // The write session still being checked with GitHub; Cancel or Esc ends it, whatever GitHub answered so far.
+  let checkingWrite = null;
 
   const noFilters = () => ({ q: "", stage: "", phase: "", status: "", doer: "" });
   const noRepoFilters = () => ({ q: "", visibility: "", language: "", type: "", sort: "name", group: false });
@@ -721,14 +723,31 @@
   // Only a finished reading of the workspace list changes what Edit mode may reach.
   const settled = () => S.signedIn && !S.demo && (S.list.state === "current" || S.list.state === "empty") && S.entries.every(e => !e.loading);
 
-  // Keeps the marker, the button and the waiting confirmation in step with the write session.
+  // Repositories whose read was found denied or missing, as soon as each read ends.
+  function goneRepos() {
+    const gone = r => r && (r.state === "missing" || r.state === "denied");
+    const out = [];
+    for (const e of S.entries) {
+      if (e.w.plan && gone(e.plan)) out.push(e.w.plan.repo);
+      for (const c of e.code) if (gone(c.pinned)) out.push(c.c.repo);
+    }
+    return out;
+  }
+
+  // Keeps the marker, the button and the waiting confirmation in step with the write session. A repository
+  // found denied or missing leaves the set at once; while the list is read again nothing may be changed,
+  // and the set follows the new mapping only once every project has been read.
   function syncWrite() {
-    if (write && write.on && settled()) write.restrict(writableRepos());
-    if (write && !write.on) endWrite(null);
+    if (write && write.on) {
+      for (const r of goneRepos()) write.remove(r);
+      if (!settled()) write.suspend();
+      else if (write.on) { write.restrict(writableRepos()); write.resume(); }
+    }
+    if (write && !write.on && !checkingWrite) endWrite("Edit mode ended: the write token was refused or no repository it may change is left. Reading goes on.");
     const on = !!(write && write.on && write.login);
     $("edit-open").hidden = !S.signedIn || S.demo || !!write;
     $("edit-bar").hidden = !on;
-    $("edit-who").textContent = on ? "acting as " + write.login + " on " + write.repos.join(", ") : "";
+    $("edit-who").textContent = on ? "acting as " + write.login + " on " + write.repos.join(", ") + (write.suspended ? " (paused while the projects are read again)" : "") : "";
     if (pendingWrite && !(writer && writer.current(pendingWrite))) closeWrite("Not sent: Edit mode, the project or the token changed after it was opened.");
   }
 
@@ -754,6 +773,7 @@
 
   async function startEdit(event) {
     event.preventDefault();
+    if (checkingWrite) return;  // one acquisition at a time
     const typed = $("write-token").value.trim();
     $("write-token").value = "";
     const owner = $("edit-owner").value;
@@ -762,11 +782,13 @@
     try { mine.start(typed, owner, writableRepos()); } catch (e) { $("edit-state").textContent = "No mapped repository of " + owner + " can be changed."; return; }
     write = mine;
     writer = SB.createWriter(mine);
+    checkingWrite = mine;
     $("edit-state").textContent = "Checking the write token with GitHub…";
     render();
     let said;
     try { said = await writer.check(); } catch (e) { if (e instanceof SB.Stale) return; throw e; }
-    if (write !== mine) return;  // left, signed out or replaced while GitHub answered
+    if (write !== mine || checkingWrite !== mine) return;  // cancelled, left, signed out or replaced while GitHub answered
+    checkingWrite = null;
     if (!said.ok) {
       endWrite("Edit mode is off: " + said.why + ".");
       render();
@@ -782,6 +804,7 @@
 
   // Drops the write token and everything that came with it; the read session stays.
   function endWrite(text) {
+    checkingWrite = null;
     if (write) write.end();
     write = null;
     writer = null;
@@ -1664,12 +1687,12 @@
   $("refresh").addEventListener("click", refresh);
   $("edit-open").addEventListener("click", openEdit);
   $("edit-form").addEventListener("submit", startEdit);
-  $("edit-cancel").addEventListener("click", () => { if (write && !write.login) endWrite(null); $("edit").close(); });
+  $("edit-cancel").addEventListener("click", () => { if (checkingWrite) endWrite("Edit mode is off: cancelled."); $("edit").close(); render(); });
   $("edit-leave").addEventListener("click", () => { endWrite("Left Edit mode. The write token was dropped; reading goes on."); render(); });
   $("write-send").addEventListener("click", sendWrite);
   $("write-cancel").addEventListener("click", () => closeWrite("Not sent: cancelled."));
   $("write-confirm").addEventListener("close", () => { if (pendingWrite) closeWrite("Not sent: cancelled."); });
-  $("edit").addEventListener("close", () => { $("write-token").value = ""; if (write && !write.login) { endWrite(null); render(); } });
+  $("edit").addEventListener("close", () => { $("write-token").value = ""; if (checkingWrite) { endWrite("Edit mode is off: cancelled."); render(); } });
   $("goto-open").addEventListener("click", openGoto);
   $("help-open").addEventListener("click", () => helpBox.showModal());
   $("settings-open").addEventListener("click", () => $("settings").showModal());
