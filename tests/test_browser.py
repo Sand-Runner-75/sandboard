@@ -68,6 +68,35 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual({req.split(" ")[1].split("/")[2] for req in self.r["requests"]}, {"api.github.com"})
         self.assertTrue(all(req.startswith("GET ") for req in self.r["requests"]))
 
+    def test_edit_mode_holds_a_separate_write_token_only_while_marked(self):
+        e = self.r["edit"]
+        self.assertFalse(e["signedOutButton"], "no Edit mode before signing in")
+        self.assertEqual((e["before"]["bar"], e["before"]["button"], e["before"]["mode"]), (None, True, "private · read-only"))
+        self.assertEqual(e["owners"], ["acme"])
+        self.assertEqual(e["fieldType"], "password")
+        on = e["on"]
+        self.assertEqual(on["bar"], "Edit mode acting as synthetic-user on acme/garden, acme/garden-plan, acme/recipes Leave Edit mode")
+        self.assertEqual((on["button"], on["mode"], on["field"], on["dialog"]), (False, "private · Edit mode", "", False))
+        self.assertIn("Token expiry: 2026-12-01 00:00:00 UTC", on["result"])
+        self.assertEqual(e["afterRefresh"]["bar"], on["bar"], "a refresh that maps the same repositories keeps Edit mode")
+        held = e["whileHeld"]["bar"]
+        self.assertIn("acting as synthetic-user on acme/garden-plan, acme/recipes (paused while the projects are read again)", held,
+                      "a denied repository leaves at once, and nothing may be changed while a later project is read")
+        self.assertEqual(e["afterHeld"]["bar"], "Edit mode acting as synthetic-user on acme/garden-plan, acme/recipes Leave Edit mode")
+        self.assertIn("(paused while the projects are read again)", e["listFailed"]["bar"], "a failed list read leaves nothing writable")
+        self.assertEqual(e["listBack"]["bar"], e["afterHeld"]["bar"])
+        for how in ("cancel", "escape"):
+            self.assertEqual((e[how]["bar"], e[how]["button"], e[how]["mode"]), (None, True, "private · read-only"), how)
+            self.assertEqual(e[how]["result"], "Edit mode is off: cancelled.", how)
+        self.assertEqual((e["left"]["bar"], e["left"]["button"], e["left"]["mode"]), (None, True, "private · read-only"))
+        self.assertIn("Left Edit mode", e["left"]["result"])
+        self.assertEqual((e["forgot"]["bar"], e["forgot"]["button"], e["forgot"]["result"]), (None, False, None))
+        self.assertIsNone(e["refused"]["bar"])
+        self.assertIn("Edit mode is off: GitHub refused the write token", e["refused"]["result"])
+        # The write token is used only for GitHub's answer to who it is and which repositories it reaches, by GET.
+        self.assertTrue(e["auth"] and all(a.startswith("GET /user") or a.startswith("GET /repos/acme/") for a in e["auth"]), e["auth"])
+        self.assertNotIn("GET /repos/acme/locked-plan", e["auth"], "a repository whose read is denied is never offered")
+
     def test_keyboard_only_journey(self):
         k = self.r["keys"]
         self.assertEqual(k["first"]["tag"], "A")  # the skip link is the first Tab stop
@@ -388,8 +417,9 @@ class BrowserTest(unittest.TestCase):
     def test_untrusted_text_is_shown_as_text(self):
         p = self.r["progress"]
         self.assertIn('<script>alert("never runs")</script>', p["hostile"])
-        self.assertEqual((p["scripts"], p["imgs"]), (21, 0))
+        self.assertEqual((p["scripts"], p["imgs"]), (22, 0))
         self.assertEqual(p["writeControls"], [])
+        self.assertEqual(p["editHidden"], [True, True], "no Edit mode in the demo")
 
     def test_copy_is_exactly_the_shown_text_and_a_refusal_is_reported(self):
         c = self.r["copy"]

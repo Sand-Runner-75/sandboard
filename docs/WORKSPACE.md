@@ -1,6 +1,6 @@
 # Workspace
 
-The first usable workspace, built on the read-only data layer in [DATA-LAYER.md](DATA-LAYER.md). Everything shown comes from what the data layer read at one pinned commit per repository; the page computes no progress figure of its own and has no control that writes anything.
+The first usable workspace, built on the read-only data layer in [DATA-LAYER.md](DATA-LAYER.md). Everything shown comes from what the data layer read at one pinned commit per repository; the page computes no progress figure of its own. Nothing here writes to GitHub except through Edit mode, a separate write token with one confirmation for every change (see [DATA-LAYER.md](DATA-LAYER.md#edit-mode-write-foundation)); no button calls a write action yet.
 
 ## Places
 

@@ -164,7 +164,9 @@ function privateRepos() {
   await p.keyboard.press("Control+k"); await p.keyboard.type("DT1");
   prog.gotoOnLocked = await p.$$eval("#goto-list li", l => l.map(x => x.textContent));
   await p.keyboard.press("Escape");
-  prog.writeControls = await p.$$eval("button, a", n => n.map(x => x.textContent.trim())
+  // Edit mode's own controls exist in the page but are never shown in the demo; no other control writes.
+  prog.editHidden = await p.$$eval("#edit-open, #edit-bar", n => n.map(x => x.hidden));
+  prog.writeControls = await p.$$eval("button, a", n => n.filter(x => !x.closest("#edit, #write-confirm, #edit-bar") && x.id !== "edit-open").map(x => x.textContent.trim())
     .filter(t => /\b(edit|merge|approve|assign|re-?run|publish|delete|mark|star|cancel)\b/i.test(t)));
   await p.close();
 
@@ -2039,6 +2041,101 @@ function privateRepos() {
   await demo(p);
   await p.click("#tree [data-id='a:home'] > .ti");
   mk.still = [await fading(p), await p.$$eval("[data-part=home-counts] .kv", n => n.map(x => x.textContent))];
+  await p.close();
+
+  // Edit mode: a separate write token, checked with GitHub by GET only, a constant marker while it is held,
+  // and dropped by Leave Edit mode, Forget access and a refused token. Nothing but GET is ever sent here.
+  const ed = out.edit = { auth: [] };
+  let refuseWrite = false, holdWrite = false, denyGarden = false, holdRecipes = false, failList = false;
+  const heldEdit = [];
+  const egh = mockGitHub(privateRepos(), [[/^[/]repos[/]acme[/]locked-plan/, () => json({ message: "denied" }, 403)]]);
+  p = await open();
+  await p.route("https://api.github.com/**", async route => {
+    const req = route.request();
+    const auth = req.headers()["authorization"];
+    if (auth === "Bearer synthetic-write") ed.auth.push(req.method() + " " + req.url().slice("https://api.github.com".length));
+    const p0 = req.url().slice("https://api.github.com".length);
+    if (holdWrite && auth === "Bearer synthetic-write" && p0.startsWith("/repos/")) await new Promise(r => heldEdit.push(r));
+    if (holdRecipes && auth === "Bearer synthetic-token" && /^[/]repos[/]acme[/]recipes/.test(p0)) await new Promise(r => heldEdit.push(r));
+    const res = refuseWrite && auth === "Bearer synthetic-write" ? json({ message: "Bad credentials" }, 401)
+      : failList && auth === "Bearer synthetic-token" && /sandboard[.]workspaces[.]json/.test(p0) ? json({ message: "boom" }, 500)
+      : denyGarden && auth === "Bearer synthetic-token" && /^[/]repos[/]acme[/]garden(?:[/]|$)/.test(p0) ? json({ message: "denied" }, 403)
+      : await egh.fetch(req.url(), { method: req.method() });
+    const headers = { "content-type": "application/json", "access-control-allow-origin": "*", "access-control-expose-headers": "github-authentication-token-expiration" };
+    if (req.url().endsWith("/user") && auth === "Bearer synthetic-write") headers["github-authentication-token-expiration"] = "2026-12-01 00:00:00 UTC";
+    await route.fulfill({ status: res.status, headers, body: await res.text() });
+  });
+  const editOn = async () => {
+    await p.click("#edit-open");
+    await p.fill("#write-token", "synthetic-write");
+    await p.click("#edit-form button[type=submit]");
+    await p.waitForFunction(() => !document.getElementById("edit").open, null, { timeout: 5000 }).catch(() => {});
+    await p.waitForTimeout(150);
+  };
+  const editSeen = () => p.evaluate(() => ({ bar: document.getElementById("edit-bar").hidden ? null : document.getElementById("edit-bar").textContent,
+    button: !document.getElementById("edit-open").hidden, mode: document.getElementById("mode").textContent,
+    result: document.getElementById("write-result").hidden ? null : document.getElementById("write-result").textContent,
+    field: document.getElementById("write-token").value, dialog: document.getElementById("edit").open }));
+  ed.signedOutButton = await p.$eval("#edit-open", n => !n.hidden);
+  await p.fill("#plan-repo", "acme/garden-plan"); await p.fill("#token", "synthetic-token"); await p.click("#connect button[type=submit]");
+  await p.waitForFunction(() => /Reading finished/.test(document.getElementById("live").textContent), null, { timeout: 8000 }).catch(() => {});
+  await p.waitForTimeout(300);
+  ed.before = await editSeen();
+  await p.click("#edit-open");
+  ed.owners = await p.$$eval("#edit-owner option", o => o.map(x => x.value));
+  ed.fieldType = await p.$eval("#write-token", n => n.type);
+  await p.click("#edit-cancel");
+  await editOn();
+  ed.on = await editSeen();
+  await p.click("#refresh");
+  await p.waitForFunction(() => /Reading finished/.test(document.getElementById("live").textContent), null, { timeout: 8000 }).catch(() => {});
+  await p.waitForTimeout(300);
+  ed.afterRefresh = await editSeen();
+  // A repository found denied leaves the set at once, while a later project is still being read, and
+  // nothing may be changed until every project is read again.
+  denyGarden = true; holdRecipes = true;
+  await p.click("#refresh");
+  await p.waitForFunction(() => !/acme[/]garden,/.test(document.getElementById("edit-who").textContent), null, { timeout: 5000 }).catch(() => {});
+  ed.whileHeld = await editSeen();
+  holdRecipes = false;
+  for (const r of heldEdit.splice(0)) r();
+  await p.waitForFunction(() => /Reading finished/.test(document.getElementById("live").textContent), null, { timeout: 8000 }).catch(() => {});
+  await p.waitForTimeout(300);
+  ed.afterHeld = await editSeen();
+  denyGarden = false;
+  // A workspace list that cannot be read again leaves nothing writable until it can.
+  failList = true;
+  await p.click("#refresh");
+  await p.waitForTimeout(800);
+  ed.listFailed = await editSeen();
+  failList = false;
+  await p.click("#refresh");
+  await p.waitForFunction(() => /Reading finished/.test(document.getElementById("live").textContent), null, { timeout: 8000 }).catch(() => {});
+  await p.waitForTimeout(300);
+  ed.listBack = await editSeen();
+  await p.click("#edit-leave"); await p.waitForTimeout(100);
+  ed.left = await editSeen();
+  // Cancel, or Esc, while GitHub is still checking which repositories the token reaches: Edit mode stays off.
+  for (const how of ["cancel", "escape"]) {
+    holdWrite = true;
+    await p.click("#edit-open"); await p.fill("#write-token", "synthetic-write"); await p.click("#edit-form button[type=submit]");
+    await p.waitForFunction(() => /Checking/.test(document.getElementById("edit-state").textContent), null, { timeout: 5000 }).catch(() => {});
+    await p.waitForTimeout(200);
+    if (how === "cancel") await p.click("#edit-cancel"); else await p.keyboard.press("Escape");
+    holdWrite = false;
+    for (const r of heldEdit.splice(0)) r();
+    await p.waitForTimeout(400);
+    ed[how] = await editSeen();
+  }
+  await editOn();
+  await p.click("#forget"); await p.waitForTimeout(100);
+  ed.forgot = await editSeen();
+  await p.fill("#plan-repo", "acme/garden-plan"); await p.fill("#token", "synthetic-token"); await p.click("#connect button[type=submit]");
+  await p.waitForFunction(() => /Reading finished/.test(document.getElementById("live").textContent), null, { timeout: 8000 }).catch(() => {});
+  await p.waitForTimeout(300);
+  refuseWrite = true;
+  await editOn();
+  ed.refused = await editSeen();
   await p.close();
 
   // Text grows a little with the screen, from the browser's own size to an eighth more.

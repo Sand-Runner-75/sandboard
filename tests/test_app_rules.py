@@ -1,6 +1,7 @@
 """Rules for the app's browser code, checked on the source: read-only network
-use, nothing stored in the browser, no HTML parsing of data, and the Node
-tests of the browser modules (tests/js) run and pass."""
+use everywhere except Edit mode's one write client (sb-write.js), nothing
+stored in the browser, no HTML parsing of data, and the Node tests of the
+browser modules (tests/js) run and pass."""
 import glob
 import os
 import re
@@ -34,18 +35,25 @@ KEYS = ((ORDER_STORE, 'const ORDER_KEY = "sandboard.projectOrder";'), (LOOK_STOR
         (MARKS_STORE, 'const MARKS_KEY = "sandboard.marks";'))
 
 
+# The one file allowed to send anything but GET, and the methods it may use.
+WRITE_CLIENT = "sb-write.js"
+WRITE_METHODS = {"GET", "POST", "PATCH", "PUT", "DELETE"}
+
+
 def violations(name, text):
     for uses, key in KEYS:
         if name == "app.js" and all(text.count(use) == 1 for use in uses) and text.count(key) == 1:
             for use in uses:
                 text = text.replace(use, "")
     found = [why for pattern, why in FORBIDDEN if re.search(pattern, text)]
+    # Edit mode's write client is the only file that may name another method, and only these.
+    allowed = WRITE_METHODS if name == WRITE_CLIENT else {"GET"}
     for method in re.findall(r"\bmethod\s*:\s*[\"']?([A-Za-z]+)", text):
-        if method != "GET":
+        if method not in allowed:
             found.append("an HTTP method other than GET")
     fetches = len(re.findall(r"\bfetch\b", text))
-    if fetches and not (name == "sb-core.js" and fetches == 1):
-        found.append("a network call outside the read-only client")
+    if fetches and not (name in ("sb-core.js", WRITE_CLIENT) and fetches == 1):
+        found.append("a network call outside the read-only client and the write client")
     return found
 
 
@@ -86,12 +94,20 @@ class SourceRulesTest(unittest.TestCase):
         self.assertEqual(violations("app.js", order + "\n" + look + "\n" + marks), [])
         self.assertTrue(violations("sb-views.js", marks))
         self.assertTrue(violations("app.js", marks.replace("sandboard.marks", "sandboard.token")))
+        # Only the write client may write, and even it may not use any other method or a second network call.
+        write = 'x = { method: "POST" }; y = { method: "DELETE" }; root.fetch.bind(root)'
+        self.assertEqual(violations(WRITE_CLIENT, write), [])
+        self.assertTrue(violations("sb-core.js", 'x = { method: "POST" }'))
+        self.assertTrue(violations("app.js", write))
+        self.assertTrue(violations(WRITE_CLIENT, 'x = { method: "TRACE" }'))
+        self.assertTrue(violations(WRITE_CLIENT, write + "; fetch(u)"))
+        self.assertTrue(violations(WRITE_CLIENT, "localStorage.setItem('t', t)"))
 
     def test_page_loads_every_module_in_order(self):
         with open(os.path.join(SRC, "index.html"), encoding="utf-8") as f:
             html = f.read()
         loaded = re.findall(r'<script src="([^"]+)" defer></script>', html)
-        self.assertEqual(loaded, ["demo-data.js", "sb-core.js", "sb-readers.js", "sb-render.js", "sb-model.js", "sb-demo.js",
+        self.assertEqual(loaded, ["demo-data.js", "sb-core.js", "sb-write.js", "sb-readers.js", "sb-render.js", "sb-model.js", "sb-demo.js",
                                   "sb-views.js", "sb-repos.js", "sb-home.js", "sb-taskviews.js", "sb-people.js", "sb-history.js", "sb-work.js", "sb-code.js", "sb-search.js",
                                   "sb-gif.js", "sb-atlas-graph.js", "sb-atlas-tree.js", "sb-atlas-account.js", "sb-atlas.js", "app.js"])
         self.assertEqual(sorted(n for n, _ in sources()), sorted(loaded[1:]))
@@ -103,6 +119,19 @@ class SourceRulesTest(unittest.TestCase):
         with open(os.path.join(SRC, "app.js"), encoding="utf-8") as f:
             app = f.read()
         self.assertGreaterEqual(app.count('$("token").value = "";'), 2)  # cleared on connect and on sign-out
+        # The write token too: its own password field, cleared when taken, when Edit mode ends and on sign-out.
+        self.assertRegex(html, r'<input id="write-token" name="write-token" type="password" autocomplete="off"')
+        self.assertGreaterEqual(app.count('$("write-token").value = "";'), 4)
+
+    def test_the_write_client_sends_only_its_fixed_actions(self):
+        with open(os.path.join(SRC, WRITE_CLIENT), encoding="utf-8") as f:
+            text = f.read()
+        methods = re.findall(r"\bmethod\s*:\s*\"([A-Z]+)\"", text)
+        self.assertGreaterEqual(len(methods), 10)
+        self.assertLessEqual(set(methods), WRITE_METHODS - {"GET"})
+        # Workflow files and the Workflows permission are never touched; nothing forces or bypasses.
+        self.assertNotRegex(text, r"\bforce\b\s*:|bypass|\badmin\b")
+        self.assertNotIn("/contents/", text)
 
 
 class NodeTest(unittest.TestCase):

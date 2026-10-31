@@ -662,3 +662,9 @@ button.linkchip:hover { color: var(--fg); border-color: var(--control); }
   .toast.show { animation: toast-in 0.16s ease-out; }
   @keyframes toast-in { from { opacity: 0; transform: translateY(6px); } }
 }
+
+/* Edit mode: a constant marker in the top bar while a write token is held, and the result of the last change. */
+.edit-bar { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: var(--r); background: var(--warn-bg); color: var(--warn-fg); border: 1px solid var(--warn-fg); font-size: 0.86rem; }
+.write-result { margin: 6px 0 0; }
+.write-result a { color: inherit; }
+#write-fields dd { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 12rem; overflow: auto; }

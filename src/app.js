@@ -27,6 +27,12 @@
 
   let session = null;
   let client = null;
+  // Edit mode: a separate write session, its writer, and the one change waiting for confirmation.
+  let write = null;
+  let writer = null;
+  let pendingWrite = null;
+  // The write session still being checked with GitHub; Cancel or Esc ends it, whatever GitHub answered so far.
+  let checkingWrite = null;
 
   const noFilters = () => ({ q: "", stage: "", phase: "", status: "", doer: "" });
   const noRepoFilters = () => ({ q: "", visibility: "", language: "", type: "", sort: "name", group: false });
@@ -107,8 +113,9 @@
     $("refresh").hidden = !S.signedIn;
     $("forget").hidden = !S.signedIn;
     $("forget").textContent = S.demo ? "Leave demo" : "Forget access";
+    syncWrite();
     $("tree-tools").hidden = !(S.signedIn && S.entries.length);
-    $("mode").textContent = !S.signedIn ? "read-only" : S.demo ? "synthetic demo · made-up data" : "private · read-only";
+    $("mode").textContent = !S.signedIn ? "read-only" : S.demo ? "synthetic demo · made-up data" : write && write.on ? "private · Edit mode" : "private · read-only";
     $("signed-out").hidden = S.signedIn;
     $("workspace").hidden = !S.signedIn;
     const focus = focusMark();
@@ -699,8 +706,155 @@
     await load(ctx);
   }
 
+  // ---- Edit mode
+
+  // The repositories Edit mode may change: those the workspace list maps to its projects (never ones only
+  // found through the read token or opened by name), less any whose read was denied or missing.
+  function writableRepos() {
+    const gone = r => r && (r.state === "missing" || r.state === "denied");
+    const out = [];
+    for (const e of S.entries) {
+      if (e.w.found || e.w.opened) continue;
+      if (e.w.plan && !gone(e.plan)) out.push(e.w.plan.repo);
+      for (const c of e.code) if (!gone(c.pinned)) out.push(c.c.repo);
+    }
+    return out;
+  }
+  // Only a finished reading of the workspace list changes what Edit mode may reach.
+  const settled = () => S.signedIn && !S.demo && (S.list.state === "current" || S.list.state === "empty") && S.entries.every(e => !e.loading);
+
+  // Repositories whose read was found denied or missing, as soon as each read ends.
+  function goneRepos() {
+    const gone = r => r && (r.state === "missing" || r.state === "denied");
+    const out = [];
+    for (const e of S.entries) {
+      if (e.w.plan && gone(e.plan)) out.push(e.w.plan.repo);
+      for (const c of e.code) if (gone(c.pinned)) out.push(c.c.repo);
+    }
+    return out;
+  }
+
+  // Keeps the marker, the button and the waiting confirmation in step with the write session. A repository
+  // found denied or missing leaves the set at once; while the list is read again nothing may be changed,
+  // and the set follows the new mapping only once every project has been read.
+  function syncWrite() {
+    if (write && write.on) {
+      for (const r of goneRepos()) write.remove(r);
+      if (!settled()) write.suspend();
+      else if (write.on) { write.restrict(writableRepos()); write.resume(); }
+    }
+    if (write && !write.on && !checkingWrite) endWrite("Edit mode ended: the write token was refused or no repository it may change is left. Reading goes on.");
+    const on = !!(write && write.on && write.login);
+    $("edit-open").hidden = !S.signedIn || S.demo || !!write;
+    $("edit-bar").hidden = !on;
+    $("edit-who").textContent = on ? "acting as " + write.login + " on " + write.repos.join(", ") + (write.suspended ? " (paused while the projects are read again)" : "") : "";
+    if (pendingWrite && !(writer && writer.current(pendingWrite))) closeWrite("Not sent: Edit mode, the project or the token changed after it was opened.");
+  }
+
+  function showWriteResult(text, link, undo) {
+    const box = $("write-result");
+    box.replaceChildren();
+    if (!text) { box.hidden = true; return; }
+    box.append(text);
+    if (link) box.append(" ", V.el("a", { href: link, target: "_blank", rel: "noopener noreferrer" }, "Open on GitHub"));
+    if (undo) box.append(" " + undo);
+    box.hidden = false;
+    announce(text);
+  }
+
+  function openEdit() {
+    if (!S.signedIn || S.demo || write) return;
+    const owners = [...new Set(writableRepos().map(r => r.split("/")[0]))].sort();
+    $("edit-owner").replaceChildren(...owners.map(o => V.el("option", { value: o }, o)));
+    $("edit-state").textContent = owners.length ? "" : "No repository is mapped in the workspace list yet, so there is nothing Edit mode could change.";
+    $("write-token").value = "";
+    $("edit").showModal();
+  }
+
+  async function startEdit(event) {
+    event.preventDefault();
+    if (checkingWrite) return;  // one acquisition at a time
+    const typed = $("write-token").value.trim();
+    $("write-token").value = "";
+    const owner = $("edit-owner").value;
+    if (!typed || !owner) { $("edit-state").textContent = !owner ? "Choose an owner." : "Paste the write token."; return; }
+    const mine = SB.createWriteSession();
+    try { mine.start(typed, owner, writableRepos()); } catch (e) { $("edit-state").textContent = "No mapped repository of " + owner + " can be changed."; return; }
+    write = mine;
+    writer = SB.createWriter(mine);
+    checkingWrite = mine;
+    $("edit-state").textContent = "Checking the write token with GitHub…";
+    render();
+    let said;
+    try { said = await writer.check(); } catch (e) { if (e instanceof SB.Stale) return; throw e; }
+    if (write !== mine || checkingWrite !== mine) return;  // cancelled, left, signed out or replaced while GitHub answered
+    checkingWrite = null;
+    if (!said.ok) {
+      endWrite("Edit mode is off: " + said.why + ".");
+      render();
+      return;
+    }
+    $("edit").close();
+    const missed = said.reach.filter(r => !r.ok).map(r => r.repo + " (" + r.why + ")");
+    showWriteResult("Edit mode on, acting as " + said.login + ". It can change " + mine.repos.join(", ") +
+      (missed.length ? "; the write token does not reach " + missed.join(", ") : "") +
+      ". Token expiry: " + (said.expiry || "unknown") + ".", null, null);
+    render();
+  }
+
+  // Drops the write token and everything that came with it; the read session stays.
+  function endWrite(text) {
+    checkingWrite = null;
+    if (write) write.end();
+    write = null;
+    writer = null;
+    $("write-token").value = "";
+    if ($("edit").open) $("edit").close();
+    closeWrite(null);
+    showWriteResult(text, null, null);
+  }
+
+  // The one confirmation every write action uses. Later actions call A.confirmWrite with their kind.
+  function confirmWrite(kind, repo, fields) {
+    if (!writer) { showWriteResult("Not sent: Edit mode is off.", null, null); return; }
+    let d;
+    try { d = writer.prepare(kind, repo, fields); } catch (e) {
+      if (!(e instanceof SB.NotSent)) throw e;
+      showWriteResult("Not sent: " + e.message + ".", null, null);
+      return;
+    }
+    pendingWrite = d;
+    $("write-fields").replaceChildren(...SB.describeWrite(d).flatMap(([k, v]) => [V.el("dt", null, k), V.el("dd", null, v)]));
+    $("write-type-row").hidden = !d.hard;
+    $("write-type-what").textContent = d.hard ? String(d.fields.number) : "";
+    $("write-type").value = "";
+    $("write-confirm").showModal();
+  }
+
+  function closeWrite(text) {
+    pendingWrite = null;
+    $("write-fields").replaceChildren();
+    $("write-type").value = "";
+    if ($("write-confirm").open) $("write-confirm").close();
+    if (text) showWriteResult(text, null, null);
+  }
+
+  async function sendWrite() {
+    const d = pendingWrite, mine = write, typed = $("write-type").value;
+    if (!d || !writer) return;
+    const w = writer;
+    closeWrite(null);
+    showWriteResult("Sending…", null, null);
+    const r = await w.dispatch(d, typed);
+    // Edit mode was left or the session ended while GitHub answered: what happened is not known here.
+    if (write !== mine && r.outcome !== "not-sent") { showWriteResult("Not sure it happened: check on GitHub.", r.link, null); return; }
+    showWriteResult(r.message, r.link, r.undo);
+    if (write === mine && !mine.on) { write = null; writer = null; render(); }
+  }
+
   // Ends the session and clears every surface. why: forget | left | restored | revoked | demo
   function endSession(why) {
+    endWrite(null);
     if (session) session.forget();
     session = null;
     client = null;
@@ -708,6 +862,7 @@
     V.atlasDispose(S.atlas);
     S = freshState();
     $("token").value = "";
+    $("write-token").value = "";
     if (gotoBox.open) gotoBox.close();
     if (helpBox.open) helpBox.close();
     $("goto-list").replaceChildren();
@@ -735,6 +890,8 @@
 
   const A = {
     render,
+    // Every write action goes through the one confirmation, with its kind, repository and details.
+    confirmWrite,
     // Moves a project to a place in the left tree (by dragging, or Alt with an arrow) and keeps the order.
     moveProject(id, to) {
       const shown = SB.orderedIds(S.entries.map(e => e.w.id), S.order);
@@ -1528,6 +1685,14 @@
   $("show-demo").addEventListener("click", showDemo);
   $("forget").addEventListener("click", () => { endSession(S.demo ? "demo" : "forget"); $("main").focus(); });
   $("refresh").addEventListener("click", refresh);
+  $("edit-open").addEventListener("click", openEdit);
+  $("edit-form").addEventListener("submit", startEdit);
+  $("edit-cancel").addEventListener("click", () => { if (checkingWrite) endWrite("Edit mode is off: cancelled."); $("edit").close(); render(); });
+  $("edit-leave").addEventListener("click", () => { endWrite("Left Edit mode. The write token was dropped; reading goes on."); render(); });
+  $("write-send").addEventListener("click", sendWrite);
+  $("write-cancel").addEventListener("click", () => closeWrite("Not sent: cancelled."));
+  $("write-confirm").addEventListener("close", () => { if (pendingWrite) closeWrite("Not sent: cancelled."); });
+  $("edit").addEventListener("close", () => { $("write-token").value = ""; if (checkingWrite) { endWrite("Edit mode is off: cancelled."); render(); } });
   $("goto-open").addEventListener("click", openGoto);
   $("help-open").addEventListener("click", () => helpBox.showModal());
   $("settings-open").addEventListener("click", () => $("settings").showModal());
