@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="style.css">
 <script src="demo-data.js" defer></script>
 <script src="sb-core.js" defer></script>
+<script src="sb-write.js" defer></script>
 <script src="sb-readers.js" defer></script>
 <script src="sb-render.js" defer></script>
 <script src="sb-model.js" defer></script>
@@ -34,7 +35,8 @@
 <div class="shell" id="shell">
   <header class="top">
     <button type="button" class="tool menu-btn" id="menu" aria-expanded="false" aria-controls="side">Menu</button>
-    <div class="brand">Sandboard <small class="muted" id="mode" data-tip="Sandboard only reads. Nothing here can change a plan, a task or a repository.">read-only</small></div>
+    <div class="brand">Sandboard <small class="muted" id="mode" data-tip="Sandboard reads unless Edit mode is on. Nothing changes on GitHub without your confirmation.">read-only</small></div>
+    <span class="edit-bar" id="edit-bar" role="status" hidden><b>Edit mode</b> <span id="edit-who"></span> <button type="button" class="tool small" id="edit-leave">Leave Edit mode</button></span>
     <button type="button" class="tool jump" id="goto-open" aria-keyshortcuts="Control+K Meta+K" disabled><span class="lens" aria-hidden="true"></span>Go to a project, view or task… <kbd>Ctrl K</kbd></button>
     <div class="seg" role="group" aria-label="Theme">
       <button type="button" data-theme-choice="device" aria-pressed="true">Device</button>
@@ -43,6 +45,7 @@
     </div>
     <button type="button" class="tool" id="settings-open">Settings</button>
     <button type="button" class="tool" id="help-open" aria-keyshortcuts="?">Help <kbd>?</kbd></button>
+    <button type="button" class="tool" id="edit-open" hidden>Edit mode</button>
     <button type="button" class="tool" id="refresh" hidden>Refresh</button>
     <button type="button" class="tool" id="forget" hidden>Forget access</button>
   </header>
@@ -55,6 +58,7 @@
   </nav>
   <main id="main" tabindex="-1">
     <p class="state" id="state" role="status">Signed out</p>
+    <p class="notice write-result" id="write-result" role="status" hidden></p>
     <section id="signed-out" class="signed-out" aria-labelledby="signed-out-h">
       <h1 id="signed-out-h">Sign in to read your projects</h1>
       <p class="plain">Sandboard shows your projects' tasks and progress exactly as your plan repository records them. It only reads: nothing here can change a plan, a task or a repository. Nothing is loaded until you sign in, and nothing you load is kept after you leave.</p>
@@ -85,7 +89,7 @@
     <dt><kbd>Shift F10</kbd> or the menu key</dt><dd>On a project or a task: open it, star it, or copy or open its GitHub link (right-click does the same)</dd>
     <dt><kbd>Esc</kbd></dt><dd>Hide an explanation bubble; close the details, this help or Go to</dd>
   </dl>
-  <p class="muted">Sandboard only reads. There is no button that edits, assigns, merges, reviews, re-runs or publishes anything.</p>
+  <p class="muted">Sandboard only reads until you turn on Edit mode with a separate write token. In Edit mode every change is shown in full and sent only after you confirm it.</p>
   <h2 id="glossary-title">Words used here</h2>
   <p class="muted qual">The same explanations appear in a bubble when you rest the pointer on a word or move to it with the keyboard. Esc hides the bubble.</p>
   <dl class="props glossary" id="glossary" aria-labelledby="glossary-title"></dl>
@@ -119,6 +123,23 @@
   <input id="goto-q" type="text" placeholder="Go to a project, a view or a task" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="goto-list" aria-autocomplete="list" aria-label="Go to">
   <ul class="goto-list" id="goto-list" role="listbox" aria-label="Places"></ul>
   <p class="muted qual">Goes to places and runs a few commands that change only what is shown. To find words in the tasks, pull requests and files already read, go to Search.</p>
+</dialog>
+<dialog id="edit" aria-labelledby="edit-title">
+  <h2 id="edit-title">Turn on Edit mode</h2>
+  <p class="muted qual">Paste a separate fine-grained token with write permissions, made on GitHub for one owner and only the repositories you choose. It stays in this page's memory only, apart from the read token, until you leave Edit mode, sign out, reload or close the tab. Nothing is sent until you confirm each change.</p>
+  <form id="edit-form" autocomplete="off">
+    <label>Owner of the repositories <select id="edit-owner" name="edit-owner"></select></label>
+    <label>Write token <input id="write-token" name="write-token" type="password" autocomplete="off" required></label>
+    <p class="state" id="edit-state" role="status"></p>
+    <div class="actions"><button type="submit" class="btn">Turn on</button> <button type="button" class="btn ghost" id="edit-cancel">Cancel</button></div>
+  </form>
+</dialog>
+<dialog id="write-confirm" aria-labelledby="write-confirm-title">
+  <h2 id="write-confirm-title">Confirm this change</h2>
+  <p class="muted qual">This is exactly what will be sent to GitHub. Changing anything means confirming again.</p>
+  <dl class="props" id="write-fields"></dl>
+  <label id="write-type-row" hidden>This is hard to undo. Type <b id="write-type-what"></b> to confirm <input id="write-type" name="write-type" autocomplete="off" spellcheck="false"></label>
+  <div class="actions"><button type="button" class="btn" id="write-send">Send to GitHub</button> <button type="button" class="btn ghost" id="write-cancel">Cancel</button></div>
 </dialog>
 <div id="live" class="sr" role="status" aria-live="polite"></div>
 <div id="toast" class="toast" aria-hidden="true" hidden></div>
