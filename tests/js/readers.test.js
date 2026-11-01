@@ -291,3 +291,65 @@ test("progress counts must be whole numbers, phase IDs unique and every status c
     assert.equal(r.data, undefined, label);
   }
 });
+
+// Planned against actual: an optional block, accepted only when fully well formed and in step with the scope figures.
+const SCHEDULE = { baseline: "v1.0", approved: "2026-10-24", weekly_capacity_h: 10, scopes: [
+  { scope: "MVP", baseline_h: 10, planned_start: "2026-10-24", planned_finish: "2026-10-31", completed_h: 2,
+    actual: [{ date: "2026-10-23", completed_h: 1 }, { date: "2026-10-27", completed_h: 2 }], actual_finish: null, undated_h: 0, undated: [] }] };
+
+test("a well-formed planned against actual block is kept; without one the progress is the same", async () => {
+  const r = await progress({ files: { [F.FILES.progress]: JSON.stringify(F.progressDoc({ schedule: SCHEDULE })) } });
+  assert.equal(r.state, "current");
+  assert.deepEqual(r.data.schedule, SCHEDULE);
+  assert.equal((await progress()).data.schedule, undefined);
+  // Reopened work may lower the running total; undated hours close the gap to the scope total.
+  const lower = { ...SCHEDULE, scopes: [{ ...SCHEDULE.scopes[0], actual: [{ date: "2026-10-23", completed_h: 1.5 }, { date: "2026-10-27", completed_h: 1 }],
+                                          undated_h: 1, undated: ["XQ101"] }] };
+  assert.equal((await progress({ files: { [F.FILES.progress]: JSON.stringify(F.progressDoc({ schedule: lower })) } })).state, "current");
+});
+
+test("every part of the planned against actual block is checked, against itself and the scope figures", async () => {
+  const scope = over => ({ ...SCHEDULE, scopes: [{ ...SCHEDULE.scopes[0], ...over }] });
+  const reached = [{ date: "2026-10-23", completed_h: 1 }, { date: "2026-10-25", completed_h: 10 }, { date: "2026-10-27", completed_h: 10 }];
+  const variants = {
+    "not an object": [],
+    "no baseline name": { ...SCHEDULE, baseline: "" },
+    "bad approval date": { ...SCHEDULE, approved: "2026-02-30" },
+    "zero capacity": { ...SCHEDULE, weekly_capacity_h: 0 },
+    "no scopes": { ...SCHEDULE, scopes: [] },
+    "unknown scope": scope({ scope: "Whole project" }),
+    "repeated scope": { ...SCHEDULE, scopes: [SCHEDULE.scopes[0], SCHEDULE.scopes[0]] },
+    "start is not the approval date": scope({ planned_start: "2026-10-25" }),
+    "finish off the capacity rule": scope({ planned_finish: "2026-11-01" }),
+    "zero baseline": scope({ baseline_h: 0 }),
+    "dates out of order": scope({ actual: [SCHEDULE.scopes[0].actual[1], SCHEDULE.scopes[0].actual[0]] }),
+    "repeated date": scope({ actual: [SCHEDULE.scopes[0].actual[0], SCHEDULE.scopes[0].actual[0]] }),
+    "last point is not the total": scope({ completed_h: 3 }),
+    "disagrees with the scope figure": scope({ completed_h: 20, actual: [{ date: "2026-10-27", completed_h: 20 }], actual_finish: "2026-10-27" }),
+    "finish not reached": scope({ actual_finish: "2026-10-27" }),
+    "finish later than the first reaching date": scope({ completed_h: 10, actual: reached, actual_finish: "2026-10-27" }),
+    "reached but no finish": scope({ completed_h: 10, actual: reached, actual_finish: null }),
+    "undated hours without IDs": scope({ undated_h: 1, actual: [{ date: "2026-10-23", completed_h: 1 }] }),
+    "undated fields missing": scope({ undated_h: undefined, undated: undefined }),
+    // A tiny capacity puts the finish past what a date can hold, or past year 9999: rejected, never thrown.
+    "capacity too small for a date": { ...SCHEDULE, weekly_capacity_h: 1e-300 },
+    "finish past the calendar": { ...SCHEDULE, weekly_capacity_h: 1e-9 },
+    "finish past year 9999": { ...SCHEDULE, weekly_capacity_h: 0.00001 },
+    "string hours": scope({ actual: [{ date: "2026-10-23", completed_h: "1" }, { date: "2026-10-27", completed_h: 2 }] }),
+  };
+  for (const [label, schedule] of Object.entries(variants)) {
+    // The scope figure is 10 in the variants that reach the baseline, so only the named fault is left.
+    const over = { schedule };
+    if (/reach|first reaching/.test(label)) over.scopes = Object.assign({}, F.progressDoc().scopes, { MVP: Object.assign({}, F.progressDoc().scopes.MVP, { completed_h: 10 }) });
+    const r = await progress({ files: { [F.FILES.progress]: JSON.stringify(F.progressDoc(over)) } });
+    assert.equal(r.state, "invalid", label);
+    assert.match(r.error, /planned against actual/, label);
+  }
+  // The same reaching data with the right finish is accepted, so the variants above fail only on their fault.
+  const ok = F.progressDoc({ schedule: scope({ completed_h: 10, actual: reached, actual_finish: "2026-10-25" }),
+                             scopes: Object.assign({}, F.progressDoc().scopes, { MVP: Object.assign({}, F.progressDoc().scopes.MVP, { completed_h: 10 }) }) });
+  assert.equal((await progress({ files: { [F.FILES.progress]: JSON.stringify(ok) } })).state, "current");
+  // Reached and then reopened: the first reaching date stays, and the lower current total is accepted.
+  const reopened = F.progressDoc({ schedule: scope({ completed_h: 2, actual: [{ date: "2026-10-25", completed_h: 10 }, { date: "2026-10-27", completed_h: 2 }], actual_finish: "2026-10-25" }) });
+  assert.equal((await progress({ files: { [F.FILES.progress]: JSON.stringify(reopened) } })).state, "current");
+});

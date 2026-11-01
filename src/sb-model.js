@@ -1146,11 +1146,46 @@
     return out;
   }
 
+  // ---- Planned against actual: the stored schedule block laid out for a picture.
+  // Days count from 1970-01-01 so stored dates place exactly; nothing here adds hours up again.
+  const dayNumber = v => Math.round(Date.UTC(+v.slice(0, 4), +v.slice(5, 7) - 1, +v.slice(8, 10)) / 86400000);
+  const dayText = n => new Date(n * 86400000).toISOString().slice(0, 10);
+  function scheduleChart(sched, scope, today) {
+    const now = typeof today === "string" && /^\d{4}-\d{2}-\d{2}$/.test(today) ? dayNumber(today) : null;
+    const start = dayNumber(scope.planned_start), finish = dayNumber(scope.planned_finish);
+    const actual = scope.actual.map(a => [dayNumber(a.date), a.completed_h]);
+    let from = Math.min(start, ...actual.map(a => a[0]));
+    let to = Math.max(finish, ...actual.map(a => a[0]));
+    // Done means done now: reopened work can lower the total after the baseline was first reached.
+    const doneNow = scope.completed_h >= scope.baseline_h;
+    // An unfinished scope widens to today, so its today line stays in the picture however late it runs.
+    if (now !== null && !doneNow && now > to) to = now;
+    if (now !== null && !doneNow && now < from) from = now;
+    if (to <= from) to = from + 1;
+    const top = Math.max(scope.baseline_h, ...actual.map(a => a[1]), scope.completed_h);
+    const lastDone = scope.actual.length ? scope.actual[scope.actual.length - 1] : null;
+    const undated = scope.undated_h ? " " + scope.undated_h + " h of it (" + scope.undated.join(", ") + ") has no readable approval date and is not drawn." : "";
+    const reopened = !doneNow && scope.actual_finish ? " The baseline was first reached " + scope.actual_finish + ", then reopened work lowered the total." : "";
+    const summary = (doneNow && scope.actual_finish
+      ? "Done: " + scope.completed_h + " h of " + scope.baseline_h + " h, reached " + scope.actual_finish + "."
+      : (doneNow ? "Done: " : "Done so far: ") + scope.completed_h + " h of " + scope.baseline_h + " h" + (lastDone ? ", last approved " + lastDone.date : ", none approved yet") + "." + reopened) +
+      undated + " Planned: " + scope.baseline_h + " h by " + scope.planned_finish + " at " + sched.weekly_capacity_h + " h a week from " + scope.planned_start +
+      " (baseline " + sched.baseline + ").";
+    // Axis labels sit where their dates are: both ends, and the planned finish when it is not an end.
+    const ticks = [[from, dayText(from)], [to, dayText(to)]];
+    if (finish !== to && finish !== from) ticks.push([finish, scope.planned_finish + " planned"]);
+    const points = [[scope.planned_start, "Planned", 0], [scope.planned_finish, "Planned", scope.baseline_h],
+                    ...scope.actual.map(a => [a.date, "Actual", a.completed_h])].sort((x, y) => x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0);
+    return { from, to, top, summary, ticks, points,
+      planned: [[start, 0], [finish, scope.baseline_h]], actual,
+      today: now !== null && now >= from && now <= to ? now : null };
+  }
+
   Object.assign(SB, { SORTS, portfolio, filterPortfolio, sortPortfolio, portfolioOptions, tally, analytics, languageBytes, repoHref, feedEvents, feedKey, typeOf,
                       historyOrder, historyGraph, commitTimes, WEEKS_SHOWN, DAYS_SHOWN, contributors,
                       workKey, workList, RUN_RESULTS, RUN_EVENTS, noRunFilter, runQuery, runState, runFiltered, runSearch, pullState, reviewEvidence, runOutcome, inboxScope, inbox, historyKey, COMPARE_FIRST, comparedBranches, historyView,
                       ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
                       approvals, resultHref, tabKey, stageOfPhase, short, localDay, localStamp, localWhen, zoneOf, savedOrder, keptOrder, orderedIds, moveId, LOOK_CHOICES, savedLook, savedMarks, MARK_LIMITS, githubLink, toggleFav, saveView, dropView, favKey, homeFigures, openWork, members, team, namesIn, dayGroup, greeting, feedGaps, taskActivity, acrossActivity, timelineScale, monthWeeks, shiftMonth, weekStart,
-                      HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs,
+                      scheduleChart, HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs,
                       codeKey, liveKeyRepo, MAX_TEXT_LINES, MAX_SEARCH, searchSources, searchFind, searchCoverage, MAX_DIFF_LINES, MAX_FOUND, MAX_READ_BYTES, codeTree, codeFind, codeOpenable, textLines, textPieces, diffLines });
 })(typeof window !== "undefined" ? window : globalThis);

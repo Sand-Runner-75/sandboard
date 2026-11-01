@@ -242,3 +242,41 @@ test("a live read's repository comes from its own slot, never from a path or ref
   assert.equal(SB.liveKeyRepo(SB.workKey.list("issues", "acme/other", "acme/garden", 1)), "acme/other");
   assert.equal(SB.liveKeyRepo("user"), null);
 });
+
+test("planned against actual is laid out from the stored dates and hours only", () => {
+  const sched = { baseline: "v1.0", approved: "2026-10-24", weekly_capacity_h: 10, scopes: [] };
+  const scope = { scope: "MVP", baseline_h: 20, planned_start: "2026-10-24", planned_finish: "2026-11-07", completed_h: 12,
+                  actual: [{ date: "2026-10-23", completed_h: 4 }, { date: "2026-10-27", completed_h: 12 }], actual_finish: null, undated_h: 0, undated: [] };
+  const day = v => Date.UTC(+v.slice(0, 4), +v.slice(5, 7) - 1, +v.slice(8, 10)) / 86400000;
+  const c = SB.scheduleChart(sched, scope, "2026-11-01");
+  assert.deepEqual([c.from, c.to, c.top], [day("2026-10-23"), day("2026-11-07"), 20]);
+  assert.deepEqual(c.planned, [[day("2026-10-24"), 0], [day("2026-11-07"), 20]]);
+  assert.deepEqual(c.actual, [[day("2026-10-23"), 4], [day("2026-10-27"), 12]]);
+  assert.equal(c.today, day("2026-11-01"));
+  assert.deepEqual(c.ticks, [[day("2026-10-23"), "2026-10-23"], [day("2026-11-07"), "2026-11-07"]]);
+  assert.deepEqual(c.points, [["2026-10-23", "Actual", 4], ["2026-10-24", "Planned", 0], ["2026-10-27", "Actual", 12], ["2026-11-07", "Planned", 20]]);
+  assert.equal(c.summary, "Done so far: 12 h of 20 h, last approved 2026-10-27. Planned: 20 h by 2026-11-07 at 10 h a week from 2026-10-24 (baseline v1.0).");
+  // An unfinished scope widens to today; a finished one keeps its picture and says when it was reached.
+  const late = SB.scheduleChart(sched, scope, "2026-11-20");
+  assert.deepEqual([late.to, late.today], [day("2026-11-20"), day("2026-11-20")]);
+  const done = { ...scope, completed_h: 20, actual: [...scope.actual, { date: "2026-10-29", completed_h: 20 }], actual_finish: "2026-10-29" };
+  assert.equal(SB.scheduleChart(sched, done, "2027-01-01").today, null);
+  assert.match(SB.scheduleChart(sched, done, "2026-11-01").summary, /^Done: 20 h of 20 h, reached 2026-10-29[.]/);
+  // Reached and then reopened is not Done: the summary says so, and the picture still widens to today.
+  const reopened = { ...scope, baseline_h: 10, planned_finish: "2026-10-31", completed_h: 2,
+                     actual: [{ date: "2026-10-25", completed_h: 10 }, { date: "2026-10-27", completed_h: 2 }], actual_finish: "2026-10-25" };
+  const r = SB.scheduleChart(sched, reopened, "2026-11-20");
+  assert.deepEqual([r.to, r.today], [day("2026-11-20"), day("2026-11-20")]);
+  assert.equal(r.summary, "Done so far: 2 h of 10 h, last approved 2026-10-27. The baseline was first reached 2026-10-25, then reopened work lowered the total. Planned: 10 h by 2026-10-31 at 10 h a week from 2026-10-24 (baseline v1.0).");
+  // Undated hours are named, not drawn.
+  assert.match(SB.scheduleChart(sched, { ...scope, completed_h: 15, undated_h: 3, undated: ["XQ9"] }, "2026-11-01").summary, / 3 h of it [(]XQ9[)] has no readable approval date and is not drawn[.]/);
+});
+
+test("actual progress after the planned finish gets its own right-edge date, and the planned finish keeps its place", () => {
+  const sched = { baseline: "v1.0", approved: "2026-10-24", weekly_capacity_h: 10, scopes: [] };
+  const day = v => Date.UTC(+v.slice(0, 4), +v.slice(5, 7) - 1, +v.slice(8, 10)) / 86400000;
+  const scope = { scope: "MVP", baseline_h: 20, planned_start: "2026-10-24", planned_finish: "2026-11-07", completed_h: 20,
+                  actual: [{ date: "2026-10-27", completed_h: 12 }, { date: "2026-11-14", completed_h: 20 }], actual_finish: "2026-11-14", undated_h: 0, undated: [] };
+  const c = SB.scheduleChart(sched, scope, "2026-11-20");
+  assert.deepEqual(c.ticks, [[day("2026-10-24"), "2026-10-24"], [day("2026-11-14"), "2026-11-14"], [day("2026-11-07"), "2026-11-07 planned"]]);
+});
