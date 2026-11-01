@@ -1149,26 +1149,33 @@
   // ---- Planned against actual: the stored schedule block laid out for a picture.
   // Days count from 1970-01-01 so stored dates place exactly; nothing here adds hours up again.
   const dayNumber = v => Math.round(Date.UTC(+v.slice(0, 4), +v.slice(5, 7) - 1, +v.slice(8, 10)) / 86400000);
+  const dayText = n => new Date(n * 86400000).toISOString().slice(0, 10);
   function scheduleChart(sched, scope, today) {
-    const first = scope.actual.length ? scope.actual[0].date : scope.planned_start;
-    const last = scope.actual.length ? scope.actual[scope.actual.length - 1].date : scope.planned_start;
-    const from = dayNumber(first < scope.planned_start ? first : scope.planned_start);
-    const to = Math.max(dayNumber(scope.planned_finish), dayNumber(last), from + 1);
-    const top = Math.max(scope.baseline_h, scope.completed_h);
     const now = typeof today === "string" && /^\d{4}-\d{2}-\d{2}$/.test(today) ? dayNumber(today) : null;
+    const start = dayNumber(scope.planned_start), finish = dayNumber(scope.planned_finish);
+    const actual = scope.actual.map(a => [dayNumber(a.date), a.completed_h]);
+    let from = Math.min(start, ...actual.map(a => a[0]));
+    let to = Math.max(finish, ...actual.map(a => a[0]));
+    // An unfinished scope widens to today, so its today line stays in the picture however late it runs.
+    if (now !== null && scope.actual_finish === null && now > to) to = now;
+    if (now !== null && scope.actual_finish === null && now < from) from = now;
+    if (to <= from) to = from + 1;
+    const top = Math.max(scope.baseline_h, ...actual.map(a => a[1]), scope.completed_h);
     const lastDone = scope.actual.length ? scope.actual[scope.actual.length - 1] : null;
+    const undated = scope.undated_h ? " " + scope.undated_h + " h of it (" + scope.undated.join(", ") + ") has no readable approval date and is not drawn." : "";
     const summary = (scope.actual_finish
       ? "Done: " + scope.completed_h + " h of " + scope.baseline_h + " h, reached " + scope.actual_finish + "."
       : "Done so far: " + scope.completed_h + " h of " + scope.baseline_h + " h" + (lastDone ? ", last approved " + lastDone.date : ", none approved yet") + ".") +
-      " Planned: " + scope.baseline_h + " h by " + scope.planned_finish + " at " + sched.weekly_capacity_h + " h a week from " + scope.planned_start +
+      undated + " Planned: " + scope.baseline_h + " h by " + scope.planned_finish + " at " + sched.weekly_capacity_h + " h a week from " + scope.planned_start +
       " (baseline " + sched.baseline + ").";
-    return {
-      from, to, top, summary,
-      planned: [[dayNumber(scope.planned_start), 0], [dayNumber(scope.planned_finish), scope.baseline_h]],
-      actual: scope.actual.map(a => [dayNumber(a.date), a.completed_h]),
-      today: now !== null && now >= from && now <= to ? now : null,
-      ticks: [first < scope.planned_start ? first : scope.planned_start, scope.planned_finish],
-    };
+    // Axis labels sit where their dates are: both ends, and the planned finish when it is not an end.
+    const ticks = [[from, dayText(from)], [to, dayText(to)]];
+    if (finish !== to && finish !== from) ticks.push([finish, scope.planned_finish + " planned"]);
+    const points = [[scope.planned_start, "Planned", 0], [scope.planned_finish, "Planned", scope.baseline_h],
+                    ...scope.actual.map(a => [a.date, "Actual", a.completed_h])].sort((x, y) => x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0);
+    return { from, to, top, summary, ticks, points,
+      planned: [[start, 0], [finish, scope.baseline_h]], actual,
+      today: now !== null && now >= from && now <= to ? now : null };
   }
 
   Object.assign(SB, { SORTS, portfolio, filterPortfolio, sortPortfolio, portfolioOptions, tally, analytics, languageBytes, repoHref, feedEvents, feedKey, typeOf,

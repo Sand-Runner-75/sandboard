@@ -311,16 +311,15 @@
       svgEl("line", { x1: L, y1: y(c.top), x2: W - R, y2: y(c.top), class: "grid" }),
       svgEl("text", { x: L - 6, y: y(0) + 4, "text-anchor": "end", class: "tick" }, "0 h"),
       svgEl("text", { x: L - 6, y: y(c.top) + 4, "text-anchor": "end", class: "tick" }, c.top + " h"),
-      svgEl("text", { x: L, y: H - 6, class: "tick" }, c.ticks[0]),
-      svgEl("text", { x: W - R, y: H - 6, "text-anchor": "end", class: "tick" }, c.ticks[1]),
+      c.ticks.map(([d, text], i) => svgEl("text", { x: x(d), y: i < 2 ? H - 6 : H - 6 - 12, "text-anchor": i === 0 ? "start" : i === 1 ? "end" : "middle", class: "tick" }, text)),
       c.today !== null ? [svgEl("line", { x1: x(c.today), y1: T, x2: x(c.today), y2: y(0), class: "today" }),
         svgEl("text", { x: x(c.today) + 4, y: T + 10, class: "tick" }, "today")] : null,
       svgEl("line", { x1: x(c.planned[0][0]), y1: y(0), x2: x(c.planned[1][0]), y2: y(c.planned[1][1]), class: "planned" }),
       path ? svgEl("path", { d: path, class: "actual" }) : null,
       c.actual.map(([d, h]) => svgEl("circle", { cx: x(d), cy: y(h), r: 3, class: "actual-dot" })));
-    const table = el("table", { class: "sr" }, el("caption", {}, scope.scope + " hours approved as done, by date"),
-      el("tr", {}, el("th", { scope: "col" }, "Date"), el("th", { scope: "col" }, "Hours done")),
-      scope.actual.map(a => el("tr", {}, el("td", {}, a.date), el("td", {}, hours(a.completed_h)))));
+    const table = el("table", { class: "sr" }, el("caption", {}, scope.scope + ": planned and actual hours, by date"),
+      el("tr", {}, el("th", { scope: "col" }, "Date"), el("th", { scope: "col" }, "Line"), el("th", { scope: "col" }, "Hours")),
+      c.points.map(([d, line, h]) => el("tr", {}, el("td", {}, d), el("td", {}, line), el("td", {}, hours(h)))));
     return el("div", { class: "card plan-card", "data-scope": scope.scope }, lab(scope.scope + ": planned against actual", "Planned against actual"),
       el("div", { "aria-hidden": "true" }, pic),
       el("p", { class: "legend qual muted plain" }, el("span", { class: "key planned" }), "Planned ", el("span", { class: "key actual" }), "Actual (approved as done)"),
