@@ -302,6 +302,8 @@
     let path = "";
     let prev = 0;
     for (const [d, h] of c.actual) path += (path ? " L" + f(x(d)) + " " + f(y(prev)) : "M" + f(x(d)) + " " + f(y(0))) + " L" + f(x(d)) + " " + f(y(h)), prev = h;
+    // Held level up to today's line: nothing more was approved after the last stored point.
+    if (path && c.today !== null && c.today > c.actual[c.actual.length - 1][0]) path += " L" + f(x(c.today)) + " " + f(y(prev));
     const label = scope.scope + ": planned against actual hours. " + c.summary;
     const pic = svgEl("svg", { viewBox: "0 0 " + W + " " + H, class: "plan-chart", role: "img", "aria-label": label },
       svgEl("title", {}, label),
