@@ -132,11 +132,14 @@ class BrowserTest(unittest.TestCase):
 
     def test_planned_against_actual_shows_the_stored_lines(self):
         plan = self.r["progress"]["plan"]
-        self.assertEqual((plan["scope"], plan["cards"]), ("MVP", 1))
+        self.assertEqual((plan["scope"], plan["cards"]), ("MVP", 2))
         self.assertTrue(plan["planned"])
         self.assertTrue(plan["actual"].startswith("M"))
         self.assertEqual((plan["dots"], plan["rows"]), (1, 4))
         self.assertIn("Done so far: 4 h of 27 h, last approved 2026-01-10. Planned: 27 h by 2026-02-12 at 5 h a week from 2026-01-05 (baseline v1).", plan["text"])
+        # Reached and then reopened is shown as not done, with the first reaching date kept as history.
+        self.assertIn("Done so far: 4 h of 6 h, last approved 2026-01-12. The baseline was first reached 2026-01-08, then reopened work lowered the total.", plan["reopened"])
+        self.assertNotIn("Done: ", plan["reopened"])
 
     def test_a_phase_with_no_rows_never_looks_done(self):
         phases = dict(self.r["progress"]["phases"])

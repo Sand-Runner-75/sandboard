@@ -331,6 +331,10 @@ test("every part of the planned against actual block is checked, against itself 
     "reached but no finish": scope({ completed_h: 10, actual: reached, actual_finish: null }),
     "undated hours without IDs": scope({ undated_h: 1, actual: [{ date: "2026-10-23", completed_h: 1 }] }),
     "undated fields missing": scope({ undated_h: undefined, undated: undefined }),
+    // A tiny capacity puts the finish past what a date can hold, or past year 9999: rejected, never thrown.
+    "capacity too small for a date": { ...SCHEDULE, weekly_capacity_h: 1e-300 },
+    "finish past the calendar": { ...SCHEDULE, weekly_capacity_h: 1e-9 },
+    "finish past year 9999": { ...SCHEDULE, weekly_capacity_h: 0.00001 },
     "string hours": scope({ actual: [{ date: "2026-10-23", completed_h: "1" }, { date: "2026-10-27", completed_h: 2 }] }),
   };
   for (const [label, schedule] of Object.entries(variants)) {
@@ -345,4 +349,7 @@ test("every part of the planned against actual block is checked, against itself 
   const ok = F.progressDoc({ schedule: scope({ completed_h: 10, actual: reached, actual_finish: "2026-10-25" }),
                              scopes: Object.assign({}, F.progressDoc().scopes, { MVP: Object.assign({}, F.progressDoc().scopes.MVP, { completed_h: 10 }) }) });
   assert.equal((await progress({ files: { [F.FILES.progress]: JSON.stringify(ok) } })).state, "current");
+  // Reached and then reopened: the first reaching date stays, and the lower current total is accepted.
+  const reopened = F.progressDoc({ schedule: scope({ completed_h: 2, actual: [{ date: "2026-10-25", completed_h: 10 }, { date: "2026-10-27", completed_h: 2 }], actual_finish: "2026-10-25" }) });
+  assert.equal((await progress({ files: { [F.FILES.progress]: JSON.stringify(reopened) } })).state, "current");
 });

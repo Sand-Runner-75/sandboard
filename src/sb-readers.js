@@ -215,7 +215,10 @@
       if (!isObject(x) || !["Pilot", "MVP"].includes(x.scope) || names.has(x.scope) || !names.add(x.scope)) return false;
       if (!hrs(x.baseline_h) || x.baseline_h === 0 || x.planned_start !== s.approved || !isDay(x.planned_finish)) return false;
       const days = Math.ceil(x.baseline_h / s.weekly_capacity_h * 7);
-      if (new Date(Date.parse(s.approved + "T00:00:00Z") + days * DAY_MS).toISOString().slice(0, 10) !== x.planned_finish) return false;
+      const end = Date.parse(s.approved + "T00:00:00Z") + days * DAY_MS;
+      // A tiny capacity can put the finish past what a date can hold: reject it, never throw.
+      if (!Number.isFinite(end) || Math.abs(end) > 8.64e15) return false;
+      if (new Date(end).toISOString().slice(0, 10) !== x.planned_finish) return false;
       if (!hrs(x.completed_h) || !sameHours(x.completed_h, scopes[x.scope].completed_h)) return false;
       if (!hrs(x.undated_h) || !Array.isArray(x.undated) || x.undated.length > 500 || !x.undated.every(isTaskId)) return false;
       if ((x.undated_h === 0) !== (x.undated.length === 0)) return false;

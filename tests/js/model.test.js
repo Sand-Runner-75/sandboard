@@ -262,6 +262,12 @@ test("planned against actual is laid out from the stored dates and hours only", 
   const done = { ...scope, completed_h: 20, actual: [...scope.actual, { date: "2026-10-29", completed_h: 20 }], actual_finish: "2026-10-29" };
   assert.equal(SB.scheduleChart(sched, done, "2027-01-01").today, null);
   assert.match(SB.scheduleChart(sched, done, "2026-11-01").summary, /^Done: 20 h of 20 h, reached 2026-10-29[.]/);
+  // Reached and then reopened is not Done: the summary says so, and the picture still widens to today.
+  const reopened = { ...scope, baseline_h: 10, planned_finish: "2026-10-31", completed_h: 2,
+                     actual: [{ date: "2026-10-25", completed_h: 10 }, { date: "2026-10-27", completed_h: 2 }], actual_finish: "2026-10-25" };
+  const r = SB.scheduleChart(sched, reopened, "2026-11-20");
+  assert.deepEqual([r.to, r.today], [day("2026-11-20"), day("2026-11-20")]);
+  assert.equal(r.summary, "Done so far: 2 h of 10 h, last approved 2026-10-27. The baseline was first reached 2026-10-25, then reopened work lowered the total. Planned: 10 h by 2026-10-31 at 10 h a week from 2026-10-24 (baseline v1.0).");
   // Undated hours are named, not drawn.
   assert.match(SB.scheduleChart(sched, { ...scope, completed_h: 15, undated_h: 3, undated: ["XQ9"] }, "2026-11-01").summary, / 3 h of it [(]XQ9[)] has no readable approval date and is not drawn[.]/);
 });

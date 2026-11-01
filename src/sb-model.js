@@ -1156,16 +1156,19 @@
     const actual = scope.actual.map(a => [dayNumber(a.date), a.completed_h]);
     let from = Math.min(start, ...actual.map(a => a[0]));
     let to = Math.max(finish, ...actual.map(a => a[0]));
+    // Done means done now: reopened work can lower the total after the baseline was first reached.
+    const doneNow = scope.completed_h >= scope.baseline_h;
     // An unfinished scope widens to today, so its today line stays in the picture however late it runs.
-    if (now !== null && scope.actual_finish === null && now > to) to = now;
-    if (now !== null && scope.actual_finish === null && now < from) from = now;
+    if (now !== null && !doneNow && now > to) to = now;
+    if (now !== null && !doneNow && now < from) from = now;
     if (to <= from) to = from + 1;
     const top = Math.max(scope.baseline_h, ...actual.map(a => a[1]), scope.completed_h);
     const lastDone = scope.actual.length ? scope.actual[scope.actual.length - 1] : null;
     const undated = scope.undated_h ? " " + scope.undated_h + " h of it (" + scope.undated.join(", ") + ") has no readable approval date and is not drawn." : "";
-    const summary = (scope.actual_finish
+    const reopened = !doneNow && scope.actual_finish ? " The baseline was first reached " + scope.actual_finish + ", then reopened work lowered the total." : "";
+    const summary = (doneNow && scope.actual_finish
       ? "Done: " + scope.completed_h + " h of " + scope.baseline_h + " h, reached " + scope.actual_finish + "."
-      : "Done so far: " + scope.completed_h + " h of " + scope.baseline_h + " h" + (lastDone ? ", last approved " + lastDone.date : ", none approved yet") + ".") +
+      : (doneNow ? "Done: " : "Done so far: ") + scope.completed_h + " h of " + scope.baseline_h + " h" + (lastDone ? ", last approved " + lastDone.date : ", none approved yet") + "." + reopened) +
       undated + " Planned: " + scope.baseline_h + " h by " + scope.planned_finish + " at " + sched.weekly_capacity_h + " h a week from " + scope.planned_start +
       " (baseline " + sched.baseline + ").";
     // Axis labels sit where their dates are: both ends, and the planned finish when it is not an end.
