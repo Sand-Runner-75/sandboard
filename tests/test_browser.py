@@ -130,6 +130,14 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(p["doneRows"], ["DT101", "DT102", "DT104"])
         self.assertEqual(p["phaseRows"], ["DT201", "DT201.1", "DT202", "DT203"])
 
+    def test_planned_against_actual_shows_the_stored_lines(self):
+        plan = self.r["progress"]["plan"]
+        self.assertEqual((plan["scope"], plan["cards"]), ("MVP", 1))
+        self.assertTrue(plan["planned"])
+        self.assertTrue(plan["actual"].startswith("M"))
+        self.assertEqual((plan["dots"], plan["rows"]), (1, 2))
+        self.assertIn("Done so far: 4 h of 27 h, last approved 2026-01-10. Planned: 27 h by 2026-02-12 at 5 h a week from 2026-01-05 (baseline v1).", plan["text"])
+
     def test_a_phase_with_no_rows_never_looks_done(self):
         phases = dict(self.r["progress"]["phases"])
         for pid in ("P3", "P7"):

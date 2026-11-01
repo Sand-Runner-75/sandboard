@@ -242,3 +242,21 @@ test("a live read's repository comes from its own slot, never from a path or ref
   assert.equal(SB.liveKeyRepo(SB.workKey.list("issues", "acme/other", "acme/garden", 1)), "acme/other");
   assert.equal(SB.liveKeyRepo("user"), null);
 });
+
+test("planned against actual is laid out from the stored dates and hours only", () => {
+  const sched = { baseline: "v1.0", approved: "2026-10-24", weekly_capacity_h: 10, scopes: [] };
+  const scope = { scope: "MVP", baseline_h: 20, planned_start: "2026-10-24", planned_finish: "2026-11-07", completed_h: 12,
+                  actual: [{ date: "2026-10-23", completed_h: 4 }, { date: "2026-10-27", completed_h: 12 }], actual_finish: null };
+  const day = v => Date.UTC(+v.slice(0, 4), +v.slice(5, 7) - 1, +v.slice(8, 10)) / 86400000;
+  const c = SB.scheduleChart(sched, scope, "2026-11-01");
+  assert.deepEqual([c.from, c.to, c.top], [day("2026-10-23"), day("2026-11-07"), 20]);
+  assert.deepEqual(c.planned, [[day("2026-10-24"), 0], [day("2026-11-07"), 20]]);
+  assert.deepEqual(c.actual, [[day("2026-10-23"), 4], [day("2026-10-27"), 12]]);
+  assert.equal(c.today, day("2026-11-01"));
+  assert.deepEqual(c.ticks, ["2026-10-23", "2026-11-07"]);
+  assert.equal(c.summary, "Done so far: 12 h of 20 h, last approved 2026-10-27. Planned: 20 h by 2026-11-07 at 10 h a week from 2026-10-24 (baseline v1.0).");
+  // Today outside the picture is not drawn; a finished scope says when it was reached.
+  assert.equal(SB.scheduleChart(sched, scope, "2027-01-01").today, null);
+  const done = { ...scope, completed_h: 20, actual: [...scope.actual, { date: "2026-10-29", completed_h: 20 }], actual_finish: "2026-10-29" };
+  assert.match(SB.scheduleChart(sched, done, "2026-11-01").summary, /^Done: 20 h of 20 h, reached 2026-10-29[.]/);
+});

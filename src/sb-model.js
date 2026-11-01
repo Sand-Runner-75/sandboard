@@ -1146,11 +1146,36 @@
     return out;
   }
 
+  // ---- Planned against actual: the stored schedule block laid out for a picture.
+  // Days count from 1970-01-01 so stored dates place exactly; nothing here adds hours up again.
+  const dayNumber = v => Math.round(Date.UTC(+v.slice(0, 4), +v.slice(5, 7) - 1, +v.slice(8, 10)) / 86400000);
+  function scheduleChart(sched, scope, today) {
+    const first = scope.actual.length ? scope.actual[0].date : scope.planned_start;
+    const last = scope.actual.length ? scope.actual[scope.actual.length - 1].date : scope.planned_start;
+    const from = dayNumber(first < scope.planned_start ? first : scope.planned_start);
+    const to = Math.max(dayNumber(scope.planned_finish), dayNumber(last), from + 1);
+    const top = Math.max(scope.baseline_h, scope.completed_h);
+    const now = typeof today === "string" && /^\d{4}-\d{2}-\d{2}$/.test(today) ? dayNumber(today) : null;
+    const lastDone = scope.actual.length ? scope.actual[scope.actual.length - 1] : null;
+    const summary = (scope.actual_finish
+      ? "Done: " + scope.completed_h + " h of " + scope.baseline_h + " h, reached " + scope.actual_finish + "."
+      : "Done so far: " + scope.completed_h + " h of " + scope.baseline_h + " h" + (lastDone ? ", last approved " + lastDone.date : ", none approved yet") + ".") +
+      " Planned: " + scope.baseline_h + " h by " + scope.planned_finish + " at " + sched.weekly_capacity_h + " h a week from " + scope.planned_start +
+      " (baseline " + sched.baseline + ").";
+    return {
+      from, to, top, summary,
+      planned: [[dayNumber(scope.planned_start), 0], [dayNumber(scope.planned_finish), scope.baseline_h]],
+      actual: scope.actual.map(a => [dayNumber(a.date), a.completed_h]),
+      today: now !== null && now >= from && now <= to ? now : null,
+      ticks: [first < scope.planned_start ? first : scope.planned_start, scope.planned_finish],
+    };
+  }
+
   Object.assign(SB, { SORTS, portfolio, filterPortfolio, sortPortfolio, portfolioOptions, tally, analytics, languageBytes, repoHref, feedEvents, feedKey, typeOf,
                       historyOrder, historyGraph, commitTimes, WEEKS_SHOWN, DAYS_SHOWN, contributors,
                       workKey, workList, RUN_RESULTS, RUN_EVENTS, noRunFilter, runQuery, runState, runFiltered, runSearch, pullState, reviewEvidence, runOutcome, inboxScope, inbox, historyKey, COMPARE_FIRST, comparedBranches, historyView,
                       ORDER, phaseOf, tasksFrom, estimateText, filterTasks, filterOptions, waiting, prerequisites, dependents, steps,
                       approvals, resultHref, tabKey, stageOfPhase, short, localDay, localStamp, localWhen, zoneOf, savedOrder, keptOrder, orderedIds, moveId, LOOK_CHOICES, savedLook, savedMarks, MARK_LIMITS, githubLink, toggleFav, saveView, dropView, favKey, homeFigures, openWork, members, team, namesIn, dayGroup, greeting, feedGaps, taskActivity, acrossActivity, timelineScale, monthWeeks, shiftMonth, weekStart,
-                      HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs,
+                      scheduleChart, HANDOFF_STATES, namesTask, linkedPulls, handoff, handoffs,
                       codeKey, liveKeyRepo, MAX_TEXT_LINES, MAX_SEARCH, searchSources, searchFind, searchCoverage, MAX_DIFF_LINES, MAX_FOUND, MAX_READ_BYTES, codeTree, codeFind, codeOpenable, textLines, textPieces, diffLines });
 })(typeof window !== "undefined" ? window : globalThis);

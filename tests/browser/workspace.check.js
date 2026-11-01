@@ -118,6 +118,10 @@ function privateRepos() {
   const whole = () => text(p, "#whole-cards");
   prog.whole = await whole();
   prog.phases = await p.$$eval(".phase", n => n.map(x => [x.dataset.phase, x.textContent]));
+  // Planned against actual: the stored lines drawn, the stored values in words and in a table for screen readers.
+  prog.plan = await p.evaluate(() => { const c = document.querySelector(".plan-card"); return c ? { scope: c.dataset.scope, text: c.textContent,
+    planned: !!c.querySelector("svg line.planned"), actual: (c.querySelector("svg path.actual") || {}).getAttribute ? c.querySelector("svg path.actual").getAttribute("d") : "",
+    dots: c.querySelectorAll("svg circle").length, rows: c.querySelectorAll("table tr").length, cards: document.querySelectorAll(".plan-card").length } : null; });
   // The overview's lower part: every task beside the recent activity; a stage chip opens Tasks instead.
   const lower = () => p.evaluate(() => ({ columns: [...document.querySelectorAll("[data-part=overview-lower] > section")].map(n => n.dataset.part || ""),
     title: (document.getElementById("all-tasks-h") || {}).textContent || "", count: (document.querySelector("[data-part=overview-tasks-count]") || {}).textContent || "",

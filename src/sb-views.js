@@ -55,6 +55,7 @@
   // Short explanations shown in a bubble on hover or keyboard focus (app.js shows them), and
   // listed in the help dialog for anyone who cannot hover.
   const TIPS = {
+    "Planned against actual": "Planned: the approved baseline's hours spread evenly at the approved hours a week, from the baseline's approval day. Actual: the hours approved as done, added on the day each approval was recorded. Both lines are stored in the progress output; the app adds nothing up.",
     "Across projects": "Views that cover every listed project at once: the task timeline and calendar, members and teams.",
     "Favourites": "Projects and tasks you starred. Kept in this browser only, as project and task IDs; nothing is sent anywhere.",
     "Saved views": "A name for the status, stage and phase filters and the layout shown now, to open them again from here or the tree. Kept in this browser only; search words and the doer are not kept.",
@@ -276,6 +277,63 @@
           active ? " · " + hours(f.remaining_h) + " of " + hours(f.estimated_h) + " remaining" : ""),
         active ? tip(el("div", { class: "qual" + (f.verified ? "" : " muted") }, verifiedText(f)), f.verified ? "Verified" : "Not verified") : null);
     }));
+  }
+
+  // ---- Planned against actual: the stored planned line and the stored approved hours by date.
+  // Absent from the progress output means nothing is shown; today's line is drawn only, never counted.
+  function svgEl(tag, attrs, ...kids) {
+    const node = doc.createElementNS(doc.getElementById("svg-ns").namespaceURI, tag);
+    for (const [k, v] of Object.entries(attrs || {})) if (v !== null && v !== undefined) node.setAttribute(k, String(v));
+    for (const kid of kids.flat(Infinity)) if (kid) node.append(typeof kid === "object" ? kid : doc.createTextNode(String(kid)));
+    return node;
+  }
+
+  function localToday() {
+    const d = new Date();
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+
+  function scheduleChart(sched, scope) {
+    const c = SB.scheduleChart(sched, scope, localToday());
+    const W = 600, H = 170, L = 44, R = 12, T = 10, B = 26;
+    const x = d => L + (d - c.from) / (c.to - c.from) * (W - L - R);
+    const y = h => T + (1 - h / c.top) * (H - T - B);
+    const f = n => n.toFixed(1);
+    let path = "";
+    let prev = 0;
+    for (const [d, h] of c.actual) path += (path ? " L" + f(x(d)) + " " + f(y(prev)) : "M" + f(x(d)) + " " + f(y(0))) + " L" + f(x(d)) + " " + f(y(h)), prev = h;
+    const label = scope.scope + ": planned against actual hours. " + c.summary;
+    const pic = svgEl("svg", { viewBox: "0 0 " + W + " " + H, class: "plan-chart", role: "img", "aria-label": label },
+      svgEl("title", {}, label),
+      svgEl("line", { x1: L, y1: y(0), x2: W - R, y2: y(0), class: "axis" }),
+      svgEl("line", { x1: L, y1: y(c.top), x2: W - R, y2: y(c.top), class: "grid" }),
+      svgEl("text", { x: L - 6, y: y(0) + 4, "text-anchor": "end", class: "tick" }, "0 h"),
+      svgEl("text", { x: L - 6, y: y(c.top) + 4, "text-anchor": "end", class: "tick" }, c.top + " h"),
+      svgEl("text", { x: L, y: H - 6, class: "tick" }, c.ticks[0]),
+      svgEl("text", { x: W - R, y: H - 6, "text-anchor": "end", class: "tick" }, c.ticks[1]),
+      c.today !== null ? [svgEl("line", { x1: x(c.today), y1: T, x2: x(c.today), y2: y(0), class: "today" }),
+        svgEl("text", { x: x(c.today) + 4, y: T + 10, class: "tick" }, "today")] : null,
+      svgEl("line", { x1: x(c.planned[0][0]), y1: y(0), x2: x(c.planned[1][0]), y2: y(c.planned[1][1]), class: "planned" }),
+      path ? svgEl("path", { d: path, class: "actual" }) : null,
+      c.actual.map(([d, h]) => svgEl("circle", { cx: x(d), cy: y(h), r: 3, class: "actual-dot" })));
+    const table = el("table", { class: "sr" }, el("caption", {}, scope.scope + " hours approved as done, by date"),
+      el("tr", {}, el("th", { scope: "col" }, "Date"), el("th", { scope: "col" }, "Hours done")),
+      scope.actual.map(a => el("tr", {}, el("td", {}, a.date), el("td", {}, hours(a.completed_h)))));
+    return el("div", { class: "card plan-card", "data-scope": scope.scope }, lab(scope.scope + ": planned against actual", "Planned against actual"),
+      el("div", { "aria-hidden": "true" }, pic),
+      el("p", { class: "legend qual muted plain" }, el("span", { class: "key planned" }), "Planned ", el("span", { class: "key actual" }), "Actual (approved as done)"),
+      el("p", { class: "qual plain" }, c.summary), table);
+  }
+
+  function scheduleBlock(entry) {
+    const p = progressOf(entry);
+    if (p.state !== "current" || !p.data.schedule) return null;
+    const sched = p.data.schedule;
+    return el("section", { class: "stack tight", "aria-labelledby": "plan-h" },
+      el("h2", { id: "plan-h", class: "label" }, "Planned against actual"),
+      el("div", { class: "grid2" }, sched.scopes.map(sc => scheduleChart(sched, sc))),
+      el("p", { class: "qual muted plain" }, "Planned: the approved baseline's hours at the approved weekly capacity, from the day the baseline was approved. " +
+        "Actual: hours approved as done, on the day each approval was recorded. Both come from the progress output; this is not a forecast."));
   }
 
   function phaseCard(S, A, entry, ph) {
@@ -532,7 +590,7 @@
       sec.append(repoCard(entry));
       return sec;
     }
-    sec.append(...[wholeCards(entry), scopeRow(entry), progressBlock(S, A, entry, S.view.stage)].filter(Boolean));
+    sec.append(...[wholeCards(entry), scopeRow(entry), scheduleBlock(entry), progressBlock(S, A, entry, S.view.stage)].filter(Boolean));
     sec.append(el("div", { class: "grid2" }, waitingCard(S, A, entry), repoCard(entry)));
     sec.append(el("div", { class: "grid2 pair", "data-part": "overview-lower" }, taskListCard(S, A, entry, stages, st), V.feedCard(S, A, entry, [w.plan.repo, ...w.code.map(c => c.repo)])));
     return sec;

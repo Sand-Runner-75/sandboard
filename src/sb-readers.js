@@ -197,7 +197,31 @@
         Array.isArray(a.rejected) && a.rejected.length <= 50 && a.rejected.every(r => typeof r === "string" && r.length <= 500);
       if (!Array.isArray(doc.approved_results) || !doc.approved_results.every(goodResult)) return "approved result files are malformed";
     }
+    if (doc.schedule !== undefined && !goodSchedule(doc.schedule)) return "the planned against actual block is malformed";
     return null;
+  }
+
+  // The optional planned against actual block: stored dates and hours only, each line in date order.
+  function goodSchedule(s) {
+    const day = v => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v + "T00:00:00Z")) &&
+      new Date(v + "T00:00:00Z").toISOString().slice(0, 10) === v;
+    const hrs = v => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1e6;
+    const names = new Set();
+    const goodScope = x => {
+      if (!isObject(x) || !["Pilot", "MVP"].includes(x.scope) || names.has(x.scope) || !names.add(x.scope)) return false;
+      if (!hrs(x.baseline_h) || x.baseline_h === 0 || !day(x.planned_start) || !day(x.planned_finish) || x.planned_finish < x.planned_start) return false;
+      if (!hrs(x.completed_h) || !Array.isArray(x.actual) || x.actual.length > 400) return false;
+      let last = null;
+      for (const a of x.actual) {
+        if (!isObject(a) || !day(a.date) || !hrs(a.completed_h)) return false;
+        if (last && (a.date <= last.date || a.completed_h < last.completed_h)) return false;
+        last = a;
+      }
+      if ((last ? last.completed_h : 0) !== x.completed_h) return false;
+      return x.actual_finish === null || (day(x.actual_finish) && x.actual.some(a => a.date === x.actual_finish && a.completed_h >= x.baseline_h));
+    };
+    return isObject(s) && isText(s.baseline, 40) && day(s.approved) && hrs(s.weekly_capacity_h) && s.weekly_capacity_h > 0 &&
+      Array.isArray(s.scopes) && s.scopes.length > 0 && s.scopes.length <= 2 && s.scopes.every(goodScope);
   }
 
   function readProgress(ctx, client, repo, commit, files) {

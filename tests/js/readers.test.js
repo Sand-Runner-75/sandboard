@@ -291,3 +291,40 @@ test("progress counts must be whole numbers, phase IDs unique and every status c
     assert.equal(r.data, undefined, label);
   }
 });
+
+// Planned against actual: an optional block, accepted only when fully well formed.
+const SCHEDULE = { baseline: "v1.0", approved: "2026-10-24", weekly_capacity_h: 10, scopes: [
+  { scope: "MVP", baseline_h: 20, planned_start: "2026-10-24", planned_finish: "2026-11-07", completed_h: 12,
+    actual: [{ date: "2026-10-23", completed_h: 4 }, { date: "2026-10-27", completed_h: 12 }], actual_finish: null }] };
+
+test("a well-formed planned against actual block is kept; without one the progress is the same", async () => {
+  const r = await progress({ files: { [F.FILES.progress]: JSON.stringify(F.progressDoc({ schedule: SCHEDULE })) } });
+  assert.equal(r.state, "current");
+  assert.deepEqual(r.data.schedule, SCHEDULE);
+  assert.equal((await progress()).data.schedule, undefined);
+});
+
+test("every part of the planned against actual block is checked", async () => {
+  const scope = over => ({ ...SCHEDULE, scopes: [{ ...SCHEDULE.scopes[0], ...over }] });
+  const variants = {
+    "not an object": [],
+    "no baseline name": { ...SCHEDULE, baseline: "" },
+    "bad approval date": { ...SCHEDULE, approved: "2026-02-30" },
+    "zero capacity": { ...SCHEDULE, weekly_capacity_h: 0 },
+    "no scopes": { ...SCHEDULE, scopes: [] },
+    "unknown scope": scope({ scope: "Whole project" }),
+    "repeated scope": { ...SCHEDULE, scopes: [SCHEDULE.scopes[0], SCHEDULE.scopes[0]] },
+    "finish before start": scope({ planned_finish: "2026-10-01" }),
+    "zero baseline": scope({ baseline_h: 0 }),
+    "dates out of order": scope({ actual: [SCHEDULE.scopes[0].actual[1], SCHEDULE.scopes[0].actual[0]] }),
+    "hours going down": scope({ actual: [{ date: "2026-10-23", completed_h: 13 }, { date: "2026-10-27", completed_h: 12 }] }),
+    "last point is not the total": scope({ completed_h: 11 }),
+    "finish not reached": scope({ actual_finish: "2026-10-27" }),
+    "string hours": scope({ actual: [{ date: "2026-10-23", completed_h: "4" }, { date: "2026-10-27", completed_h: 12 }] }),
+  };
+  for (const [label, schedule] of Object.entries(variants)) {
+    const r = await progress({ files: { [F.FILES.progress]: JSON.stringify(F.progressDoc({ schedule })) } });
+    assert.equal(r.state, "invalid", label);
+    assert.match(r.error, /planned against actual/, label);
+  }
+});
